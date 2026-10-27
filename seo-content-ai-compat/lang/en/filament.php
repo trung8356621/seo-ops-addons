@@ -5278,6 +5278,7 @@ return [
         'progress_tab_details' => 'Details',
         'progress_open_global_lock' => 'Open lock holder progress',
         'progress_view_active_progress' => 'View progress',
+        'progress_lock_unavailable' => 'Unable to determine generation status.',
         'progress_ai_mode' => 'AI mode',
         'progress_now_badge' => 'Running #:position',
         'progress_status_processing' => 'Processing',

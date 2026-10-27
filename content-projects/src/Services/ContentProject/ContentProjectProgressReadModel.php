@@ -13,6 +13,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\RunEngine\ContentProjectRunEngine;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectArticleRuntimeStatus;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectProgressPercent;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectProgressPresentation;
 use Omnichannel\Addons\AiPrompt\Support\AiCostPolicy;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
@@ -195,7 +196,18 @@ final class ContentProjectProgressReadModel
             SeoProjectRun::STATUS_COMPLETED,
             SeoProjectRun::STATUS_FAILED,
             SeoProjectRun::STATUS_CANCELLED,
+            'stopped',
+            'completed_with_errors',
         ], true);
+
+        if ($isTerminal) {
+            $nowPlaying = null;
+            foreach ($playlist as &$row) {
+                $row['is_current'] = false;
+            }
+            unset($row);
+        }
+
         $progressMath = ContentProjectProgressPercent::compute(
             $total,
             $completed,
@@ -203,6 +215,20 @@ final class ContentProjectProgressReadModel
             $counts['skipped'],
             $isTerminal,
         );
+
+        $presentation = ContentProjectProgressPresentation::present(
+            hasRun: true,
+            runStatus: $runStatus,
+            snapshotTotal: $total,
+            succeeded: $completed,
+            failed: $counts['failed'],
+            skipped: $counts['skipped'],
+            pending: $counts['pending'],
+            processing: $counts['processing'],
+            cancelled: $counts['cancelled'],
+            isTerminal: $isTerminal,
+        );
+
         $aiMode = $this->resolveRunAiMode($run);
 
         return [
@@ -230,11 +256,13 @@ final class ContentProjectProgressReadModel
                 'eligible_total' => $progressMath['eligible_total'],
                 'processed' => $progressMath['processed'],
                 'percent' => $progressMath['percent'],
+                'raw_percent' => $progressMath['raw_percent'],
                 'no_eligible_work' => $progressMath['no_eligible_work'],
                 'last_completed_duration_seconds' => $lastCompletedSeconds,
                 'last_completed_duration_label' => $lastCompletedSeconds !== null
                     ? self::formatDuration($lastCompletedSeconds)
                     : null,
+                'presentation' => $presentation,
             ],
             'now_playing' => $nowPlaying,
             'playlist' => $playlist,
@@ -278,9 +306,22 @@ final class ContentProjectProgressReadModel
                 'eligible_total' => 0,
                 'processed' => 0,
                 'percent' => 0,
+                'raw_percent' => 0,
                 'no_eligible_work' => false,
                 'last_completed_duration_seconds' => null,
                 'last_completed_duration_label' => null,
+                'presentation' => ContentProjectProgressPresentation::present(
+                    hasRun: false,
+                    runStatus: null,
+                    snapshotTotal: 0,
+                    succeeded: 0,
+                    failed: 0,
+                    skipped: 0,
+                    pending: 0,
+                    processing: 0,
+                    cancelled: 0,
+                    isTerminal: false,
+                ),
             ],
             'now_playing' => null,
             'playlist' => [],

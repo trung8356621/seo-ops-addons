@@ -41,8 +41,13 @@ final class ContentProjectProgressPercentTest extends TestCase
         $math = ContentProjectProgressPercent::compute(6, 0, 0, 6, true);
 
         self::assertSame(0, $math['eligible_total']);
-        self::assertSame(0, $math['percent']);
+        self::assertSame(100, $math['percent']);
+        self::assertSame(0, $math['raw_percent']);
         self::assertTrue($math['no_eligible_work']);
+
+        $mathActive = ContentProjectProgressPercent::compute(6, 0, 0, 6, false);
+        self::assertSame(0, $mathActive['percent']);
+        self::assertSame(0, $mathActive['raw_percent']);
     }
 
     public function test_in_progress_pending_keeps_percent_below_100(): void

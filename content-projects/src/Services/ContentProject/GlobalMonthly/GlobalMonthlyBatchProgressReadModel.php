@@ -12,6 +12,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectProgressPercent;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectProgressPresentation;
 use Carbon\Carbon;
 
 /**
@@ -129,6 +130,20 @@ final class GlobalMonthlyBatchProgressReadModel
             unset($row);
         }
 
+        $pending = max(0, (int) $batch->pending - $processing);
+        $presentation = ContentProjectProgressPresentation::present(
+            hasRun: true,
+            runStatus: (string) $batch->status,
+            snapshotTotal: $snapshotTotal,
+            succeeded: $succeeded,
+            failed: $failed,
+            skipped: $skipped,
+            pending: $pending,
+            processing: $processing,
+            cancelled: 0,
+            isTerminal: $isTerminal,
+        );
+
         $currentProjectId = (int) ($batch->current_project_id ?? 0);
         $policy = AiCostPolicy::tryFromMixed($batch->ai_cost_policy);
 
@@ -156,11 +171,12 @@ final class GlobalMonthlyBatchProgressReadModel
                 'completed' => $succeeded,
                 'failed' => $failed,
                 'skipped' => $skipped,
-                'pending' => max(0, (int) $batch->pending - $processing),
+                'pending' => $pending,
                 'processing' => $processing,
                 'eligible_total' => $progressMath['eligible_total'],
                 'processed' => $progressMath['processed'],
                 'percent' => $progressMath['percent'],
+                'raw_percent' => $progressMath['raw_percent'],
                 'no_eligible_work' => $progressMath['no_eligible_work'],
                 'current_project_id' => $currentProjectId > 0 ? $currentProjectId : null,
                 'current_project_name' => $currentProjectId > 0
@@ -169,6 +185,7 @@ final class GlobalMonthlyBatchProgressReadModel
                 'current_stage' => $this->stageLabel($batch),
                 'last_completed_duration_seconds' => $lastCompletedSeconds,
                 'last_completed_duration_label' => $this->formatDuration($lastCompletedSeconds),
+                'presentation' => $presentation,
             ],
             'now_playing' => $nowPlaying,
             'playlist' => $playlist,

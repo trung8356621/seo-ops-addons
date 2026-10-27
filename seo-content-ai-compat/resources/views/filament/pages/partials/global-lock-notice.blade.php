@@ -4,7 +4,10 @@
     $unavailable = (bool) ($unavailable ?? false);
     $progressUrl = ! empty($holder['progress_url']) ? (string) $holder['progress_url'] : null;
     $busyMessage = \Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalGenerationLock::BUSY_MESSAGE;
-    $unavailableMessage = \Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalGenerationLock::UNAVAILABLE_MESSAGE;
+    $unavailableMessage = __('seo-content-ai::filament.projects.progress_lock_unavailable');
+    if ($unavailableMessage === 'seo-content-ai::filament.projects.progress_lock_unavailable') {
+        $unavailableMessage = \Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalGenerationLock::UNAVAILABLE_MESSAGE;
+    }
 @endphp
 
 @if ($unavailable)

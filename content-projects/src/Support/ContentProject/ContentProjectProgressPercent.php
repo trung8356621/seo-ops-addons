@@ -21,6 +21,8 @@ final class ContentProjectProgressPercent
      *     eligible_total: int,
      *     processed: int,
      *     percent: int,
+     *     raw_percent: int,
+     *     lifecycle_percent: int,
      *     no_eligible_work: bool
      * }
      */
@@ -43,9 +45,11 @@ final class ContentProjectProgressPercent
         }
 
         $noEligibleWork = $eligibleTotal === 0 && ($runTerminal || $snapshotTotal === 0);
-        $percent = $eligibleTotal > 0
+        $rawPercent = $eligibleTotal > 0
             ? (int) min(100, (int) floor(($processed / $eligibleTotal) * 100))
             : 0;
+
+        $percent = $runTerminal ? 100 : $rawPercent;
 
         return [
             'snapshot_total' => $snapshotTotal,
@@ -55,6 +59,8 @@ final class ContentProjectProgressPercent
             'eligible_total' => $eligibleTotal,
             'processed' => $processed,
             'percent' => $percent,
+            'raw_percent' => $rawPercent,
+            'lifecycle_percent' => $percent,
             'no_eligible_work' => $noEligibleWork,
         ];
     }

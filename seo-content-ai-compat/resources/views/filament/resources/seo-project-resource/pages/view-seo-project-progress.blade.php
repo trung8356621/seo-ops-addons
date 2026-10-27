@@ -348,7 +348,11 @@
                                 @elseif (($run['status'] ?? '') === 'failed')
                                     {{ __('seo-content-ai::filament.projects.progress_idle_failed') }}
                                 @elseif (($run['status'] ?? '') === 'completed')
-                                    {{ __('seo-content-ai::filament.projects.progress_idle_completed') }}
+                                    @if ($failed > 0 || ((int) ($overview['pending'] ?? 0)) > 0)
+                                        Tiến trình kết thúc với lỗi
+                                    @else
+                                        {{ __('seo-content-ai::filament.projects.progress_idle_completed') }}
+                                    @endif
                                 @else
                                     {{ __('seo-content-ai::filament.projects.progress_idle_none') }}
                                 @endif
@@ -362,76 +366,127 @@
             </div>
 
             {{-- Overview --}}
+            @php
+                $presentation = $overview['presentation'] ?? \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectProgressPresentation::present(
+                    hasRun: $hasRun,
+                    runStatus: (string) ($run['status'] ?? ''),
+                    snapshotTotal: $total,
+                    succeeded: $completed,
+                    failed: $failed,
+                    skipped: $skipped,
+                    pending: (int) ($overview['pending'] ?? 0),
+                    processing: (int) ($overview['processing'] ?? 0),
+                    cancelled: (int) ($overview['cancelled'] ?? 0),
+                    isTerminal: (bool) ($run['is_terminal'] ?? false),
+                );
+                $isTerminal = (bool) ($presentation['is_terminal'] ?? false);
+                $statusHeading = $presentation['status_heading'] ?? null;
+                $statusHeadingClass = $presentation['status_heading_class'] ?? '';
+                $progressBarClass = $presentation['progress_bar_class'] ?? 'bg-primary-600';
+                $summaryText = $presentation['summary_text'] ?? '';
+                $pendingLabel = $presentation['pending_label'] ?? __('seo-content-ai::filament.projects.progress_metric_pending');
+            @endphp
+
             <div data-cp-progress-card>
-                <div class="mb-1.5 flex items-baseline justify-between gap-2">
-                    <div class="text-sm font-semibold tabular-nums text-gray-950 dark:text-white">
-                        @if ($noEligibleWork)
-                            {{ __('seo-content-ai::filament.projects.progress_no_eligible_work') }}
-                        @else
-                            {{ __('seo-content-ai::filament.projects.progress_processed_of', [
-                                'processed' => $processed,
-                                'eligible' => $eligibleTotal,
-                            ]) }}
-                        @endif
-                    </div>
-                    <div class="text-sm font-semibold tabular-nums text-gray-700 dark:text-gray-200">
-                        @if ($noEligibleWork)
-                            —
-                        @else
-                            {{ $percent }}%
-                        @endif
-                    </div>
-                </div>
-                <div class="cp-progress-bar-track" role="progressbar" aria-valuenow="{{ $noEligibleWork ? 0 : $percent }}" aria-valuemin="0" aria-valuemax="100">
-                    <div class="cp-progress-bar-fill bg-primary-600" style="width: {{ $noEligibleWork ? 0 : max(0, min(100, $percent)) }}%"></div>
-                </div>
-                <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600 dark:text-gray-300">
-                    <span class="inline-flex items-center gap-1 whitespace-nowrap">
-                        <x-heroicon-o-check-circle class="h-3.5 w-3.5 text-success-600" />
-                        {{ __('seo-content-ai::filament.projects.progress_metric_success') }}
-                        <strong class="tabular-nums">{{ $completed }}</strong>
-                    </span>
-                    <span class="inline-flex items-center gap-1 whitespace-nowrap">
-                        <x-heroicon-o-arrow-path class="h-3.5 w-3.5 text-primary-600" />
-                        {{ __('seo-content-ai::filament.projects.progress_metric_running') }}
-                        <strong class="tabular-nums">{{ (int) ($overview['processing'] ?? 0) }}</strong>
-                    </span>
-                    <span @class([
-                        'inline-flex items-center gap-1 whitespace-nowrap',
-                        'font-semibold text-danger-700 dark:text-danger-400' => $failed > 0,
-                    ])>
-                        <x-heroicon-o-exclamation-circle class="h-3.5 w-3.5 text-danger-600" />
-                        {{ __('seo-content-ai::filament.projects.progress_metric_failed') }}
-                        <strong class="tabular-nums">{{ $failed }}</strong>
-                    </span>
-                    <span class="inline-flex items-center gap-1 whitespace-nowrap">
-                        <x-heroicon-o-clock class="h-3.5 w-3.5 text-gray-400" />
-                        {{ __('seo-content-ai::filament.projects.progress_metric_pending') }}
-                        <strong class="tabular-nums">{{ (int) ($overview['pending'] ?? 0) }}</strong>
-                    </span>
-                    <span class="inline-flex items-center gap-1 whitespace-nowrap">
-                        {{ __('seo-content-ai::filament.projects.progress_metric_skipped') }}
-                        <strong class="tabular-nums">{{ $skipped }}</strong>
-                    </span>
-                    <span class="inline-flex items-center gap-1 whitespace-nowrap text-gray-500 dark:text-gray-400">
-                        {{ __('seo-content-ai::filament.projects.progress_snapshot_total', ['total' => $total]) }}
-                    </span>
-                    @if ((int) ($overview['cancelled'] ?? 0) > 0)
-                        <span class="inline-flex items-center gap-1 whitespace-nowrap">
-                            {{ __('seo-content-ai::filament.projects.progress_metric_cancelled') }}
-                            <strong class="tabular-nums">{{ (int) $overview['cancelled'] }}</strong>
-                        </span>
+                <div class="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                    @if ($isTerminal && $statusHeading)
+                        <div class="text-[18px] sm:text-[20px] font-bold tracking-tight {{ $statusHeadingClass }}">
+                            {{ $statusHeading }}
+                        </div>
+                        <div class="text-sm sm:text-base font-semibold tabular-nums text-gray-700 dark:text-gray-200">
+                            <span class="text-xs font-normal text-gray-500 dark:text-gray-400">Lifecycle Progress:</span>
+                            <span class="font-bold">{{ $percent }}%</span>
+                        </div>
+                    @else
+                        <div class="text-sm font-semibold tabular-nums text-gray-950 dark:text-white">
+                            @if ($noEligibleWork)
+                                {{ __('seo-content-ai::filament.projects.progress_no_eligible_work') }}
+                            @else
+                                {{ __('seo-content-ai::filament.projects.progress_processed_of', [
+                                    'processed' => $processed,
+                                    'eligible' => $eligibleTotal,
+                                ]) }}
+                            @endif
+                        </div>
+                        <div class="text-sm font-semibold tabular-nums text-gray-700 dark:text-gray-200">
+                            @if ($noEligibleWork)
+                                —
+                            @else
+                                {{ $percent }}%
+                            @endif
+                        </div>
                     @endif
-                    <span class="ms-auto truncate text-gray-500 dark:text-gray-400">
-                        @if (! empty($overview['last_completed_duration_label']))
-                            {{ __('seo-content-ai::filament.projects.progress_last_completed', [
-                                'time' => $overview['last_completed_duration_label'],
-                            ]) }}
-                        @else
-                            {{ __('seo-content-ai::filament.projects.progress_last_completed_none') }}
-                        @endif
-                    </span>
                 </div>
+
+                <div class="cp-progress-bar-track" role="progressbar" aria-valuenow="{{ (! $isTerminal && $noEligibleWork) ? 0 : $percent }}" aria-valuemin="0" aria-valuemax="100">
+                    <div class="cp-progress-bar-fill {{ $progressBarClass }}" style="width: {{ (! $isTerminal && $noEligibleWork) ? 0 : max(0, min(100, $percent)) }}%"></div>
+                </div>
+
+                @if ($isTerminal)
+                    <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-600 dark:text-gray-300">
+                        <span class="font-medium text-gray-500 dark:text-gray-400">Tóm tắt:</span>
+                        <span class="font-semibold text-gray-900 dark:text-gray-100">{{ $summaryText }}</span>
+                        <span class="text-gray-300 dark:text-gray-600">·</span>
+                        <span class="text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.progress_snapshot_total', ['total' => $total]) }}</span>
+                        <span class="ms-auto truncate text-gray-500 dark:text-gray-400">
+                            @if (! empty($overview['last_completed_duration_label']))
+                                {{ __('seo-content-ai::filament.projects.progress_last_completed', [
+                                    'time' => $overview['last_completed_duration_label'],
+                                ]) }}
+                            @else
+                                {{ __('seo-content-ai::filament.projects.progress_last_completed_none') }}
+                            @endif
+                        </span>
+                    </div>
+                @else
+                    <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600 dark:text-gray-300">
+                        <span class="inline-flex items-center gap-1 whitespace-nowrap">
+                            <x-heroicon-o-check-circle class="h-3.5 w-3.5 text-success-600" />
+                            {{ __('seo-content-ai::filament.projects.progress_metric_success') }}
+                            <strong class="tabular-nums">{{ $completed }}</strong>
+                        </span>
+                        <span class="inline-flex items-center gap-1 whitespace-nowrap">
+                            <x-heroicon-o-arrow-path class="h-3.5 w-3.5 text-primary-600" />
+                            {{ __('seo-content-ai::filament.projects.progress_metric_running') }}
+                            <strong class="tabular-nums">{{ (int) ($overview['processing'] ?? 0) }}</strong>
+                        </span>
+                        <span @class([
+                            'inline-flex items-center gap-1 whitespace-nowrap',
+                            'font-semibold text-danger-700 dark:text-danger-400' => $failed > 0,
+                        ])>
+                            <x-heroicon-o-exclamation-circle class="h-3.5 w-3.5 text-danger-600" />
+                            {{ __('seo-content-ai::filament.projects.progress_metric_failed') }}
+                            <strong class="tabular-nums">{{ $failed }}</strong>
+                        </span>
+                        <span class="inline-flex items-center gap-1 whitespace-nowrap">
+                            <x-heroicon-o-clock class="h-3.5 w-3.5 text-gray-400" />
+                            {{ $pendingLabel }}
+                            <strong class="tabular-nums">{{ (int) ($overview['pending'] ?? 0) }}</strong>
+                        </span>
+                        <span class="inline-flex items-center gap-1 whitespace-nowrap">
+                            {{ __('seo-content-ai::filament.projects.progress_metric_skipped') }}
+                            <strong class="tabular-nums">{{ $skipped }}</strong>
+                        </span>
+                        <span class="inline-flex items-center gap-1 whitespace-nowrap text-gray-500 dark:text-gray-400">
+                            {{ __('seo-content-ai::filament.projects.progress_snapshot_total', ['total' => $total]) }}
+                        </span>
+                        @if ((int) ($overview['cancelled'] ?? 0) > 0)
+                            <span class="inline-flex items-center gap-1 whitespace-nowrap">
+                                {{ __('seo-content-ai::filament.projects.progress_metric_cancelled') }}
+                                <strong class="tabular-nums">{{ (int) $overview['cancelled'] }}</strong>
+                            </span>
+                        @endif
+                        <span class="ms-auto truncate text-gray-500 dark:text-gray-400">
+                            @if (! empty($overview['last_completed_duration_label']))
+                                {{ __('seo-content-ai::filament.projects.progress_last_completed', [
+                                    'time' => $overview['last_completed_duration_label'],
+                                ]) }}
+                            @else
+                                {{ __('seo-content-ai::filament.projects.progress_last_completed_none') }}
+                            @endif
+                        </span>
+                    </div>
+                @endif
             </div>
         </div>
 

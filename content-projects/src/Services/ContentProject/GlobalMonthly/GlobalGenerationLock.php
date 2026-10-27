@@ -25,7 +25,7 @@ final class GlobalGenerationLock
 {
     public const BUSY_MESSAGE = 'Đang có tiến trình Generate khác hoạt động.';
 
-    public const UNAVAILABLE_MESSAGE = 'Global Generation Lock không khả dụng — không thể bắt đầu Generate.';
+    public const UNAVAILABLE_MESSAGE = 'Chưa thể xác định trạng thái Generate.';
 
     public const STATE_AVAILABLE = 'available';
 

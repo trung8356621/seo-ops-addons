@@ -5277,6 +5277,7 @@ return [
         'progress_tab_details' => 'Chi tiết',
         'progress_open_global_lock' => 'Mở tiến trình đang giữ lock',
         'progress_view_active_progress' => 'Xem tiến trình',
+        'progress_lock_unavailable' => 'Chưa thể xác định trạng thái Generate.',
         'progress_ai_mode' => 'Chế độ AI',
         'progress_now_badge' => 'Đang chạy #:position',
         'progress_status_processing' => 'Đang xử lý',
