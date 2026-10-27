@@ -16,6 +16,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectArt
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectBulkItemDecision;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectBulkItemDecisionService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectFreshKeywordResetService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\ContentProjectGlobalLockBridge;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectRunItemService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectWorkflowRunService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectWorkflowStepRetryService;
@@ -47,6 +48,7 @@ final class ContentProjectRunEngine
         private readonly RunCancellationGuard $cancellationGuard,
         private readonly ContentProjectRunStatusMapper $statusMapper,
         private readonly ContentProjectRunEventPublisher $events,
+        private readonly ?ContentProjectGlobalLockBridge $globalLockBridge = null,
     ) {}
 
     /**
@@ -866,6 +868,7 @@ final class ContentProjectRunEngine
 
         $fresh = $run->fresh() ?? $run;
         $this->events->runFailed($fresh, $reason);
+        $this->notifyGlobalLockBridge($fresh);
     }
 
     public function handleArticleFinished(
@@ -1404,6 +1407,7 @@ final class ContentProjectRunEngine
                 'reason' => $reason,
                 'decision' => 'cancelled',
             ]);
+            $this->notifyGlobalLockBridge($run);
 
             return;
         }
@@ -1441,6 +1445,13 @@ final class ContentProjectRunEngine
             'total' => (int) $completed->total,
             'decision' => 'completed',
         ]);
+        $this->notifyGlobalLockBridge($completed);
+    }
+
+    private function notifyGlobalLockBridge(SeoProjectRun $run): void
+    {
+        $bridge = $this->globalLockBridge ?? app(ContentProjectGlobalLockBridge::class);
+        $bridge->onProjectRunTerminal($run);
     }
 
     /**
@@ -1487,6 +1498,9 @@ final class ContentProjectRunEngine
             $settings[self::SETTINGS_ENGINE_KEY] = $engine;
             $locked->update(['settings' => $settings]);
         });
+
+        $bridge = $this->globalLockBridge ?? app(ContentProjectGlobalLockBridge::class);
+        $bridge->heartbeatForRun($run->fresh() ?? $run);
     }
 
     public function healthCheck(SeoProjectRun $run): ContentProjectRunHealthReport

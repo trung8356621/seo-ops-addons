@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Console;
 
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalGenerationLockReconciler;
 use Omnichannel\Addons\ContentProjects\Services\RunEngine\ContentProjectRunEngine;
 use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService;
 use Illuminate\Console\Command;
@@ -11,6 +12,7 @@ use Illuminate\Console\Command;
 /**
  * Backend-owned watchdog for abrupt worker loss / stopping+dead-worker finalize.
  * Never calls AI providers — only inspects leases and performs safe lifecycle transitions.
+ * Also performs automatic reconciliation of stale execution & Global Generation Lock.
  *
  * Scheduled by SeoContentAiServiceProvider as:
  *   seo-content-ai:content-project-worker-lost-watchdog → everyMinute()
@@ -21,11 +23,12 @@ final class ContentProjectWorkerLostWatchdogCommand extends Command
         {--limit=50 : Max non-terminal runs to inspect}
         {--site= : Optional site_id to bootstrap SEO DB}';
 
-    protected $description = 'Recover confirmed dead workers: RUNNING→WORKER_LOST, STOPPING→cancelled';
+    protected $description = 'Recover confirmed dead workers and reconcile stale generation locks';
 
     public function handle(
         SeoDatabaseConnectionService $databaseConnection,
         ContentProjectRunEngine $engine,
+        GlobalGenerationLockReconciler $reconciler,
     ): int {
         $databaseConnection->bootstrapLegacySharedConnection();
 
@@ -47,6 +50,11 @@ final class ContentProjectWorkerLostWatchdogCommand extends Command
         }
         if ($lost === 0 && $cancelled === 0) {
             $this->info('No confirmed worker-death leases.');
+        }
+
+        $reconcileResult = $reconciler->reconcile();
+        if ($reconcileResult['reconciled'] ?? false) {
+            $this->info('Global Lock reconciled: '.$reconcileResult['action'].' ('.$reconcileResult['reason'].')');
         }
 
         return self::SUCCESS;

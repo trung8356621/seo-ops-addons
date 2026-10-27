@@ -158,16 +158,21 @@ class SeoProjectResource extends SeoPanelResource
             return static::getUrl('view', ['record' => $record]);
         }
 
-        // Canonical workspace is View (items/ops). Edit is settings-only.
+        // Default entry: Content-manager / non-run roles go directly to Details.
+        if (SeoAccessControl::isContentManager() || ! SeoAccessControl::canAccessContentProjectRun($record)) {
+            return static::getDetailsUrl($record);
+        }
+
+        // Default entry = Progress; Details remains at `view`.
         if (static::canView($record)) {
-            return static::getUrl('view', ['record' => $record]);
+            return static::getProgressUrl($record);
         }
 
         if (static::canEdit($record)) {
             return static::getUrl('edit', ['record' => $record]);
         }
 
-        return static::getUrl('view', ['record' => $record]);
+        return static::getProgressUrl($record);
     }
 
     public static function currentArchiveIdFor(SeoProject $record): int
@@ -1432,6 +1437,7 @@ class SeoProjectResource extends SeoPanelResource
             'view-run-step' => Pages\ViewSeoProjectRunStep::route('/runs/{run}/items/{article}'),
             'view-run' => Pages\ViewSeoProjectRun::route('/runs/{run}'),
             'publishing-queue' => Pages\ContentProjectPublishingQueue::route('/{record}/publishing-queue'),
+            'progress' => Pages\ViewSeoProjectProgress::route('/{record}/progress'),
             'view' => Pages\ViewSeoProject::route('/{record}'),
             'edit' => Pages\EditSeoProject::route('/{record}/edit'),
         ];
@@ -1447,9 +1453,24 @@ class SeoProjectResource extends SeoPanelResource
     }
 
     /**
-     * Canonical Content Project workspace (Project → Items). Replaces Run History URLs.
+     * Canonical Content Project entry — Progress page (run queue).
+     * Details/ops table remains at getDetailsUrl().
      */
     public static function getProjectWorkspaceUrl(SeoProject $project): string
+    {
+        if (SeoAccessControl::isContentManager() || ! SeoAccessControl::canAccessContentProjectRun($project)) {
+            return static::getDetailsUrl($project);
+        }
+
+        return static::getProgressUrl($project);
+    }
+
+    public static function getProgressUrl(SeoProject $project): string
+    {
+        return static::getUrl('progress', ['record' => $project]);
+    }
+
+    public static function getDetailsUrl(SeoProject $project): string
     {
         return static::getUrl('view', ['record' => $project]);
     }
@@ -1564,6 +1585,12 @@ class SeoProjectResource extends SeoPanelResource
             return false;
         }
 
+        $lock = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalGenerationLock::class);
+        // Fail-closed: unavailable ≠ unlocked.
+        if (! $lock->canAttemptAcquire()) {
+            return false;
+        }
+
         return app(ContentProjectProjectGenerationGate::class)
             ->forGenerateWorkingItems($project)
             ->enabled;
@@ -1579,6 +1606,11 @@ class SeoProjectResource extends SeoPanelResource
             return false;
         }
 
+        $lock = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalGenerationLock::class);
+        if (! $lock->canAttemptAcquire()) {
+            return false;
+        }
+
         return app(ContentProjectProjectGenerationGate::class)
             ->forTestRun($project)
             ->enabled;
@@ -1588,6 +1620,18 @@ class SeoProjectResource extends SeoPanelResource
     {
         if (static::canGeneratePendingItems($project)) {
             return null;
+        }
+
+        $inspect = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalGenerationLock::class)->inspect();
+        $state = (string) ($inspect['state'] ?? '');
+        if ($state === \Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalGenerationLock::STATE_UNAVAILABLE) {
+            return \Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalGenerationLock::UNAVAILABLE_MESSAGE;
+        }
+        if ($state === \Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalGenerationLock::STATE_HELD) {
+            $holder = is_array($inspect['holder'] ?? null) ? $inspect['holder'] : [];
+
+            return \Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalGenerationLock::BUSY_MESSAGE
+                .' ('.((string) ($holder['label'] ?? '')).')';
         }
 
         return static::projectActionDisabledMessage(
@@ -1730,7 +1774,9 @@ class SeoProjectResource extends SeoPanelResource
                     SeoConnectionContext::applyUrlDefaults();
 
                     $count = count($taskIds);
-                    if ($livewire instanceof \Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Pages\ViewSeoProject) {
+                    if ($livewire instanceof \Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Pages\ViewSeoProjectProgress) {
+                        $livewire->notifyProjectRuntimeChanged();
+                    } elseif ($livewire instanceof \Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Pages\ViewSeoProject) {
                         // Same-URL redirect does not remorph — reload runtime SSOT + kick poll.
                         $livewire->notifyProjectRuntimeChanged();
                     } elseif ($livewire instanceof \Livewire\Component) {
@@ -1799,9 +1845,14 @@ class SeoProjectResource extends SeoPanelResource
         SeoProject $project,
         \Closure $setMode,
         \Closure $currentMode,
+        ?\Closure $disabled = null,
     ): \Filament\Actions\ActionGroup {
         $visible = fn (): bool => SeoAccessControl::canAccessContentProjectRun($project)
             && ! $project->isDraftPlanning();
+
+        $itemDisabled = $disabled !== null
+            ? fn (): bool => (bool) $disabled()
+            : fn (): bool => false;
 
         return \Filament\Actions\ActionGroup::make([
             \Filament\Actions\Action::make('create_with_ai_mode_fast')
@@ -1813,6 +1864,7 @@ class SeoProjectResource extends SeoPanelResource
                 ->action(function () use ($setMode): void {
                     $setMode('normal');
                 })
+                ->disabled($itemDisabled)
                 ->visible($visible),
             \Filament\Actions\Action::make('create_with_ai_mode_free')
                 ->label(fn (): string => (string) __('seo-content-ai::filament.projects.mode_free'))
@@ -1823,6 +1875,7 @@ class SeoProjectResource extends SeoPanelResource
                 ->action(function () use ($setMode): void {
                     $setMode('free_only');
                 })
+                ->disabled($itemDisabled)
                 ->visible($visible),
         ])
             ->label((string) __('seo-content-ai::filament.projects.create_with_ai_mode_menu'))

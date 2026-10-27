@@ -552,6 +552,10 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
 
         $this->loadViewsFrom(__DIR__.'/resources/views', 'seo-content-ai');
         $this->loadViewsFrom(dirname(__DIR__).'/site-sync/resources/views', 'site-sync');
+        $lang = __DIR__.'/lang';
+        if (is_dir($lang)) {
+            $this->loadTranslationsFrom($lang, 'seo-content-ai');
+        }
         \Livewire\Livewire::component(
             'site-health-notice',
             \Omnichannel\Addons\SiteSync\Livewire\SiteHealthNotice::class,

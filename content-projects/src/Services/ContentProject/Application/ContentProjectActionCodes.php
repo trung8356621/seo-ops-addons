@@ -137,6 +137,12 @@ final class ContentProjectActionCodes
 
     public const EXECUTION_RESUMED = 'execution.resumed';
 
+    public const GLOBAL_BATCH_STARTED = 'global_batch.started';
+
+    public const GLOBAL_BATCH_STOP_REQUESTED = 'global_batch.stop_requested';
+
+    public const GLOBAL_BATCH_RESUMED = 'global_batch.resumed';
+
     public const QUOTA_DENIED = 'quota.denied';
 
     /** Writer monthly capacity exceeded for execution create/assign. */

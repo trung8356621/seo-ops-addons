@@ -21,6 +21,8 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Suppo
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectActiveGenerationRunDetector;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectDraftExecutionGuard;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectImproveManualOnlyGenerationGuard;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\ContentProjectGlobalLockBridge;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalGenerationLock;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectWriterAssignment;
 use Omnichannel\Addons\ContentProjects\Services\RunEngine\ContentProjectRunEngine;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectWorkflowRunService;
@@ -44,6 +46,7 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
         private readonly PipelineResolver $pipelineResolver,
         private readonly ContentProjectRunEngine $runEngine,
         private readonly ContentProjectActiveGenerationRunDetector $activeRuns,
+        private readonly ContentProjectGlobalLockBridge $globalLockBridge,
     ) {
         parent::__construct($tenantGuard, $businessLock, $previewToken);
     }
@@ -144,6 +147,19 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
             // Do not persist obsolete gate flag into run settings.
             unset($settings['technical_confirm_full_rerun']);
 
+            $mayStart = $this->globalLockBridge->assertMayStart($settings);
+            if (! ($mayStart['ok'] ?? false)) {
+                return ContentProjectActionResult::fail(
+                    ContentProjectActionCodes::OPERATION_LOCKED,
+                    (string) ($mayStart['message'] ?? GlobalGenerationLock::BUSY_MESSAGE),
+                    $projectId,
+                    metadata: [
+                        'conflict' => 'global_generation_lock',
+                        'lock_holder' => $mayStart['holder'] ?? null,
+                    ],
+                );
+            }
+
             $run = $this->businessLock->withLock(
                 $this->businessLock->projectGenerate($projectId),
                 function () use ($project, $projectId, $command, $itemIds, $settings): SeoProjectRun {
@@ -167,9 +183,31 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
                 },
             );
 
+            $lockAcquired = $this->globalLockBridge->acquireForProjectRun($run);
+            if (! ($lockAcquired['ok'] ?? false)) {
+                $run->forceFill([
+                    'status' => SeoProjectRun::STATUS_FAILED,
+                    'finished_at' => now(),
+                ])->saveQuietly();
+
+                return ContentProjectActionResult::fail(
+                    ContentProjectActionCodes::OPERATION_LOCKED,
+                    (string) ($lockAcquired['message'] ?? GlobalGenerationLock::BUSY_MESSAGE),
+                    $projectId,
+                    affectedItemIds: $itemIds,
+                    metadata: [
+                        'conflict' => 'global_generation_lock',
+                        'lock_holder' => $lockAcquired['holder'] ?? null,
+                        'execution_ref' => ContentProjectPublicRef::execution((int) $run->getKey()),
+                        'engine_started' => false,
+                    ],
+                );
+            }
+
             try {
-                $this->runEngine->start($run);
+                $this->runEngine->start($run->fresh() ?? $run);
             } catch (\Throwable $e) {
+                $this->globalLockBridge->releaseForProjectRun($run->fresh() ?? $run);
                 RuntimeLogger::report($e, [
                     'endpoint' => 'content_project.generate_engine_start',
                     'project_id' => $projectId,

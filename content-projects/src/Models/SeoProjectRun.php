@@ -80,6 +80,15 @@ class SeoProjectRun extends Model
         return $this->mode === self::MODE_TEST;
     }
 
+    public function isTerminal(): bool
+    {
+        return in_array((string) $this->status, [
+            self::STATUS_COMPLETED,
+            self::STATUS_FAILED,
+            self::STATUS_CANCELLED,
+        ], true);
+    }
+
     public function runSettings(): ContentProjectRunSettings
     {
         return ContentProjectRunSettings::fromRun($this);

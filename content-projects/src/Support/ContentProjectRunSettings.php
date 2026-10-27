@@ -89,6 +89,9 @@ final class ContentProjectRunSettings
         'generation_mode',
         'generation_keyword_override',
         \Omnichannel\Addons\AiPrompt\Support\AiCostPolicy::SETTING_KEY,
+        'global_batch_id',
+        'inherits_global_lock',
+        'global_generation_lock_token',
     ];
 
     /**

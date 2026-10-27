@@ -265,6 +265,14 @@ class ListSeoProjects extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
+            Actions\Action::make('global_monthly_generator')
+                ->label('Generate tháng')
+                ->icon('heroicon-o-queue-list')
+                ->color('primary')
+                ->visible(fn (): bool => SeoAccessControl::canMutateContentProjects())
+                ->url(fn (): string => \Omnichannel\Addons\ContentProjects\Filament\Pages\GlobalMonthlyGeneratorPage::getUrl([
+                    'month' => ContentProjectMonthContext::normalize($this->planningMonth ?: null),
+                ])),
             Actions\Action::make('compact_success_items')
                 ->label(__('seo-content-ai::filament.projects.compact_success'))
                 ->icon('heroicon-o-arrows-pointing-in')

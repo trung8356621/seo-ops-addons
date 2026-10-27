@@ -15,6 +15,9 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Suppo
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectPreviewToken;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectDraftExecutionGuard;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\ContentProjectGlobalLockBridge;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalGenerationLock;
+use Omnichannel\Addons\ContentProjects\Models\SeoContentGenerationLock;
 use Omnichannel\Addons\ContentProjects\Services\RunEngine\ContentProjectRunEngine;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunRecoverableState;
 use App\Support\RuntimeLogger;
@@ -27,6 +30,7 @@ final class ResumeProjectExecutionHandler extends AbstractPublishingHandler
         ContentProjectBusinessLock $businessLock,
         ContentProjectPreviewToken $previewToken,
         private readonly ContentProjectRunEngine $runEngine,
+        private readonly GlobalGenerationLock $globalLock,
     ) {
         parent::__construct($tenantGuard, $businessLock, $previewToken);
     }
@@ -66,6 +70,46 @@ final class ResumeProjectExecutionHandler extends AbstractPublishingHandler
                         'status' => (string) $run->status,
                     ],
                 );
+            }
+
+            $settings = is_array($run->settings) ? $run->settings : [];
+            $batchId = (int) ($settings['global_batch_id'] ?? 0);
+            $holder = $this->globalLock->currentHolder();
+            if ($holder !== null) {
+                $allowed = (
+                    ($holder['owner_type'] ?? '') === SeoContentGenerationLock::OWNER_PROJECT_RUN
+                    && (int) ($holder['owner_id'] ?? 0) === (int) $run->getKey()
+                ) || (
+                    $batchId > 0
+                    && ($holder['owner_type'] ?? '') === SeoContentGenerationLock::OWNER_GLOBAL_BATCH
+                    && (int) ($holder['owner_id'] ?? 0) === $batchId
+                );
+                if (! $allowed) {
+                    return ContentProjectActionResult::fail(
+                        ContentProjectActionCodes::OPERATION_LOCKED,
+                        GlobalGenerationLock::BUSY_MESSAGE,
+                        $projectId,
+                        metadata: [
+                            'conflict' => 'global_generation_lock',
+                            'lock_holder' => $holder,
+                        ],
+                    );
+                }
+            } elseif ($batchId <= 0 && empty($settings['inherits_global_lock'])) {
+                // Individual recoverable resume without lock — re-acquire.
+                $bridge = app(ContentProjectGlobalLockBridge::class);
+                $acquired = $bridge->acquireForProjectRun($run);
+                if (! ($acquired['ok'] ?? false)) {
+                    return ContentProjectActionResult::fail(
+                        ContentProjectActionCodes::OPERATION_LOCKED,
+                        GlobalGenerationLock::BUSY_MESSAGE,
+                        $projectId,
+                        metadata: [
+                            'conflict' => 'global_generation_lock',
+                            'lock_holder' => $acquired['holder'] ?? null,
+                        ],
+                    );
+                }
             }
 
             // Engine owns stopping→running / recoverable→running + next pending dispatch.

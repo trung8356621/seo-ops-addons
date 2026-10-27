@@ -43,6 +43,9 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SkipSeoAuditArticlesCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SplitDraftContentProjectCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\StartReviewCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\StartGlobalMonthlyBatchCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\StopGlobalMonthlyBatchCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ResumeGlobalMonthlyBatchCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\StopProjectExecutionCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SyncContentProjectItemsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\UnblockProjectItemGenerationCommand;
@@ -89,6 +92,9 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handl
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\SkipSeoAuditArticlesHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\SplitDraftContentProjectHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\StartReviewHandler;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\StartGlobalMonthlyBatchHandler;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\StopGlobalMonthlyBatchHandler;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\ResumeGlobalMonthlyBatchHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\StopProjectExecutionHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\SyncContentProjectItemsHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\UnblockProjectItemGenerationHandler;
@@ -143,6 +149,9 @@ final class ContentProjectCommandBusRegistrar
             ProcessScheduledProjectItemPublishCommand::class => ProcessScheduledProjectItemPublishHandler::class,
             StopProjectExecutionCommand::class => StopProjectExecutionHandler::class,
             ResumeProjectExecutionCommand::class => ResumeProjectExecutionHandler::class,
+            StartGlobalMonthlyBatchCommand::class => StartGlobalMonthlyBatchHandler::class,
+            StopGlobalMonthlyBatchCommand::class => StopGlobalMonthlyBatchHandler::class,
+            ResumeGlobalMonthlyBatchCommand::class => ResumeGlobalMonthlyBatchHandler::class,
             RetryProjectItemPublishingCommand::class => RetryProjectItemPublishingHandler::class,
             SkipProjectItemPublishingCommand::class => SkipProjectItemPublishingHandler::class,
             CancelProjectItemPublishingCommand::class => CancelProjectItemPublishingHandler::class,

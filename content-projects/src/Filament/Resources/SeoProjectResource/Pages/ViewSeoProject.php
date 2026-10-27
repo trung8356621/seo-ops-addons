@@ -779,18 +779,7 @@ final class ViewSeoProject extends Page
                             ->send();
                     }
                 }),
-            SeoProjectResource::makeCreateWithAiAction(
-                $project,
-                fn (): array => $this->createWithAiLaunchSettings(),
-                fn (): string => $this->articleGenerationModeLabel(),
-            ),
-            SeoProjectResource::makeCreateWithAiModeGroup(
-                $project,
-                function (string $mode): void {
-                    $this->setArticleGenerationMode($mode);
-                },
-                fn (): string => $this->articleGenerationMode,
-            ),
+            // Start Generate + AI Mode live on Progress page (default entry).
             Actions\Action::make('publishing_queue')
                 ->label(__('seo-content-ai::filament.projects.publishing_queue'))
                 ->icon('heroicon-o-queue-list')

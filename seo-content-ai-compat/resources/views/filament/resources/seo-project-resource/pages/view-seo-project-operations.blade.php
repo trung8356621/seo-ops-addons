@@ -43,6 +43,12 @@
         .fi-header > div:first-child { flex: 1 1 18rem; min-width: 0; }
         .fi-header > div:last-child { max-width: 100%; flex-wrap: wrap; }
     </style>
+    <div class="mb-0 flex justify-end [&>div]:mb-0">
+        @include('seo-content-ai::filament.resources.seo-project-resource.pages.partials.content-project-mode-tabs', [
+            'project' => $project,
+            'activeMode' => 'details',
+        ])
+    </div>
     <div
         class="space-y-4"
         data-ops-summary="{{ json_encode($summarySnapshot, JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT | JSON_HEX_TAG) }}"
