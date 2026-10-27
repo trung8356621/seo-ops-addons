@@ -21,6 +21,9 @@ final class SeoContentGlobalBatchItem extends Model
 
     public const STATUS_CANCELLED = 'cancelled';
 
+    /** Free+Paid failed this round — scheduled for Auto Rerun. Not a permanent failure. */
+    public const STATUS_WAITING_RETRY = 'waiting_retry';
+
     protected $connection = 'omi_seo_ai';
 
     protected $table = 'seo_content_global_batch_items';
@@ -35,6 +38,11 @@ final class SeoContentGlobalBatchItem extends Model
         'project_run_id' => 'integer',
         'run_item_id' => 'integer',
         'attempt_count' => 'integer',
+        'retry_count' => 'integer',
+        'next_retry_at' => 'datetime',
+        'free_attempted' => 'boolean',
+        'paid_attempted' => 'boolean',
+        'attempt_meta' => 'array',
         'started_at' => 'datetime',
         'finished_at' => 'datetime',
     ];
@@ -63,4 +71,10 @@ final class SeoContentGlobalBatchItem extends Model
             self::STATUS_CANCELLED,
         ], true);
     }
+
+    public function isWaitingRetry(): bool
+    {
+        return (string) $this->status === self::STATUS_WAITING_RETRY;
+    }
 }
+

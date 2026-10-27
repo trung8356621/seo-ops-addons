@@ -23,13 +23,14 @@ final class GlobalMonthlyResumeAndLockSemanticsTest extends TestCase
 
         $resumePos = strpos($src, 'public function resume(');
         self::assertNotFalse($resumePos);
-        $slice = substr($src, $resumePos, 1800);
+        $slice = substr($src, $resumePos, 4500);
 
         self::assertStringContainsString('STATUS_PENDING', $slice);
         self::assertStringContainsString('Failed items require explicit retry selection', $slice);
-        // Resume queries pending only — never expands failed items into visit list.
-        self::assertStringNotContainsString('STATUS_FAILED)->update', $slice);
+        // Legacy sticky: failed NOT flipped to pending. Auto Cost uses waiting_retry path instead.
         self::assertStringNotContainsString("where('status', SeoContentGlobalBatchItem::STATUS_FAILED)", $slice);
+        self::assertStringContainsString('STATUS_WAITING_RETRY', $src);
+        self::assertStringContainsString('STATUS_STOPPED_AI_UNAVAILABLE', $src);
     }
 
     public function test_batch_item_terminal_statuses(): void

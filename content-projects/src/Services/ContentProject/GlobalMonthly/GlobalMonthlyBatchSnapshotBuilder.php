@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly;
 
+use App\Models\User;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectActiveGenerationRunDetector;
@@ -71,9 +72,11 @@ final class GlobalMonthlyBatchSnapshotBuilder
      * @return array{
      *     planning_month: string,
      *     project_order: list<int>,
-     *     projects: list<array{project_id: int, name: ?string, eligible_count: int, excluded_count: int}>,
+     *     projects: list<array{project_id: int, name: ?string, eligible_count: int, pending_count: int, failed_count: int, excluded_count: int}>,
      *     items: list<SnapshotItem>,
      *     eligible_count: int,
+     *     pending_count: int,
+     *     failed_count: int,
      *     excluded: list<array{project_id: int, task_id: int, reason: string}>
      * }
      */
@@ -89,6 +92,15 @@ final class GlobalMonthlyBatchSnapshotBuilder
             ->whereNull('archived_at')
             ->orderBy('id')
             ->get();
+
+        $userIds = $projects->pluck('user_id')->filter()->unique()->all();
+        $userNames = [];
+        if ($userIds !== []) {
+            $userNames = User::query()
+                ->whereIn('id', $userIds)
+                ->pluck('name', 'id')
+                ->all();
+        }
 
         $projectOrder = [];
         $projectSummaries = [];
@@ -115,10 +127,14 @@ final class GlobalMonthlyBatchSnapshotBuilder
                         ];
                     }
                 }
+                $ownerName = trim((string) ($userNames[(int) $project->user_id] ?? ''));
                 $projectSummaries[] = [
                     'project_id' => $projectId,
                     'name' => $project->name !== null ? (string) $project->name : null,
+                    'owner_name' => $ownerName !== '' ? $ownerName : null,
                     'eligible_count' => 0,
+                    'pending_count' => 0,
+                    'failed_count' => 0,
                     'excluded_count' => count($excluded),
                 ];
 
@@ -135,6 +151,12 @@ final class GlobalMonthlyBatchSnapshotBuilder
                 ->pluck('type', 'id')
                 ->all();
 
+            $statuses = SeoProjectTask::query()
+                ->where('project_id', $projectId)
+                ->whereIn('id', $eligibleIds)
+                ->pluck('status', 'id')
+                ->all();
+
             // Preserve canonical project ordering (target_date, id).
             $orderedIds = $project->tasks()
                 ->planned()
@@ -145,7 +167,17 @@ final class GlobalMonthlyBatchSnapshotBuilder
                 ->map(static fn (mixed $id): int => (int) $id)
                 ->all();
 
+            $pendingCount = 0;
+            $failedCount = 0;
+
             foreach ($orderedIds as $taskId) {
+                $status = (string) ($statuses[$taskId] ?? SeoProjectTask::STATUS_PENDING);
+                if ($status === SeoProjectTask::STATUS_FAILED) {
+                    $failedCount++;
+                } else {
+                    $pendingCount++;
+                }
+
                 $position++;
                 $items[] = [
                     'project_id' => $projectId,
@@ -158,10 +190,14 @@ final class GlobalMonthlyBatchSnapshotBuilder
                 $eligibleCount++;
             }
 
+            $ownerName = trim((string) ($userNames[(int) $project->user_id] ?? ''));
             $projectSummaries[] = [
                 'project_id' => $projectId,
                 'name' => $project->name !== null ? (string) $project->name : null,
+                'owner_name' => $ownerName !== '' ? $ownerName : null,
                 'eligible_count' => $eligibleCount,
+                'pending_count' => $pendingCount,
+                'failed_count' => $failedCount,
                 'excluded_count' => $excludedCount,
             ];
         }
@@ -172,6 +208,8 @@ final class GlobalMonthlyBatchSnapshotBuilder
             'projects' => $projectSummaries,
             'items' => $items,
             'eligible_count' => count($items),
+            'pending_count' => array_sum(array_column($projectSummaries, 'pending_count')),
+            'failed_count' => array_sum(array_column($projectSummaries, 'failed_count')),
             'excluded' => $excluded,
         ];
     }

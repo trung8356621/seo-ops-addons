@@ -26,6 +26,9 @@ final class SeoContentGlobalBatch extends Model
 
     public const STATUS_CANCELLED = 'cancelled';
 
+    /** Both Free and Paid unavailable — resumable when AI returns. */
+    public const STATUS_STOPPED_AI_UNAVAILABLE = 'stopped_ai_unavailable';
+
     protected $connection = 'omi_seo_ai';
 
     protected $table = 'seo_content_global_batches';
@@ -67,6 +70,7 @@ final class SeoContentGlobalBatch extends Model
             self::STATUS_COMPLETED,
             self::STATUS_FAILED,
             self::STATUS_CANCELLED,
+            self::STATUS_STOPPED_AI_UNAVAILABLE,
         ], true);
     }
 
@@ -76,6 +80,15 @@ final class SeoContentGlobalBatch extends Model
             self::STATUS_PENDING,
             self::STATUS_RUNNING,
             self::STATUS_STOPPING,
+        ], true);
+    }
+
+    public function isResumableTerminal(): bool
+    {
+        return in_array((string) $this->status, [
+            self::STATUS_CANCELLED,
+            self::STATUS_FAILED,
+            self::STATUS_STOPPED_AI_UNAVAILABLE,
         ], true);
     }
 

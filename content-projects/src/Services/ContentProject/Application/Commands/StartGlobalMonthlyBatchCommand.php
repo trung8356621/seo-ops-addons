@@ -10,7 +10,8 @@ final class StartGlobalMonthlyBatchCommand implements ContentProjectCommand
 {
     public function __construct(
         public readonly string $planningMonth,
-        public readonly string $aiCostPolicy,
+        /** Ignored for new starts — handler forces Auto Cost. Kept for BC/tests. */
+        public readonly string $aiCostPolicy = 'auto_cost',
     ) {}
 
     public function name(): string

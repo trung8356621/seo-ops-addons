@@ -264,8 +264,78 @@ final class GlobalGenerationLockReconciler
             ->where('status', SeoContentGlobalBatchItem::STATUS_PENDING)
             ->count();
 
-        if ($pendingItems === 0) {
-            // All items processed. Recount and finalize batch.
+        $waitingRetry = SeoContentGlobalBatchItem::query()
+            ->where('batch_id', $batchId)
+            ->where('status', SeoContentGlobalBatchItem::STATUS_WAITING_RETRY)
+            ->count();
+
+        $waitingDue = SeoContentGlobalBatchItem::query()
+            ->where('batch_id', $batchId)
+            ->where('status', SeoContentGlobalBatchItem::STATUS_WAITING_RETRY)
+            ->where(function ($q): void {
+                $q->whereNull('next_retry_at')->orWhere('next_retry_at', '<=', now());
+            })
+            ->count();
+
+        $settings = is_array($batch->settings) ? $batch->settings : [];
+        $autoRerunDisabled = ! empty($settings['auto_rerun_disabled']);
+
+        if ($batch->stopRequested() || $autoRerunDisabled) {
+            // Emergency Stop settled — cancel waiting_retry and release exclusive lock.
+            $this->orchestrator->wakeForAutoRetry($batchId, ActorContext::system());
+            $released = $this->lock->releaseIfOwner(SeoContentGenerationLock::OWNER_GLOBAL_BATCH, $batchId, $ownerToken);
+
+            return [
+                'reconciled' => true,
+                'action' => $released ? 'finalized_stopped_batch_and_released_lock' : 'stop_finalized_lock_already_clear',
+                'reason' => 'stop_requested_without_active_child',
+                'details' => array_merge($holder, [
+                    'auto_rerun_disabled' => $autoRerunDisabled,
+                    'waiting_retry' => $waitingRetry,
+                ]),
+            ];
+        }
+
+        // Auto Cost cooldown: retain exclusive Global Lock — never treat waiting_retry as empty.
+        if ($waitingRetry > 0 && $pendingItems === 0) {
+            $this->lock->heartbeat($ownerToken);
+
+            if ($waitingDue > 0) {
+                if ($this->hasActiveWakeOrAdvanceJobsForBatch($batchId)) {
+                    return [
+                        'reconciled' => false,
+                        'action' => 'retain_lock',
+                        'reason' => 'waiting_retry_due_wake_already_queued',
+                        'details' => array_merge($holder, ['waiting_due' => $waitingDue]),
+                    ];
+                }
+
+                $woke = $this->orchestrator->wakeForAutoRetry($batchId, ActorContext::system());
+
+                return [
+                    'reconciled' => (bool) ($woke['ok'] ?? false),
+                    'action' => 'redispatched_due_waiting_retry_wake',
+                    'reason' => 'waiting_retry_due_without_wake_job',
+                    'details' => array_merge($holder, $woke),
+                ];
+            }
+
+            // Future next_retry_at — retain lock + ensure delayed wake survives queue drops.
+            $ensured = $this->orchestrator->ensureAutoRetryWakeScheduled($batchId);
+
+            return [
+                'reconciled' => false,
+                'action' => 'retain_lock',
+                'reason' => 'waiting_retry_cooldown_hold',
+                'details' => array_merge($holder, [
+                    'waiting_retry' => $waitingRetry,
+                    'wake' => $ensured,
+                ]),
+            ];
+        }
+
+        if ($pendingItems === 0 && $waitingRetry === 0) {
+            // Truly idle — finalize and release.
             $this->orchestrator->advanceAfterChildRun($batchId, 0, ActorContext::system());
             $this->lock->releaseIfOwner(SeoContentGenerationLock::OWNER_GLOBAL_BATCH, $batchId, $ownerToken);
 
@@ -277,19 +347,30 @@ final class GlobalGenerationLockReconciler
             ];
         }
 
-        if ($batch->stopRequested()) {
-            $this->orchestrator->advanceAfterChildRun($batchId, 0, ActorContext::system());
-            $this->lock->releaseIfOwner(SeoContentGenerationLock::OWNER_GLOBAL_BATCH, $batchId, $ownerToken);
+        // Batch running with pending items but no slice running — continue to next slice.
+        // Prefer wake path for Auto Cost so concurrency guards apply.
+        if (GlobalMonthlyAiPolicy::isAutoCost($batch->ai_cost_policy)) {
+            if ($this->hasActiveWakeOrAdvanceJobsForBatch($batchId)) {
+                $this->lock->heartbeat($ownerToken);
+
+                return [
+                    'reconciled' => false,
+                    'action' => 'retain_lock',
+                    'reason' => 'pending_items_wake_or_advance_already_queued',
+                    'details' => $holder,
+                ];
+            }
+
+            $woke = $this->orchestrator->wakeForAutoRetry($batchId, ActorContext::system());
 
             return [
-                'reconciled' => true,
-                'action' => 'finalized_stopped_batch_and_released_lock',
-                'reason' => 'stop_requested_without_active_child',
-                'details' => $holder,
+                'reconciled' => (bool) ($woke['ok'] ?? false),
+                'action' => 'resumed_stalled_auto_cost_slice',
+                'reason' => 'batch_running_without_active_slice',
+                'details' => $woke,
             ];
         }
 
-        // Batch running with pending items but no slice running — continue to next slice.
         $resumed = $this->orchestrator->resume($batchId, ActorContext::system());
 
         return [
@@ -330,19 +411,6 @@ final class GlobalGenerationLockReconciler
 
         // Case A.2: Run is already terminal.
         if ($run->isTerminal()) {
-            if (ContentProjectRunRecoverableState::isRecoverableRun($run)) {
-                return [
-                    'reconciled' => false,
-                    'action' => 'retain_lock',
-                    'reason' => 'run_in_recoverable_state',
-                    'details' => array_merge($holder, [
-                        'run_id' => $runId,
-                        'run_status' => (string) $run->status,
-                        'recoverable' => true,
-                    ]),
-                ];
-            }
-
             if ($this->isRunWorkerActive($run) || $this->hasActiveQueueJobsForRun($runId)) {
                 return [
                     'reconciled' => false,
@@ -376,9 +444,24 @@ final class GlobalGenerationLockReconciler
         }
 
         if ($deadRecovery === 'worker_lost') {
+            $run->refresh();
+            if ($this->isRunWorkerActive($run) || $this->hasActiveQueueJobsForRun($runId)) {
+                return [
+                    'reconciled' => false,
+                    'action' => 'retain_lock',
+                    'reason' => 'run_declared_worker_lost_active_execution_remains',
+                    'details' => array_merge($holder, [
+                        'run_id' => $runId,
+                        'worker_lost' => true,
+                    ]),
+                ];
+            }
+
+            $released = $this->lock->releaseIfOwner(SeoContentGenerationLock::OWNER_PROJECT_RUN, $runId, $ownerToken);
+
             return [
-                'reconciled' => false,
-                'action' => 'retain_lock',
+                'reconciled' => $released,
+                'action' => $released ? 'released_worker_lost_terminal_owner_lock' : 'release_failed',
                 'reason' => 'run_declared_worker_lost',
                 'details' => array_merge($holder, [
                     'run_id' => $runId,
@@ -485,6 +568,13 @@ final class GlobalGenerationLockReconciler
     private function hasActiveQueueJobsForBatch(int $batchId): bool
     {
         return $this->queryQueueJobs("AdvanceGlobalMonthlyBatchJob.*\"batchId\":{$batchId}");
+    }
+
+    private function hasActiveWakeOrAdvanceJobsForBatch(int $batchId): bool
+    {
+        return $this->hasActiveQueueJobsForBatch($batchId)
+            || $this->queryQueueJobs("WakeGlobalMonthlyBatchJob.*\"batchId\":{$batchId}")
+            || $this->queryQueueJobs("WakeGlobalMonthlyBatchJob.*batchId\";i:{$batchId}");
     }
 
     private function hasActiveQueueJobsForRun(int $runId): bool

@@ -3,6 +3,7 @@
     $lockState = (string) ($lockInspect['state'] ?? 'unavailable');
     $lockHolder = is_array($lockInspect['holder'] ?? null) ? $lockInspect['holder'] : null;
     $lockUnavailable = $lockState === \Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalGenerationLock::STATE_UNAVAILABLE;
+    $lockUnavailableMessage = \Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalGenerationLock::UNAVAILABLE_MESSAGE;
     $preflight = $this->preflight;
     $progress = $this->progress;
     $overview = is_array($progress['overview'] ?? null) ? $progress['overview'] : [];
@@ -131,15 +132,16 @@
 
             /* Playlist columns: # | Project | Article | Status | Duration */
             [data-gm-progress-page] table.gm-progress-playlist col.gm-col-idx { width: 3.25rem; }
-            [data-gm-progress-page] table.gm-progress-playlist col.gm-col-project { width: 13rem; }
+            [data-gm-progress-page] table.gm-progress-playlist col.gm-col-project { width: 14rem; }
             [data-gm-progress-page] table.gm-progress-playlist col.gm-col-article { width: auto; }
-            [data-gm-progress-page] table.gm-progress-playlist col.gm-col-status { width: 9rem; }
-            [data-gm-progress-page] table.gm-progress-playlist col.gm-col-duration { width: 7.5rem; }
+            [data-gm-progress-page] table.gm-progress-playlist col.gm-col-status { width: 8.5rem; }
+            [data-gm-progress-page] table.gm-progress-playlist col.gm-col-duration { width: 9.5rem; }
 
-            /* Setup columns: # | Project | Bài chưa Generate | Trạng thái */
+            /* Setup columns: # | Project | Bài chưa Generate | Bài lỗi | Trạng thái */
             [data-gm-progress-page] table.gm-setup col.gm-setup-idx { width: 3.25rem; }
             [data-gm-progress-page] table.gm-setup col.gm-setup-project { width: auto; }
-            [data-gm-progress-page] table.gm-setup col.gm-setup-pending { width: 13rem; }
+            [data-gm-progress-page] table.gm-setup col.gm-setup-pending { width: 11rem; }
+            [data-gm-progress-page] table.gm-setup col.gm-setup-failed { width: 7.5rem; }
             [data-gm-progress-page] table.gm-setup col.gm-setup-status { width: 10rem; }
 
             /* History columns: #Batch | Tháng | Trạng thái | OK/Fail | AI | Bắt đầu | Chi tiết */
@@ -196,8 +198,10 @@
         data-gm-progress-page
         data-gm-progress-fit="0"
         data-gm-batch-id="{{ (int) ($batch['id'] ?? $this->batchId ?? 0) }}"
+        data-gm-running-start-ts="{{ (int) ($nowPlaying['started_at_ts'] ?? 0) }}"
         x-data="{
             scrollKey: 'gmProgressPlaylistY:{{ (int) ($batch['id'] ?? $this->batchId ?? 0) }}',
+            timer: null,
             fit() {
                 const el = this.$el;
                 const narrow = window.matchMedia('(max-width: 767px)').matches;
@@ -223,14 +227,57 @@
                 const y = Number(window[this.scrollKey] || 0);
                 requestAnimationFrame(() => { sc.scrollTop = y; });
             },
+            formatDur(seconds) {
+                seconds = Math.max(0, Math.floor(seconds || 0));
+                if (seconds <= 0) return '0 giây';
+                const h = Math.floor(seconds / 3600);
+                const m = Math.floor((seconds % 3600) / 60);
+                const s = seconds % 60;
+                if (h > 0) return h + ' giờ ' + m + ' phút ' + s + ' giây';
+                if (m > 0) return m + ' phút ' + s + ' giây';
+                return s + ' giây';
+            },
+            tickTimer() {
+                const startTs = Number(this.$el.getAttribute('data-gm-running-start-ts') || 0);
+                if (!startTs || startTs <= 0) return;
+                const now = Math.floor(Date.now() / 1000);
+                const diff = Math.max(0, now - startTs);
+                const text = this.formatDur(diff);
+                const npEl = this.$el.querySelector('[data-gm-now-playing-elapsed]');
+                if (npEl) npEl.textContent = text;
+                const rowEl = this.$el.querySelector('[data-gm-running-row-elapsed]');
+                if (rowEl) {
+                    rowEl.textContent = text;
+                    rowEl.setAttribute('title', text);
+                }
+            },
+            startTimer() {
+                this.stopTimer();
+                this.tickTimer();
+                this.timer = setInterval(() => this.tickTimer(), 1000);
+            },
+            stopTimer() {
+                if (this.timer) {
+                    clearInterval(this.timer);
+                    this.timer = null;
+                }
+            }
         }"
         x-init="
             fit();
             restorePlaylistScroll();
+            startTimer();
             const onResize = () => fit();
             window.addEventListener('resize', onResize);
             const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => fit()) : null;
             if (ro) ro.observe(document.documentElement);
+            if (typeof $cleanup === 'function') {
+                $cleanup(() => {
+                    stopTimer();
+                    window.removeEventListener('resize', onResize);
+                    if (ro) ro.disconnect();
+                });
+            }
             if (window.Livewire && ! window.__gmProgressPollScrollHook) {
                 window.__gmProgressPollScrollHook = true;
                 Livewire.hook('commit', ({ succeed }) => {
@@ -289,15 +336,11 @@
                     </div>
 
                     <div class="flex items-center gap-2 flex-1 sm:max-w-xs">
-                        <label for="aiCostPolicy" class="shrink-0 text-xs font-medium text-gray-700 dark:text-gray-300">AI Mode:</label>
-                        <select
-                            id="aiCostPolicy"
-                            wire:model="aiCostPolicy"
-                            class="block w-full rounded-lg border-gray-300 py-1.5 px-2.5 text-xs sm:text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                        >
-                            <option value="default">Paid</option>
-                            <option value="free_only">Free-Split</option>
-                        </select>
+                        <span class="shrink-0 text-xs font-medium text-gray-700 dark:text-gray-300">Mode:</span>
+                        <span class="inline-flex items-center rounded-md bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 ring-1 ring-inset ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/30">
+                            Auto Cost
+                            <span class="ms-1.5 font-normal text-emerald-700/80 dark:text-emerald-300/80">Free → Paid → Auto Rerun</span>
+                        </span>
                     </div>
 
                     <div class="sm:ms-auto shrink-0">
@@ -317,17 +360,32 @@
                     </div>
                 </div>
 
-                {{-- Compact summary: 7 Project | 83 bài cần Generate | 0 active --}}
+                {{-- Compact summary: 7 Project | 68 bài cần Generate | X bài lỗi | Ready / Active execution / Recovery required --}}
                 <div class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:bg-white/5 dark:text-gray-300">
                     <span class="font-semibold text-gray-900 dark:text-white">{{ count($preflight['projects'] ?? []) }} Project</span>
                     <span class="text-gray-300 dark:text-gray-600">|</span>
                     <span class="font-semibold text-gray-900 dark:text-white">{{ (int) ($preflight['eligible_count'] ?? 0) }} bài cần Generate</span>
                     <span class="text-gray-300 dark:text-gray-600">|</span>
-                    <span class="text-gray-500 dark:text-gray-400">{{ count($preflight['legacy_active_runs'] ?? []) }} active</span>
+                    @php
+                        $totalFailed = (int) ($preflight['failed_count'] ?? 0);
+                    @endphp
+                    @if ($totalFailed > 0)
+                        <span class="font-semibold text-danger-600 dark:text-danger-400">{{ $totalFailed }} bài lỗi</span>
+                    @else
+                        <span class="text-gray-500 dark:text-gray-400">0 bài lỗi</span>
+                    @endif
+                    <span class="text-gray-300 dark:text-gray-600">|</span>
+                    @if ($lockState === \Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalGenerationLock::STATE_HELD && ! empty($lockHolder['is_recoverable']))
+                        <span class="font-medium text-amber-600 dark:text-amber-400">Recovery required ({{ $lockHolder['owner_label'] ?? 'Run #'.($lockHolder['owner_id'] ?? '') }})</span>
+                    @elseif ($lockState === \Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalGenerationLock::STATE_HELD || count($preflight['legacy_active_runs'] ?? []) > 0)
+                        <span class="font-medium text-blue-600 dark:text-blue-400">Active execution ({{ max(1, count($preflight['legacy_active_runs'] ?? [])) }} active)</span>
+                    @else
+                        <span class="font-medium text-emerald-600 dark:text-emerald-400">Ready (0 active)</span>
+                    @endif
                 </div>
             </div>
 
-            {{-- Project list table: # | Project | Bài chưa Generate | Trạng thái --}}
+            {{-- Project list table: # | Project | Bài chưa Generate | Bài lỗi | Trạng thái --}}
             <div data-gm-playlist-shell>
                 <div data-gm-playlist-scroll>
                     <table class="gm-table gm-setup text-sm">
@@ -335,6 +393,7 @@
                             <col class="gm-setup-idx" />
                             <col class="gm-setup-project" />
                             <col class="gm-setup-pending" />
+                            <col class="gm-setup-failed" />
                             <col class="gm-setup-status" />
                         </colgroup>
                         <thead>
@@ -342,6 +401,7 @@
                                 <th>#</th>
                                 <th>Project</th>
                                 <th>Bài chưa Generate</th>
+                                <th>Bài lỗi</th>
                                 <th>Trạng thái</th>
                             </tr>
                         </thead>
@@ -352,6 +412,8 @@
                             @forelse (($preflight['projects'] ?? []) as $project)
                                 @php
                                     $eligible = (int) ($project['eligible_count'] ?? 0);
+                                    $pending = (int) ($project['pending_count'] ?? $eligible);
+                                    $failed = (int) ($project['failed_count'] ?? 0);
                                     $pid = (int) $project['project_id'];
                                     $isActive = in_array($pid, $activeRunProjectIds, true);
                                     try {
@@ -374,13 +436,27 @@
                                                 #{{ $pid }} {{ $project['name'] ?? '' }}
                                             </span>
                                         @endif
+                                        @if (! empty($project['owner_name']))
+                                            <div class="truncate text-xs text-gray-500 dark:text-gray-400">
+                                                {{ $project['owner_name'] }}
+                                            </div>
+                                        @endif
                                     </td>
                                     <td @class([
                                         'tabular-nums text-xs',
-                                        'font-semibold text-gray-900 dark:text-white' => $eligible > 0,
-                                        'text-gray-400 dark:text-gray-500' => $eligible === 0,
+                                        'font-semibold text-gray-900 dark:text-white' => $pending > 0,
+                                        'text-gray-400 dark:text-gray-500' => $pending === 0,
                                     ])>
-                                        {{ $eligible }} bài
+                                        {{ $pending }} bài
+                                    </td>
+                                    <td class="tabular-nums text-xs">
+                                        @if ($failed > 0)
+                                            <span class="font-semibold text-danger-600 dark:text-danger-400">
+                                                {{ $failed }} bài
+                                            </span>
+                                        @else
+                                            <span class="text-gray-400 dark:text-gray-500">0</span>
+                                        @endif
                                     </td>
                                     <td>
                                         @if ($isActive)
@@ -403,7 +479,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="4" class="px-3 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+                                    <td colspan="5" class="px-3 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
                                         Không có project nào trong tháng {{ \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::display($this->planningMonth) }}.
                                     </td>
                                 </tr>
@@ -429,9 +505,13 @@
                             </span>
                             <span class="text-gray-300 dark:text-gray-600">·</span>
                             <span>
-                                AI Mode:
-                                <strong class="text-gray-800 dark:text-gray-200">{{ $batch['ai_mode_label'] ?? ($this->aiCostPolicy === 'free_only' ? 'Free-Split' : 'Paid') }}</strong>
+                                Mode:
+                                <strong class="text-gray-800 dark:text-gray-200">{{ $batch['ai_mode_label'] ?? 'Auto Cost' }}</strong>
                             </span>
+                            @if (! empty($overview['current_strategy_label']))
+                                <span class="text-gray-300 dark:text-gray-600">·</span>
+                                <span>Strategy: <strong class="text-gray-800 dark:text-gray-200">{{ $overview['current_strategy_label'] }}</strong></span>
+                            @endif
                             @if (! empty($batch['elapsed_label']))
                                 <span class="text-gray-300 dark:text-gray-600">·</span>
                                 <span>{{ $batch['elapsed_label'] }}</span>
@@ -451,7 +531,7 @@
                                     <span>Emergency Stop</span>
                                 </button>
                             @endif
-                            @if (in_array(($batch['status'] ?? ''), ['cancelled', 'failed', 'stopping'], true))
+                            @if (in_array(($batch['status'] ?? ''), ['cancelled', 'failed', 'stopping', 'stopped_ai_unavailable'], true))
                                 <button
                                     type="button"
                                     wire:click="resumeBatch"
@@ -465,6 +545,12 @@
                             @endif
                         </div>
                     </div>
+
+                    @if (! empty($batch['stop_reason']))
+                        <div class="mb-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                            {{ $batch['stop_reason'] }}
+                        </div>
+                    @endif
 
                     @if (is_array($nowPlaying))
                         <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -481,7 +567,7 @@
                                         {{ $nowPlaying['status_label'] ?? 'Đang chạy' }}
                                     </span>
                                     @if (! empty($nowPlaying['elapsed_label']))
-                                        <span class="text-xs text-gray-500 dark:text-gray-400">
+                                        <span class="text-xs text-gray-500 dark:text-gray-400" data-gm-now-playing-elapsed>
                                             {{ $nowPlaying['elapsed_label'] }}
                                         </span>
                                     @endif
@@ -490,7 +576,9 @@
                                     {{ $nowPlaying['title'] ?? '—' }}
                                 </div>
                                 <div class="truncate text-xs text-gray-500 dark:text-gray-400">
-                                    <span class="font-medium text-gray-700 dark:text-gray-300">{{ $nowPlaying['project_name'] ?? ($overview['current_project_name'] ?? '—') }}</span>
+                                    <span class="font-medium text-gray-700 dark:text-gray-300">
+                                        {{ $nowPlaying['project_name'] ?? ($overview['current_project_name'] ?? '—') }}@if (! empty($nowPlaying['owner_name'] ?? ($overview['current_project_owner'] ?? null))) — {{ $nowPlaying['owner_name'] ?? $overview['current_project_owner'] }}@endif
+                                    </span>
                                     ·
                                     <span>{{ $nowPlaying['step_label'] ?? ($overview['current_stage'] ?? '—') }}</span>
                                     ·
@@ -503,7 +591,11 @@
                             <x-heroicon-o-pause-circle class="h-6 w-6 shrink-0 text-gray-400" />
                             <div class="min-w-0">
                                 <div class="truncate font-medium text-gray-900 dark:text-white">
-                                    @if (empty($batch))
+                                    @if (! empty($progress['error']))
+                                        Đã xảy ra lỗi khi tải tiến trình đợt Generate #{{ $this->batchId }}.
+                                    @elseif (! empty($progress['not_found']))
+                                        Không tìm thấy đợt Generate #{{ $this->batchId }}.
+                                    @elseif (empty($batch))
                                         Chưa có đợt Generate nào trong tháng này.
                                     @elseif (! empty($batch['is_terminal']))
                                         @if ($failed > 0 || ((int) ($overview['pending'] ?? 0)) > 0)
@@ -595,6 +687,20 @@
                                 <x-heroicon-o-check-circle class="h-3.5 w-3.5 text-success-600" />
                                 Thành công <strong class="tabular-nums">{{ $succeeded }}</strong>
                             </span>
+                            @if (! empty($batch['is_auto_cost']))
+                                <span class="inline-flex items-center gap-1 whitespace-nowrap text-emerald-700 dark:text-emerald-400">
+                                    Free OK <strong class="tabular-nums">{{ (int) ($overview['free_succeeded'] ?? 0) }}</strong>
+                                </span>
+                                <span class="inline-flex items-center gap-1 whitespace-nowrap text-sky-700 dark:text-sky-400">
+                                    Paid OK <strong class="tabular-nums">{{ (int) ($overview['paid_fallback_succeeded'] ?? 0) }}</strong>
+                                </span>
+                                <span class="inline-flex items-center gap-1 whitespace-nowrap text-amber-700 dark:text-amber-400">
+                                    Chờ rerun <strong class="tabular-nums">{{ (int) ($overview['waiting_retry'] ?? 0) }}</strong>
+                                </span>
+                                <span class="inline-flex items-center gap-1 whitespace-nowrap text-gray-500">
+                                    Attempt lỗi <strong class="tabular-nums">{{ (int) ($overview['failed_attempt_count'] ?? 0) }}</strong>
+                                </span>
+                            @endif
                             <span class="inline-flex items-center gap-1 whitespace-nowrap">
                                 <x-heroicon-o-arrow-path class="h-3.5 w-3.5 text-primary-600" />
                                 Đang chạy <strong class="tabular-nums">{{ $processing }}</strong>
@@ -604,7 +710,7 @@
                                 'font-semibold text-danger-700 dark:text-danger-400' => $failed > 0,
                             ])>
                                 <x-heroicon-o-exclamation-circle class="h-3.5 w-3.5 text-danger-600" />
-                                Lỗi <strong class="tabular-nums">{{ $failed }}</strong>
+                                Lỗi vĩnh viễn <strong class="tabular-nums">{{ $failed }}</strong>
                             </span>
                             <span class="inline-flex items-center gap-1 whitespace-nowrap">
                                 <x-heroicon-o-clock class="h-3.5 w-3.5 text-gray-400" />
@@ -613,6 +719,11 @@
                             <span class="inline-flex items-center gap-1 whitespace-nowrap">
                                 Bỏ qua <strong class="tabular-nums">{{ $skipped }}</strong>
                             </span>
+                            @if (! empty($overview['next_retry_label']))
+                                <span class="inline-flex items-center gap-1 whitespace-nowrap text-amber-700 dark:text-amber-300">
+                                    Next retry {{ $overview['next_retry_label'] }}
+                                </span>
+                            @endif
                             <span class="inline-flex items-center gap-1 whitespace-nowrap text-gray-500 dark:text-gray-400">
                                 Tổng snapshot <strong class="tabular-nums">{{ $total }}</strong>
                             </span>
@@ -661,21 +772,29 @@
                                     $isCurrent = (bool) ($row['is_current'] ?? false);
                                     $title = (string) ($row['title'] ?? '');
                                     $projName = (string) ($row['project_name'] ?? '');
+                                    $ownerName = (string) ($row['owner_name'] ?? '');
                                 @endphp
-                                <tr @class([
+                                <tr
+                                    wire:key="gm-playlist-{{ (int) ($row['position'] ?? 0) }}"
+                                    @class([
                                     'bg-primary-50/80 dark:bg-primary-500/10' => $isCurrent,
                                     'hover:bg-gray-50 dark:hover:bg-white/5 transition-colors' => ! $isCurrent,
                                 ])>
                                     <td class="tabular-nums text-xs text-gray-500 dark:text-gray-400">
                                         {{ (int) ($row['position'] ?? 0) }}
                                     </td>
-                                    <td class="truncate text-xs" title="{{ $projName }}">
+                                    <td class="truncate text-xs" title="{{ $ownerName !== '' ? ($projName . ' — ' . $ownerName) : $projName }}">
                                         @if (! empty($row['project_url']))
-                                            <a href="{{ $row['project_url'] }}" class="text-primary-600 hover:text-primary-500 hover:underline">
+                                            <a href="{{ $row['project_url'] }}" class="font-medium text-primary-600 hover:text-primary-500 hover:underline">
                                                 {{ $projName }}
                                             </a>
                                         @else
-                                            <span class="text-gray-700 dark:text-gray-300">{{ $projName }}</span>
+                                            <span class="font-medium text-gray-700 dark:text-gray-300">{{ $projName }}</span>
+                                        @endif
+                                        @if ($ownerName !== '')
+                                            <div class="truncate text-[11px] text-gray-500 dark:text-gray-400">
+                                                {{ $ownerName }}
+                                            </div>
                                         @endif
                                     </td>
                                     <td class="truncate font-medium text-gray-900 dark:text-white" title="{{ $title }}">
@@ -701,14 +820,31 @@
                                             <span class="truncate">{{ $row['status_label'] ?? $bucket }}</span>
                                         </span>
                                     </td>
-                                    <td class="truncate tabular-nums text-xs text-gray-600 dark:text-gray-300" title="{{ $row['duration_label'] ?? '—' }}">
+                                    <td
+                                        @if ($isCurrent)
+                                            data-gm-running-row-elapsed
+                                        @endif
+                                        @class([
+                                            'truncate tabular-nums text-xs',
+                                            'text-primary-700 dark:text-primary-300 font-medium' => $isCurrent,
+                                            'text-gray-600 dark:text-gray-300' => ! $isCurrent && ! empty($row['duration_label']) && $row['duration_label'] !== '—',
+                                            'text-gray-400 dark:text-gray-500' => empty($row['duration_label']) || $row['duration_label'] === '—',
+                                        ])
+                                        title="{{ $row['duration_label'] ?? '—' }}"
+                                    >
                                         {{ $row['duration_label'] ?? '—' }}
                                     </td>
                                 </tr>
                             @empty
                                 <tr>
                                     <td colspan="5" class="px-3 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
-                                        <p class="font-medium">Chưa có đợt Generate nào trong tháng này.</p>
+                                        @if (! empty($progress['error']))
+                                            <p class="font-medium text-danger-600">Đã xảy ra lỗi khi tải danh sách bài viết (#{{ $this->batchId }}).</p>
+                                        @elseif (! empty($progress['not_found']))
+                                            <p class="font-medium">Không tìm thấy đợt Generate #{{ $this->batchId }}.</p>
+                                        @else
+                                            <p class="font-medium">Chưa có đợt Generate nào trong tháng này.</p>
+                                        @endif
                                         <button
                                             type="button"
                                             wire:click="setActiveTab('setup')"
@@ -787,7 +923,7 @@
                                         <span class="text-gray-400">/ {{ $row['total_items'] }}</span>
                                     </td>
                                     <td class="text-xs text-gray-600 dark:text-gray-400">
-                                        {{ $row['ai_cost_policy'] === 'free_only' ? 'Free-Split' : 'Paid' }}
+                                        {{ $row['ai_cost_policy'] === 'auto_cost' ? 'Auto Cost' : ($row['ai_cost_policy'] === 'free_only' ? 'Free-Split' : 'Paid') }}
                                     </td>
                                     <td class="tabular-nums text-xs text-gray-500">
                                         {{ $row['started_at'] ?? '—' }}

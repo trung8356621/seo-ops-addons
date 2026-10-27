@@ -49,23 +49,44 @@ final class GlobalMonthlyGeneratorUiTest extends TestCase
         // Setup section
         self::assertStringContainsString("activeTab === 'setup'", $src);
         self::assertStringContainsString('wire:model.live="planningMonth"', $src);
-        self::assertStringContainsString('wire:model="aiCostPolicy"', $src);
+        self::assertStringContainsString('Auto Cost', $src);
+        self::assertStringContainsString('Free → Paid → Auto Rerun', $src);
+        self::assertStringNotContainsString('wire:model="aiCostPolicy"', $src);
         self::assertStringContainsString('wire:click="startBatch"', $src);
         self::assertStringContainsString('Generate tháng', $src);
         self::assertStringContainsString('gm-setup', $src);
         self::assertStringContainsString('Bài chưa Generate', $src);
+        self::assertStringContainsString('Bài lỗi', $src);
         self::assertStringContainsString('Trạng thái', $src);
+        self::assertTrue(
+            strpos($src, 'Bài chưa Generate') < strpos($src, 'Bài lỗi')
+            && strpos($src, 'Bài lỗi') < strpos($src, 'Trạng thái'),
+            'Column "Bài lỗi" must be after "Bài chưa Generate" and before "Trạng thái".'
+        );
+        self::assertStringContainsString('bài lỗi', $src);
+        self::assertStringContainsString('gm-setup-failed', $src);
+        self::assertStringContainsString("project['owner_name']", $src);
 
         // Progress section
         self::assertStringContainsString("activeTab === 'progress'", $src);
         self::assertStringContainsString('gm-progress-playlist', $src);
         self::assertStringContainsString('data-gm-playlist-scroll', $src);
         self::assertStringContainsString('nowPlaying', $src);
+        self::assertStringContainsString("nowPlaying['owner_name']", $src);
+        self::assertStringContainsString("row['owner_name']", $src);
         self::assertStringContainsString('gm-progress-bar-track', $src);
         self::assertStringContainsString('gm-progress-bar-fill', $src);
         self::assertStringContainsString('wire:poll.5s="refreshProgress"', $src);
         self::assertStringContainsString('Chưa có đợt Generate nào trong tháng này.', $src);
         self::assertStringContainsString('Emergency Stop', $src);
+
+        // JavaScript single-timer elapsed updates
+        self::assertStringContainsString('data-gm-running-start-ts', $src);
+        self::assertStringContainsString('data-gm-now-playing-elapsed', $src);
+        self::assertStringContainsString('data-gm-running-row-elapsed', $src);
+        self::assertStringContainsString('tickTimer()', $src);
+        self::assertStringContainsString('startTimer()', $src);
+        self::assertStringContainsString('stopTimer()', $src);
 
         // History section
         self::assertStringContainsString("activeTab === 'history'", $src);

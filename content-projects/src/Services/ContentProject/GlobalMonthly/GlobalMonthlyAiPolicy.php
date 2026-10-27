@@ -8,16 +8,46 @@ use Omnichannel\Addons\AiPrompt\Support\AiCostPolicy;
 
 /**
  * Sticky AI mode for Global Batch — snapshot once, never flip mid-batch.
+ *
+ * New batches use {@see self::AUTO_COST}. Legacy batches retain free_only / default.
  */
 final class GlobalMonthlyAiPolicy
 {
+    /** Fixed mode for newly created Global Monthly batches. */
+    public const AUTO_COST = 'auto_cost';
+
+    public static function isAutoCost(mixed $value): bool
+    {
+        $normalized = strtolower(trim((string) $value));
+
+        return $normalized === self::AUTO_COST || $normalized === 'auto';
+    }
+
+    /**
+     * Normalize batch-level policy token (auto_cost | free_only | default).
+     */
+    public static function normalizeBatchPolicy(mixed $value): string
+    {
+        if (self::isAutoCost($value)) {
+            return self::AUTO_COST;
+        }
+
+        return AiCostPolicy::tryFromMixed($value)->value;
+    }
+
+    /** @deprecated Use normalizeBatchPolicy for batch tokens; kept for sticky Free/Paid child settings. */
     public static function normalize(mixed $value): AiCostPolicy
     {
+        if (self::isAutoCost($value)) {
+            // Auto Cost is not an Individual AiCostPolicy — callers must branch first.
+            return AiCostPolicy::FreeOnly;
+        }
+
         return AiCostPolicy::tryFromMixed($value);
     }
 
     /**
-     * Settings merged into every child Project Run.
+     * Settings merged into every child Project Run (sticky Free/Paid only).
      *
      * @return array<string, mixed>
      */

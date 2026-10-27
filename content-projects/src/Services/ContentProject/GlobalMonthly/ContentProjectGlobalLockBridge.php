@@ -180,17 +180,6 @@ final class ContentProjectGlobalLockBridge
      */
     public function onProjectRunTerminal(SeoProjectRun $run): void
     {
-        if (ContentProjectRunRecoverableState::isRecoverableRun($run)) {
-            RuntimeLogger::info('global_generation_lock.hold_recoverable', [
-                'run_id' => (int) $run->getKey(),
-                'reason' => ContentProjectRunRecoverableState::reasonFromEngine(
-                    is_array($run->settings['php_engine'] ?? null) ? $run->settings['php_engine'] : []
-                ),
-            ]);
-
-            return;
-        }
-
         $settings = is_array($run->settings) ? $run->settings : [];
         $batchId = (int) ($settings['global_batch_id'] ?? 0);
         if ($batchId <= 0) {
@@ -199,9 +188,23 @@ final class ContentProjectGlobalLockBridge
                 ->value('id') ?? 0);
         }
 
+        // Always release lock for standalone project runs upon reaching terminal.
+        // Even if recoverable, execution is terminal and no active worker remains.
         $this->releaseForProjectRun($run);
 
         if ($batchId > 0) {
+            if (ContentProjectRunRecoverableState::isRecoverableRun($run)) {
+                RuntimeLogger::info('global_generation_lock.hold_recoverable', [
+                    'run_id' => (int) $run->getKey(),
+                    'batch_id' => $batchId,
+                    'reason' => ContentProjectRunRecoverableState::reasonFromEngine(
+                        is_array($run->settings['php_engine'] ?? null) ? $run->settings['php_engine'] : []
+                    ),
+                ]);
+
+                return;
+            }
+
             try {
                 AdvanceGlobalMonthlyBatchJob::dispatch($batchId, (int) $run->getKey());
             } catch (\Throwable $e) {

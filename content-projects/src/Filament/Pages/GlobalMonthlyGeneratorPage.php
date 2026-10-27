@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Filament\Pages;
 
-use Omnichannel\Addons\AiPrompt\Support\AiCostPolicy;
-use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationModePreference;
 use Omnichannel\Addons\ContentProjects\Models\SeoContentGenerationLock;
 use Omnichannel\Addons\ContentProjects\Models\SeoContentGlobalBatch;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
@@ -14,6 +12,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\StopGlobalMonthlyBatchCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalGenerationLock;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalMonthlyAiPolicy;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalMonthlyBatchProgressReadModel;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalMonthlyBatchSnapshotBuilder;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
@@ -44,7 +43,8 @@ final class GlobalMonthlyGeneratorPage extends SeoPanelPage
     #[Url(as: 'batch')]
     public ?int $batchId = null;
 
-    public string $aiCostPolicy = 'default';
+    /** Fixed Auto Cost for new Global batches (Individual AI Mode unchanged). */
+    public string $aiCostPolicy = GlobalMonthlyAiPolicy::AUTO_COST;
 
     public string $activeTab = 'setup';
 
@@ -73,7 +73,7 @@ final class GlobalMonthlyGeneratorPage extends SeoPanelPage
     public function mount(): void
     {
         $this->planningMonth = ContentProjectMonthContext::normalize($this->planningMonth);
-        $this->aiCostPolicy = ArticleGenerationModePreference::forUserId((int) (Auth::id() ?? 0))->value;
+        $this->aiCostPolicy = GlobalMonthlyAiPolicy::AUTO_COST;
         $this->refreshLock();
         $this->refreshPreflight();
         $this->refreshHistory();
@@ -188,14 +188,18 @@ final class GlobalMonthlyGeneratorPage extends SeoPanelPage
         try {
             $batch = SeoContentGlobalBatch::query()->find($this->batchId);
             if (! $batch instanceof SeoContentGlobalBatch) {
-                $this->progress = [];
+                $this->progress = ['not_found' => true];
 
                 return;
             }
 
             $this->progress = app(GlobalMonthlyBatchProgressReadModel::class)->forBatch($batch);
-        } catch (\Throwable) {
-            $this->progress = [];
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('GlobalMonthlyGeneratorPage::refreshProgress failed: '.$e->getMessage(), [
+                'exception' => $e,
+                'batch_id' => $this->batchId,
+            ]);
+            $this->progress = ['error' => true];
         }
     }
 
@@ -250,7 +254,7 @@ final class GlobalMonthlyGeneratorPage extends SeoPanelPage
         $result = app(ContentProjectCommandBus::class)->dispatch(
             new StartGlobalMonthlyBatchCommand(
                 (string) $this->planningMonth,
-                AiCostPolicy::tryFromMixed($this->aiCostPolicy)->value,
+                GlobalMonthlyAiPolicy::AUTO_COST,
             ),
             ActorContext::user((int) (Auth::id() ?? 0)),
         );

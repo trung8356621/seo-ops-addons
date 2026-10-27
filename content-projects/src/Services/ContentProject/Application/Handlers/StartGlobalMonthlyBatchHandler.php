@@ -26,7 +26,8 @@ final class StartGlobalMonthlyBatchHandler implements ContentProjectCommandHandl
             throw new InvalidArgumentException('Expected StartGlobalMonthlyBatchCommand.');
         }
 
-        $policy = GlobalMonthlyAiPolicy::normalize($command->aiCostPolicy);
+        // New batches always use Auto Cost. Legacy batches retain their snapshotted policy.
+        $policy = GlobalMonthlyAiPolicy::AUTO_COST;
         $result = $this->orchestrator->start($command->planningMonth, $policy, $actor);
 
         if (! ($result['ok'] ?? false)) {
@@ -52,6 +53,7 @@ final class StartGlobalMonthlyBatchHandler implements ContentProjectCommandHandl
             null,
             metadata: array_merge($result['metadata'] ?? [], [
                 'batch_id' => $result['batch_id'] ?? null,
+                'ai_cost_policy' => $policy,
             ]),
         );
     }

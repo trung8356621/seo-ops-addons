@@ -20,6 +20,10 @@
         <span class="truncate">{{ $unavailableMessage }}</span>
     </div>
 @elseif ($holder !== null)
+    @php
+        $isRecoverable = ! empty($holder['is_recoverable']);
+        $ownerLabel = $holder['owner_label'] ?? $holder['label'] ?? 'tiến trình khác';
+    @endphp
     <div
         data-cp-lock-notice="held"
         class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"
@@ -27,7 +31,13 @@
     >
         <div class="flex items-center gap-2 min-w-0">
             <x-heroicon-m-exclamation-triangle class="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-            <span class="font-medium truncate">{{ $busyMessage }}</span>
+            <span class="font-medium truncate">
+                @if ($isRecoverable)
+                    {{ $ownerLabel }} đang chờ recovery hoặc resume. Vui lòng xử lý trước khi bắt đầu Generate mới.
+                @else
+                    {{ $busyMessage }}
+                @endif
+            </span>
         </div>
         @if ($progressUrl)
             <a

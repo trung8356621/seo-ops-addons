@@ -96,6 +96,10 @@ final class GlobalGenerationLockReconciliationTest extends TestCase
         self::assertStringContainsString('child_run_worker_active', $src);
         self::assertStringContainsString('run_worker_active', $src);
 
+        // Auto Cost waiting_retry cooldown must retain exclusive lock
+        self::assertStringContainsString('waiting_retry_cooldown_hold', $src);
+        self::assertStringContainsString('redispatched_due_waiting_retry_wake', $src);
+
         // Case D: WORKER_LOST -> reuse existing recovery contract
         self::assertStringContainsString('recoverDeadDispatchIfConfirmed', $src);
         self::assertStringContainsString('isRecoverableRun', $src);
@@ -165,5 +169,19 @@ final class GlobalGenerationLockReconciliationTest extends TestCase
         // startNextProjectSlice filters on pending tasks only
         self::assertStringContainsString("where('status', SeoContentGlobalBatchItem::STATUS_PENDING)", $src);
         self::assertStringNotContainsString("STATUS_SUCCEEDED", substr($src, strpos($src, 'startNextProjectSlice'), 800));
+    }
+
+    public function test_terminal_project_run_releases_lock_automatically_when_no_active_execution(): void
+    {
+        $src = (string) file_get_contents(
+            (string) (new ReflectionClass(GlobalGenerationLockReconciler::class))->getFileName(),
+        );
+
+        // When run is terminal, reconciler checks active worker/queue jobs and releases lock
+        self::assertStringContainsString('$run->isTerminal()', $src);
+        self::assertStringContainsString('$this->isRunWorkerActive($run)', $src);
+        self::assertStringContainsString('$this->hasActiveQueueJobsForRun($runId)', $src);
+        self::assertStringContainsString('released_terminal_owner_lock', $src);
+        self::assertStringContainsString('released_worker_lost_terminal_owner_lock', $src);
     }
 }

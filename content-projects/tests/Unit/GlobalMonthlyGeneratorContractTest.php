@@ -140,6 +140,23 @@ final class GlobalMonthlyGeneratorContractTest extends TestCase
         GlobalMonthlyAiPolicy::assertUnchanged($free, 'default');
     }
 
+    public function test_new_global_batches_use_auto_cost(): void
+    {
+        self::assertSame('auto_cost', GlobalMonthlyAiPolicy::AUTO_COST);
+        self::assertTrue(GlobalMonthlyAiPolicy::isAutoCost('auto_cost'));
+
+        $handlerSrc = (string) file_get_contents(
+            (string) (new ReflectionClass(StartGlobalMonthlyBatchHandler::class))->getFileName(),
+        );
+        self::assertStringContainsString('GlobalMonthlyAiPolicy::AUTO_COST', $handlerSrc);
+
+        $orchSrc = (string) file_get_contents(
+            (string) (new ReflectionClass(GlobalMonthlyBatchOrchestrator::class))->getFileName(),
+        );
+        self::assertStringContainsString('startNextAutoCostItem', $orchSrc);
+        self::assertStringContainsString('isAutoCost', $orchSrc);
+    }
+
     public function test_snapshot_builder_class_wires_eligibility_gate(): void
     {
         $src = (string) file_get_contents(
@@ -150,6 +167,9 @@ final class GlobalMonthlyGeneratorContractTest extends TestCase
         self::assertStringContainsString('eligibleTaskIds', $src);
         self::assertStringContainsString('orderBy(\'id\')', $src);
         self::assertStringContainsString('project_bulk_active', $src);
+        self::assertStringContainsString('pending_count', $src);
+        self::assertStringContainsString('failed_count', $src);
+        self::assertStringContainsString('STATUS_FAILED', $src);
     }
 
     public function test_start_command_name(): void
