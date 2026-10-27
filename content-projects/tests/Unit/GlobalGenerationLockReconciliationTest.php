@@ -100,6 +100,10 @@ final class GlobalGenerationLockReconciliationTest extends TestCase
         self::assertStringContainsString('waiting_retry_cooldown_hold', $src);
         self::assertStringContainsString('redispatched_due_waiting_retry_wake', $src);
 
+        // Explicit Stop must override recoverable circuit_breaker hold
+        self::assertStringContainsString('user_stop_overrides_recoverable_hold', $src);
+        self::assertStringContainsString('finalized_stopped_recoverable_child_and_advanced', $src);
+
         // Case D: WORKER_LOST -> reuse existing recovery contract
         self::assertStringContainsString('recoverDeadDispatchIfConfirmed', $src);
         self::assertStringContainsString('isRecoverableRun', $src);

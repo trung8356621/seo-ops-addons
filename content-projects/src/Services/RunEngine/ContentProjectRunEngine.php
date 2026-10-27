@@ -1105,6 +1105,16 @@ final class ContentProjectRunEngine
             return false;
         }
 
+        // Global Auto Cost owns Free circuit / Paid fallback / waiting_retry at batch layer.
+        // Project-run consecutive breaker must not terminate the overnight Global Batch.
+        $runSettings = is_array($run->settings) ? $run->settings : [];
+        if (! empty($runSettings['disable_batch_circuit_breaker'])
+            || ! empty($runSettings['global_auto_cost_strategy'])
+            || (($runSettings['ai_cost_policy'] ?? null) === 'auto_cost')
+        ) {
+            return false;
+        }
+
         // Deferred / pending transient AI must never count toward the breaker.
         if (ContentProjectTransientAiRetryPolicy::isTransientResult($result)) {
             return false;

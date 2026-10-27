@@ -53,6 +53,8 @@ final class GlobalMonthlyGeneratorUiTest extends TestCase
         self::assertStringContainsString('Free → Paid → Auto Rerun', $src);
         self::assertStringNotContainsString('wire:model="aiCostPolicy"', $src);
         self::assertStringContainsString('wire:click="startBatch"', $src);
+        self::assertStringContainsString('cursor-not-allowed', $src);
+        self::assertStringContainsString('data-gm-start-block-reason', $src);
         self::assertStringContainsString('Generate tháng', $src);
         self::assertStringContainsString('gm-setup', $src);
         self::assertStringContainsString('Bài chưa Generate', $src);

@@ -193,7 +193,21 @@ final class ContentProjectGlobalLockBridge
         $this->releaseForProjectRun($run);
 
         if ($batchId > 0) {
-            if (ContentProjectRunRecoverableState::isRecoverableRun($run)) {
+            $batch = SeoContentGlobalBatch::query()->find($batchId);
+            $batchSettings = $batch instanceof SeoContentGlobalBatch && is_array($batch->settings)
+                ? $batch->settings
+                : [];
+            $stopOverridesRecoverable = $batch instanceof SeoContentGlobalBatch
+                && ($batch->stopRequested() || ! empty($batchSettings['auto_rerun_disabled']));
+            $autoCostAdvanceOnRecoverable = $batch instanceof SeoContentGlobalBatch
+                && GlobalMonthlyAiPolicy::isAutoCost($batch->ai_cost_policy);
+
+            // Recoverable hold is for Individual-style Resume — never after explicit Global Stop,
+            // and never freeze Auto Cost overnight (Paid fallback / waiting_retry must continue).
+            if (ContentProjectRunRecoverableState::isRecoverableRun($run)
+                && ! $stopOverridesRecoverable
+                && ! $autoCostAdvanceOnRecoverable
+            ) {
                 RuntimeLogger::info('global_generation_lock.hold_recoverable', [
                     'run_id' => (int) $run->getKey(),
                     'batch_id' => $batchId,

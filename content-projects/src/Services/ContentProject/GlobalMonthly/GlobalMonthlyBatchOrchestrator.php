@@ -522,20 +522,48 @@ final class GlobalMonthlyBatchOrchestrator
         ]);
 
         $runId = (int) ($batch->current_project_run_id ?? 0);
-        if ($runId > 0) {
-            $run = SeoProjectRun::query()->find($runId);
-            if ($run instanceof SeoProjectRun && (string) $run->status === SeoProjectRun::STATUS_RUNNING) {
+        $run = $runId > 0 ? SeoProjectRun::query()->find($runId) : null;
+        $childStillRunning = $run instanceof SeoProjectRun
+            && in_array((string) $run->status, [
+                SeoProjectRun::STATUS_RUNNING,
+                SeoProjectRun::STATUS_STOPPING,
+            ], true);
+
+        if ($childStillRunning) {
+            if ((string) $run->status === SeoProjectRun::STATUS_RUNNING) {
                 $this->runEngine->requestStop($run, $actor->actorId, $reason ?? 'Global batch stop.');
             }
+
+            // Lock remains until child finishes and advance marks terminal.
+            return [
+                'ok' => true,
+                'message' => 'Stop requested — waiting for current article to finish.',
+                'metadata' => [
+                    'batch_id' => $batchId,
+                    'current_project_run_id' => $runId,
+                ],
+            ];
         }
 
-        // Lock remains until child finishes and advance marks terminal.
+        // Child already terminal (incl. recoverable circuit_breaker/worker_lost) or missing:
+        // User Stop is authoritative — sync outcomes first, then finalize and release lock.
+        $batch = $batch->fresh() ?? $batch;
+        if ($runId > 0) {
+            $this->syncItemsFromChildRun($batch, $runId);
+            $batch = $batch->fresh() ?? $batch;
+        }
+        $this->markRemainingPendingCancelled($batch);
+        $this->markWaitingRetryCancelled($batch);
+        $this->recount($batch);
+        $this->completeTerminal($batch, SeoContentGlobalBatch::STATUS_CANCELLED);
+
         return [
             'ok' => true,
-            'message' => 'Stop requested — waiting for current article to finish.',
+            'message' => 'Batch stopped — lock released (no active child worker).',
             'metadata' => [
                 'batch_id' => $batchId,
-                'current_project_run_id' => $runId > 0 ? $runId : null,
+                'status' => SeoContentGlobalBatch::STATUS_CANCELLED,
+                'previous_project_run_id' => $runId > 0 ? $runId : null,
             ],
         ];
     }
@@ -1119,6 +1147,7 @@ final class GlobalMonthlyBatchOrchestrator
             'global_batch_id' => $batchId,
             'global_batch_item_id' => (int) $item->getKey(),
             'global_auto_cost_strategy' => $strategy,
+            'disable_batch_circuit_breaker' => true,
             'inherits_global_lock' => true,
             'lazy_bulk' => true,
             'use_php_engine' => true,
@@ -1561,9 +1590,12 @@ final class GlobalMonthlyBatchOrchestrator
                 SeoProjectRunItemStatus::Success => SeoContentGlobalBatchItem::STATUS_SUCCEEDED,
                 SeoProjectRunItemStatus::Failed => SeoContentGlobalBatchItem::STATUS_FAILED,
                 SeoProjectRunItemStatus::Skipped => SeoContentGlobalBatchItem::STATUS_SKIPPED,
-                SeoProjectRunItemStatus::Cancelled => SeoContentGlobalBatchItem::STATUS_CANCELLED,
                 default => null,
             };
+            // Enum has no Cancelled case — map legacy cancelled string explicitly.
+            if ($mapped === null && strtolower(trim((string) ($runItem->status ?? ''))) === 'cancelled') {
+                $mapped = SeoContentGlobalBatchItem::STATUS_CANCELLED;
+            }
 
             if ($mapped === null) {
                 // Still pending/processing — if run terminal, treat remaining as cancelled/skipped.

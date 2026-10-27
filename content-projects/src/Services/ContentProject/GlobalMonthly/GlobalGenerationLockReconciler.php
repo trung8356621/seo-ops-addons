@@ -183,8 +183,16 @@ final class GlobalGenerationLockReconciler
             }
 
             if ($childRun->isTerminal()) {
-                // Child run is terminal: check if it is in recoverable WORKER_LOST state.
-                if (ContentProjectRunRecoverableState::isRecoverableRun($childRun)) {
+                $batchSettings = is_array($batch->settings) ? $batch->settings : [];
+                $stopOverridesRecoverable = $batch->stopRequested()
+                    || ! empty($batchSettings['auto_rerun_disabled']);
+                $autoCost = GlobalMonthlyAiPolicy::isAutoCost($batch->ai_cost_policy);
+
+                // User Stop / Auto Cost: never permanently block on recoverable child.
+                if (ContentProjectRunRecoverableState::isRecoverableRun($childRun)
+                    && ! $stopOverridesRecoverable
+                    && ! $autoCost
+                ) {
                     return [
                         'reconciled' => false,
                         'action' => 'retain_lock',
@@ -197,13 +205,19 @@ final class GlobalGenerationLockReconciler
                     ];
                 }
 
-                // Normal terminal child run: replay advance safely.
+                // Terminal child (incl. recoverable after Stop / Auto Cost): replay advance.
                 $adv = $this->orchestrator->advanceAfterChildRun($batchId, $currentRunId, ActorContext::system());
 
                 return [
                     'reconciled' => true,
-                    'action' => 'replayed_advance_after_child_terminal',
-                    'reason' => 'child_run_terminal_without_advance',
+                    'action' => $stopOverridesRecoverable
+                        ? 'finalized_stopped_recoverable_child_and_advanced'
+                        : 'replayed_advance_after_child_terminal',
+                    'reason' => $stopOverridesRecoverable
+                        ? 'user_stop_overrides_recoverable_hold'
+                        : ($autoCost && ContentProjectRunRecoverableState::isRecoverableRun($childRun)
+                            ? 'auto_cost_advances_recoverable_child'
+                            : 'child_run_terminal_without_advance'),
                     'details' => $adv,
                 ];
             }

@@ -28,14 +28,29 @@ final class GlobalMonthlyBatchProgressReadModel
      */
     public function forBatch(SeoContentGlobalBatch $batch): array
     {
+        // Base columns only — Auto Cost extras are optional until migration is applied.
+        $itemColumns = [
+            'id', 'position', 'project_id', 'task_id', 'item_type', 'status',
+            'skip_reason', 'project_run_id', 'run_item_id', 'started_at', 'finished_at', 'error_message',
+        ];
+        foreach ([
+            'current_strategy', 'retry_count', 'next_retry_at', 'succeeded_via', 'last_error_category',
+        ] as $optionalCol) {
+            try {
+                if (\Illuminate\Support\Facades\Schema::connection('omi_seo_ai')
+                    ->hasColumn('seo_content_global_batch_items', $optionalCol)
+                ) {
+                    $itemColumns[] = $optionalCol;
+                }
+            } catch (\Throwable) {
+                // Schema probe failed — keep base columns so Progress remains readable.
+            }
+        }
+
         $items = SeoContentGlobalBatchItem::query()
             ->where('batch_id', (int) $batch->id)
             ->orderBy('position')
-            ->get([
-                'id', 'position', 'project_id', 'task_id', 'item_type', 'status',
-                'skip_reason', 'project_run_id', 'run_item_id', 'started_at', 'finished_at', 'error_message',
-                'current_strategy', 'retry_count', 'next_retry_at', 'succeeded_via', 'last_error_category',
-            ]);
+            ->get($itemColumns);
 
         $projects = SeoProject::query()
             ->whereIn('id', $items->pluck('project_id')->unique()->filter()->all())

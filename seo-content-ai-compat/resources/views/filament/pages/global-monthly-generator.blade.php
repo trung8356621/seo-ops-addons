@@ -343,20 +343,37 @@
                         </span>
                     </div>
 
-                    <div class="sm:ms-auto shrink-0">
+                    <div class="sm:ms-auto shrink-0 flex flex-col items-stretch sm:items-end gap-1.5">
+                        @php
+                            $canStart = $this->canStartBatch();
+                            $startGate = $this->startGateState();
+                            $startBlockReason = $this->startBlockReason();
+                        @endphp
                         <button
                             type="button"
                             wire:click="startBatch"
                             wire:loading.attr="disabled"
                             wire:target="startBatch"
-                            @disabled(! $this->canStartBatch())
-                            class="fi-btn fi-btn-color-primary fi-btn-size-md inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary-600 px-4 py-2 text-xs sm:text-sm font-semibold text-white shadow-sm hover:bg-primary-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                            @disabled(! $canStart)
+                            @class([
+                                'fi-btn fi-btn-size-md inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-xs sm:text-sm font-semibold shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2',
+                                'fi-btn-color-primary bg-primary-600 text-white hover:bg-primary-500 focus-visible:outline-primary-600' => $canStart,
+                                'bg-gray-300 text-gray-500 cursor-not-allowed opacity-70 shadow-none hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-700' => ! $canStart,
+                            ])
                         >
                             <x-heroicon-o-play class="h-4 w-4 shrink-0" wire:loading.remove wire:target="startBatch" />
                             <x-heroicon-o-arrow-path class="h-4 w-4 shrink-0 animate-spin" wire:loading wire:target="startBatch" />
                             <span wire:loading.remove wire:target="startBatch">Generate tháng</span>
                             <span wire:loading wire:target="startBatch">Đang khởi tạo…</span>
                         </button>
+                        @if (! $canStart && filled($startBlockReason))
+                            <p class="max-w-sm text-[11px] leading-snug text-amber-700 dark:text-amber-300 sm:text-right" data-gm-start-block-reason>
+                                {{ $startBlockReason }}
+                                @if (in_array($startGate, ['running', 'recovery'], true) && $this->batchId)
+                                    <button type="button" wire:click="setActiveTab('progress')" class="ms-1 font-semibold underline">Xem Progress</button>
+                                @endif
+                            </p>
+                        @endif
                     </div>
                 </div>
 

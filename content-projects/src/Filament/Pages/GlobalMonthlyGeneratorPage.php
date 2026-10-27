@@ -237,6 +237,50 @@ final class GlobalMonthlyGeneratorPage extends SeoPanelPage
             && ($this->preflight['legacy_active_runs'] ?? []) === [];
     }
 
+    /**
+     * Setup button visual gate: ready | blocked | running | recovery.
+     */
+    public function startGateState(): string
+    {
+        $lockState = (string) ($this->lockInspect['state'] ?? GlobalGenerationLock::STATE_UNAVAILABLE);
+        $holder = is_array($this->lockInspect['holder'] ?? null) ? $this->lockInspect['holder'] : null;
+
+        if ($lockState === GlobalGenerationLock::STATE_HELD && ! empty($holder['is_recoverable'])) {
+            return 'recovery';
+        }
+        if ($lockState === GlobalGenerationLock::STATE_HELD) {
+            return 'running';
+        }
+        if ($this->canStartBatch()) {
+            return 'ready';
+        }
+
+        return 'blocked';
+    }
+
+    public function startBlockReason(): ?string
+    {
+        if ($this->canStartBatch()) {
+            return null;
+        }
+
+        $gate = $this->startGateState();
+        $holder = is_array($this->lockInspect['holder'] ?? null) ? $this->lockInspect['holder'] : null;
+        $label = (string) ($holder['owner_label'] ?? $holder['label'] ?? 'Global Batch');
+
+        return match ($gate) {
+            'recovery' => $label.' đang chờ recovery hoặc resume — không thể bắt đầu Generate mới.',
+            'running' => GlobalGenerationLock::BUSY_MESSAGE,
+            default => (string) (
+                ($this->preflight['eligible_count'] ?? 0) <= 0
+                    ? 'Không có bài eligible.'
+                    : (($this->preflight['legacy_active_runs'] ?? []) !== []
+                        ? GlobalGenerationLock::BUSY_MESSAGE.' (legacy Project Run đang chạy).'
+                        : ($this->preflight['lock_message'] ?? GlobalGenerationLock::UNAVAILABLE_MESSAGE))
+            ),
+        };
+    }
+
     public function startBatch(): void
     {
         $this->refreshPreflight();
