@@ -84,32 +84,51 @@ final class WritingMultiplePassStepPlanner
         if ($rows === []) {
             return [];
         }
-        $remainingWeight = $this->groupWeight($rows);
-        $groupsRemaining = min($desired, count($rows));
-        $groups = [];
-        $current = [];
-        $currentWeight = 0;
-        foreach ($rows as $index => $row) {
-            $weight = $this->rowWeight($row);
-            $target = max(1, (int) ceil($remainingWeight / $groupsRemaining));
-            $rowsLeft = count($rows) - $index;
-            $mustClose = $groupsRemaining > 1 && $rowsLeft === $groupsRemaining;
-            $semanticBoundary = $this->isH2($row) && $current !== [];
-            // Prefer H2 boundaries. Split inside one unusually dense H2 only when
-            // it is materially larger than the remaining per-unit budget.
-            $wouldOverflow = $current !== [] && $currentWeight + $weight > (int) round($target * 1.80);
-            if ($groupsRemaining > 1 && ($mustClose || ($semanticBoundary && $currentWeight >= $target * 0.65) || $wouldOverflow)) {
-                $groups[] = $current;
-                $remainingWeight -= $currentWeight;
-                $groupsRemaining--;
-                $current = [];
-                $currentWeight = 0;
+
+        // Group into H2 trees (an H2 and all its H3 children stay together)
+        $trees = [];
+        $currentTree = [];
+        foreach ($rows as $r) {
+            $kind = (string) ($r['kind'] ?? '');
+            $level = (int) ($r['level'] ?? 2);
+            $isBoundary = ($level <= 2 && $kind !== OutlineStructuredRowsNormalizer::KIND_H3)
+                || $kind === OutlineStructuredRowsNormalizer::KIND_INTRO
+                || $kind === OutlineStructuredRowsNormalizer::KIND_CONCLUSION;
+
+            if ($isBoundary && $currentTree !== []) {
+                $trees[] = $currentTree;
+                $currentTree = [];
             }
-            $current[] = $row;
-            $currentWeight += $weight;
+            $currentTree[] = $r;
         }
-        if ($current !== []) {
-            $groups[] = $current;
+        if ($currentTree !== []) {
+            $trees[] = $currentTree;
+        }
+
+        // Pack trees into units targeting ~$desired groups, max 7 rows per unit
+        $groups = [];
+        $currentGroup = [];
+        $treesRemaining = count($trees);
+        $groupsRemaining = max(1, min($desired, $treesRemaining));
+
+        foreach ($trees as $tIdx => $tree) {
+            $cCount = count($currentGroup);
+            $tCount = count($tree);
+            $treesLeft = count($trees) - $tIdx;
+
+            // Must close if remaining trees equals remaining groups
+            $mustClose = $groupsRemaining > 1 && $treesLeft === $groupsRemaining && $cCount > 0;
+            $overCapacity = $cCount > 0 && ($cCount + $tCount > 7 || ($cCount >= 4 && $tCount >= 3) || ($tCount >= 5 && $cCount >= 2));
+
+            if ($mustClose || ($groupsRemaining > 1 && $overCapacity)) {
+                $groups[] = $currentGroup;
+                $groupsRemaining--;
+                $currentGroup = [];
+            }
+            array_push($currentGroup, ...$tree);
+        }
+        if ($currentGroup !== []) {
+            $groups[] = $currentGroup;
         }
 
         return $groups;
