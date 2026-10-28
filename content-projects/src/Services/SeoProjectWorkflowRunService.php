@@ -70,9 +70,27 @@ final class SeoProjectWorkflowRunService
             $snapshot['workflow_execution_snapshot'] = $workflowSnap;
         }
 
+        // Queue/system Global Batch advances have no HTTP auth — inherit initiator from settings.
+        // Never persist user_id=0 (breaks queue Auth::login + panelOwnerId fallback).
+        $initiatorUserId = (int) auth()->id();
+        if ($initiatorUserId <= 0) {
+            $initiatorUserId = (int) ($settings['initiator_user_id'] ?? $snapshot['initiator_user_id'] ?? 0);
+        }
+        if ($initiatorUserId <= 0) {
+            $projectOwnerId = (int) ($project->user_id ?? 0);
+            if ($projectOwnerId > 0) {
+                $initiatorUserId = $projectOwnerId;
+            }
+        }
+        if ($initiatorUserId <= 0) {
+            throw new \RuntimeException(
+                'Refuse to start project run with user_id=0 — initiator_user_id / auth / project owner required.',
+            );
+        }
+
         $run = SeoProjectRun::query()->create([
             'project_id' => (int) $project->id,
-            'user_id' => (int) auth()->id(),
+            'user_id' => $initiatorUserId,
             'mode' => $mode === SeoProjectRun::MODE_TEST ? SeoProjectRun::MODE_TEST : SeoProjectRun::MODE_FULL,
             'status' => SeoProjectRun::STATUS_RUNNING,
             'total' => 0,

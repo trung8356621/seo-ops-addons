@@ -306,18 +306,27 @@ final class SeoAccessControl
             return null;
         }
 
-        $owner = $connection->users()
-            ->where('role', User::ROLE_OWNER)
-            ->orderBy('users.id')
-            ->first();
-
-        if ($owner instanceof User) {
-            return (int) $owner->id;
+        // Legacy pivot seo_connection_users is retired (dropped). Never query it.
+        if (! \Illuminate\Support\Facades\Schema::hasTable('seo_connection_users')) {
+            return self::accountOwnerId();
         }
 
-        $fallback = $connection->users()->orderBy('users.id')->first();
+        try {
+            $owner = $connection->users()
+                ->where('role', User::ROLE_OWNER)
+                ->orderBy('users.id')
+                ->first();
 
-        return $fallback instanceof User ? (int) $fallback->id : null;
+            if ($owner instanceof User) {
+                return (int) $owner->id;
+            }
+
+            $fallback = $connection->users()->orderBy('users.id')->first();
+
+            return $fallback instanceof User ? (int) $fallback->id : self::accountOwnerId();
+        } catch (\Throwable) {
+            return self::accountOwnerId();
+        }
     }
 
     public static function guardSeoPanelMutation(): void

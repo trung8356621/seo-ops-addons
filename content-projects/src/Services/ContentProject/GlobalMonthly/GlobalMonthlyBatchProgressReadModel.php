@@ -307,6 +307,13 @@ final class GlobalMonthlyBatchProgressReadModel
         $stopReason = null;
         if ((string) $batch->status === SeoContentGlobalBatch::STATUS_STOPPED_AI_UNAVAILABLE) {
             $stopReason = 'AI unavailable: Free exhausted và Paid exhausted. Resume khi AI khả dụng — bài succeeded không bị generate lại.';
+        } elseif ((string) $batch->status === SeoContentGlobalBatch::STATUS_STOPPED_CIRCUIT_BREAKER
+            || GlobalBatchCircuitBreakerState::isStopped($settings)
+        ) {
+            $breaker = is_array($settings[GlobalBatchCircuitBreakerState::SETTINGS_KEY] ?? null)
+                ? $settings[GlobalBatchCircuitBreakerState::SETTINGS_KEY]
+                : [];
+            $stopReason = (string) ($breaker['reason'] ?? $settings['stop_reason'] ?? 'Circuit breaker — batch đã dừng, không còn chờ bài tiếp theo.');
         } elseif (! empty($settings['failure_message'])) {
             $stopReason = (string) $settings['failure_message'];
         } elseif (! empty($settings['stop_reason'])) {
@@ -418,6 +425,7 @@ final class GlobalMonthlyBatchProgressReadModel
             SeoContentGlobalBatch::STATUS_FAILED => 'Thất bại',
             SeoContentGlobalBatch::STATUS_CANCELLED => 'Đã hủy',
             SeoContentGlobalBatch::STATUS_STOPPED_AI_UNAVAILABLE => 'Dừng — AI unavailable',
+            SeoContentGlobalBatch::STATUS_STOPPED_CIRCUIT_BREAKER => 'Dừng — Circuit breaker',
             default => 'Chờ',
         };
     }

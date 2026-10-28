@@ -46,15 +46,38 @@ final class GlobalMonthlyBatchOrchestrator
      * @param  string|AiCostPolicy  $aiPolicy  Batch policy token. New starts should pass auto_cost.
      * @return array{ok: bool, batch_id: ?int, message: string, metadata: array<string, mixed>}
      */
+    /**
+     * @param  array{
+     *   smoke_test?: bool,
+     *   max_items?: int,
+     *   max_attempts?: int,
+     *   allowed_task_ids?: list<int>,
+     *   disable_paid_fallback?: bool,
+     *   auto_rerun_disabled?: bool,
+     *   disable_auto_rerun?: bool,
+     * }  $options  Smoke/test budget — max_items hard-capped at 3 when enabled.
+     */
     public function start(
         string $planningMonth,
         string|AiCostPolicy $aiPolicy,
         ActorContext $actor,
+        array $options = [],
     ): array {
         $month = ContentProjectMonthContext::normalize($planningMonth);
         $policyToken = $aiPolicy instanceof AiCostPolicy
             ? $aiPolicy->value
             : GlobalMonthlyAiPolicy::normalizeBatchPolicy($aiPolicy);
+
+        $actorUserId = (int) ($actor->actorId ?? 0);
+        if ($actorUserId <= 0) {
+            return [
+                'ok' => false,
+                'batch_id' => null,
+                'message' => 'Refuse Global Batch start with actor user_id=0.',
+                'metadata' => ['reason' => 'missing_initiator_user_id'],
+            ];
+        }
+
         $legacy = $this->legacyScanner->findActiveRuns();
         if ($legacy !== []) {
             return [
@@ -97,6 +120,31 @@ final class GlobalMonthlyBatchOrchestrator
             ];
         }
 
+        $budget = GlobalBatchExecutionBudget::fromStartOptions($options);
+        $items = is_array($snapshot['items'] ?? null) ? $snapshot['items'] : [];
+        if (! empty($budget['enabled'])) {
+            $items = GlobalBatchExecutionBudget::filterSnapshotItems($items, $budget);
+            if ($items === []) {
+                return [
+                    'ok' => false,
+                    'batch_id' => null,
+                    'message' => 'Execution budget excluded all eligible items (check allowed_task_ids / max_items).',
+                    'metadata' => ['reason' => 'budget_empty_playlist', 'budget' => $budget],
+                ];
+            }
+            // Re-index positions after filter.
+            foreach ($items as $i => &$row) {
+                $row['position'] = $i + 1;
+            }
+            unset($row);
+            $snapshot['items'] = $items;
+            $snapshot['eligible_count'] = count($items);
+            $snapshot['project_order'] = array_values(array_unique(array_map(
+                static fn (array $row): int => (int) ($row['project_id'] ?? 0),
+                $items,
+            )));
+        }
+
         $isAutoCost = GlobalMonthlyAiPolicy::isAutoCost($policyToken);
         $settings = [
             'ai_cost_policy' => $policyToken,
@@ -116,9 +164,18 @@ final class GlobalMonthlyBatchOrchestrator
             $legacyPolicy = AiCostPolicy::tryFromMixed($policyToken);
             $settings['ai_generation_mode'] = $legacyPolicy->generationModeValue();
         }
+        if (! empty($budget['enabled'])) {
+            $settings[GlobalBatchExecutionBudget::SETTINGS_KEY] = $budget;
+            if (GlobalBatchExecutionBudget::autoRerunDisabled($budget)) {
+                $settings['auto_rerun_disabled'] = true;
+            }
+            if (GlobalBatchExecutionBudget::paidFallbackDisabled($budget)) {
+                $settings['disable_paid_fallback'] = true;
+            }
+        }
 
         $batch = SeoContentGlobalBatch::query()->create([
-            'user_id' => $actor->actorId,
+            'user_id' => $actorUserId,
             'planning_month' => ContentProjectMonthContext::toDateString($month),
             'status' => SeoContentGlobalBatch::STATUS_PENDING,
             'total_items' => $snapshot['eligible_count'],
@@ -281,6 +338,19 @@ final class GlobalMonthlyBatchOrchestrator
                 return ['action' => 'system_failed', 'reason' => $autoDecision['reason'] ?? 'persist_unsafe'];
             }
 
+            if ($isAutoCost && ($autoDecision['action'] ?? '') === 'circuit_breaker') {
+                $this->markWaitingRetryCancelled($batch);
+                $this->markRemainingPendingCancelled($batch);
+                $this->recount($batch);
+                $this->completeTerminal($batch, SeoContentGlobalBatch::STATUS_STOPPED_CIRCUIT_BREAKER);
+
+                return [
+                    'action' => 'circuit_breaker',
+                    'reason' => $autoDecision['reason'] ?? 'global_batch_circuit_breaker',
+                    'consecutive' => $autoDecision['consecutive'] ?? null,
+                ];
+            }
+
             // Clear current pointer before starting next slice outside the transaction.
             $batch->update([
                 'current_project_run_id' => null,
@@ -330,6 +400,15 @@ final class GlobalMonthlyBatchOrchestrator
                 'ok' => true,
                 'message' => 'Batch stopped after system failure.',
                 'metadata' => ['status' => 'failed', 'reason' => $decision['reason'] ?? null],
+            ],
+            'circuit_breaker' => [
+                'ok' => true,
+                'message' => 'Batch stopped by Global circuit breaker.',
+                'metadata' => [
+                    'status' => SeoContentGlobalBatch::STATUS_STOPPED_CIRCUIT_BREAKER,
+                    'reason' => $decision['reason'] ?? null,
+                    'consecutive' => $decision['consecutive'] ?? null,
+                ],
             ],
             'continue_same_item_paid' => $this->continueAutoCostPaidAttempt(
                 $batchId,
@@ -434,6 +513,36 @@ final class GlobalMonthlyBatchOrchestrator
             $this->completeTerminal($batch, SeoContentGlobalBatch::STATUS_CANCELLED);
 
             return ['ok' => true, 'message' => 'Stop honored on wake — no auto rerun.', 'metadata' => ['status' => 'cancelled']];
+        }
+
+        if (GlobalBatchCircuitBreakerState::isStopped($settings)
+            || (string) $batch->status === SeoContentGlobalBatch::STATUS_STOPPED_CIRCUIT_BREAKER
+        ) {
+            return [
+                'ok' => true,
+                'message' => 'Wake skipped — circuit breaker open.',
+                'metadata' => [
+                    'status' => SeoContentGlobalBatch::STATUS_STOPPED_CIRCUIT_BREAKER,
+                    'reason' => 'circuit_breaker_open',
+                ],
+            ];
+        }
+
+        $budget = GlobalBatchExecutionBudget::read($settings);
+        if (GlobalBatchExecutionBudget::autoRerunDisabled($budget)) {
+            return [
+                'ok' => true,
+                'message' => 'Wake skipped — execution budget disabled auto-rerun.',
+                'metadata' => ['reason' => 'budget_auto_rerun_disabled', 'budget' => $budget],
+            ];
+        }
+        $budgetGate = GlobalBatchExecutionBudget::assertCanDispatch($budget);
+        if (! ($budgetGate['ok'] ?? false)) {
+            return [
+                'ok' => true,
+                'message' => 'Wake skipped — execution budget exhausted.',
+                'metadata' => ['reason' => $budgetGate['reason'] ?? 'budget_exhausted', 'budget' => $budget],
+            ];
         }
 
         if (! GlobalMonthlyAiPolicy::isAutoCost($batch->ai_cost_policy)) {
@@ -607,6 +716,16 @@ final class GlobalMonthlyBatchOrchestrator
                     'next_retry_at' => null,
                     'updated_at' => now(),
                 ]);
+        }
+
+        if ((string) $batch->status === SeoContentGlobalBatch::STATUS_STOPPED_CIRCUIT_BREAKER
+            || GlobalBatchCircuitBreakerState::isStopped(is_array($batch->settings) ? $batch->settings : [])
+        ) {
+            // Controlled resume: clear breaker only. Do NOT auto-retry permanently failed items.
+            $settings = GlobalBatchCircuitBreakerState::clearForResume(
+                is_array($batch->settings) ? $batch->settings : [],
+            );
+            $batch->update(['settings' => $settings]);
         }
 
         $pending = SeoContentGlobalBatchItem::query()
@@ -895,6 +1014,33 @@ final class GlobalMonthlyBatchOrchestrator
         $settings = is_array($batch->settings) ? $batch->settings : [];
         $nowTs = now()->getTimestamp();
 
+        if (GlobalBatchCircuitBreakerState::isStopped($settings)
+            || (string) $batch->status === SeoContentGlobalBatch::STATUS_STOPPED_CIRCUIT_BREAKER
+        ) {
+            return [
+                'ok' => false,
+                'message' => 'Global circuit breaker is open — dispatch blocked.',
+                'metadata' => [
+                    'reason' => 'circuit_breaker_open',
+                    'consecutive_failures' => GlobalBatchCircuitBreakerState::consecutiveFailures($settings),
+                ],
+            ];
+        }
+
+        $budget = GlobalBatchExecutionBudget::read($settings);
+        $budgetGate = GlobalBatchExecutionBudget::assertCanDispatch($budget);
+        if (! ($budgetGate['ok'] ?? false)) {
+            return [
+                'ok' => true,
+                'done' => true,
+                'message' => 'Execution budget exhausted — no further dispatch.',
+                'metadata' => [
+                    'reason' => $budgetGate['reason'] ?? 'budget_exhausted',
+                    'budget' => $budget,
+                ],
+            ];
+        }
+
         $expired = $this->autoCostPolicy->expireFreeCircuit([
             'free_circuit_open_until' => $settings['free_circuit_open_until'] ?? null,
             'consecutive_free_rate_limits' => $settings['consecutive_free_rate_limits'] ?? 0,
@@ -1143,14 +1289,65 @@ final class GlobalMonthlyBatchOrchestrator
         ActorContext $actor,
     ): array {
         $batchId = (int) $batch->getKey();
+        $initiatorUserId = (int) ($batch->user_id ?? 0);
+        if ($initiatorUserId <= 0) {
+            $initiatorUserId = (int) ($project->user_id ?? 0);
+        }
+        if ($initiatorUserId <= 0) {
+            return [
+                'ok' => false,
+                'message' => 'Refuse Auto Cost child run with initiator_user_id=0.',
+                'metadata' => [
+                    'batch_id' => $batchId,
+                    'batch_item_id' => (int) $item->getKey(),
+                    'reason' => 'missing_initiator_user_id',
+                ],
+            ];
+        }
+
+        $batchSettings = is_array($batch->settings) ? $batch->settings : [];
+        $budget = GlobalBatchExecutionBudget::read($batchSettings);
+        if (GlobalBatchExecutionBudget::paidFallbackDisabled($budget)
+            && $strategy === GlobalAutoGenerationPolicy::STRATEGY_PAID
+        ) {
+            return [
+                'ok' => false,
+                'message' => 'Paid fallback disabled by execution budget.',
+                'metadata' => ['reason' => 'paid_fallback_disabled', 'budget' => $budget],
+            ];
+        }
+
+        // Atomic persisted claim (lockForUpdate) — safe under duplicate jobs / multi-worker.
+        $claim = GlobalBatchExecutionBudget::claimDispatchSlot(
+            $batchId,
+            (int) $item->getKey(),
+            (int) $item->task_id,
+        );
+        if (! ($claim['ok'] ?? false)) {
+            return [
+                'ok' => false,
+                'message' => 'Execution budget blocked child dispatch.',
+                'metadata' => [
+                    'batch_id' => $batchId,
+                    'batch_item_id' => (int) $item->getKey(),
+                    'reason' => $claim['reason'] ?? 'budget_blocked',
+                    'budget' => $claim['budget'] ?? $budget,
+                ],
+            ];
+        }
+        $batch->refresh();
+
         $settings = array_merge($this->autoCostPolicy->childRunSettingsForStrategy($strategy), [
             'global_batch_id' => $batchId,
             'global_batch_item_id' => (int) $item->getKey(),
             'global_auto_cost_strategy' => $strategy,
+            // Child-run CB is 1-item scoped and useless for Global playlist protection;
+            // GlobalBatchCircuitBreakerState owns fail-fast at parent scope.
             'disable_batch_circuit_breaker' => true,
             'inherits_global_lock' => true,
             'lazy_bulk' => true,
             'use_php_engine' => true,
+            'initiator_user_id' => $initiatorUserId,
             // Isolate writing checkpoints across Free vs Paid strategies.
             'auto_cost_fresh_writing' => $strategy === GlobalAutoGenerationPolicy::STRATEGY_PAID,
         ]);
@@ -1349,6 +1546,7 @@ final class GlobalMonthlyBatchOrchestrator
             } else {
                 $settings['paid_fallback_succeeded'] = (int) ($settings['paid_fallback_succeeded'] ?? 0) + 1;
             }
+            $settings = GlobalBatchCircuitBreakerState::recordSuccess($settings);
             $batch->update(['settings' => $settings]);
             $this->recount($batch);
 
@@ -1357,7 +1555,66 @@ final class GlobalMonthlyBatchOrchestrator
 
         $settings = is_array($batch->settings) ? $batch->settings : [];
         $settings['failed_attempt_count'] = (int) ($settings['failed_attempt_count'] ?? 0) + 1;
+
+        // Infrastructure/schema failures must not burn Free→Paid→rerun across the playlist.
+        $infra = $this->autoCostPolicy->isInfrastructureFailure($errorCategory, $errorMessage);
+        if ($infra) {
+            $recorded = GlobalBatchCircuitBreakerState::recordItemFailure(
+                $settings,
+                (string) $errorCategory,
+                $errorMessage,
+                (int) $item->getKey(),
+                $projectRunId,
+                true,
+            );
+            $settings = $recorded['settings'];
+            $item->update([
+                'status' => SeoContentGlobalBatchItem::STATUS_FAILED,
+                'free_attempted' => (bool) $outcome['free_attempted'],
+                'paid_attempted' => (bool) $outcome['paid_attempted'],
+                'retry_count' => (int) $outcome['retry_count'],
+                'attempt_meta' => $attemptMeta,
+                'error_message' => $errorMessage ?? 'Infrastructure failure.',
+                'last_error_category' => $errorCategory,
+                'finished_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $batch->update(['settings' => $settings]);
+            $this->recount($batch);
+            RuntimeLogger::warning('global_monthly_batch.circuit_breaker_tripped', [
+                'batch_id' => $batchId,
+                'batch_item_id' => (int) $item->getKey(),
+                'child_run_id' => $projectRunId,
+                'failure_type' => 'infrastructure',
+                'error_category' => $errorCategory,
+                'consecutive_failures' => $recorded['consecutive'],
+                'breaker_state' => 'stopped',
+            ]);
+
+            return [
+                'action' => 'circuit_breaker',
+                'reason' => 'infrastructure_failure',
+                'consecutive' => $recorded['consecutive'],
+            ];
+        }
+
         $batch->update(['settings' => $settings]);
+
+        $budget = GlobalBatchExecutionBudget::read($settings);
+        if ($outcome['action'] === GlobalAutoGenerationPolicy::ACTION_RUN_PAID
+            && GlobalBatchExecutionBudget::paidFallbackDisabled($budget)
+        ) {
+            // Smoke/capped batches: Free failure ends the item — no Paid API cost expansion.
+            $outcome['action'] = GlobalAutoGenerationPolicy::ACTION_PERMANENT_FAIL;
+            $outcome['reason'] = 'paid_fallback_disabled_by_budget';
+        }
+
+        if ($outcome['action'] === GlobalAutoGenerationPolicy::ACTION_WAITING_RETRY
+            && (GlobalBatchExecutionBudget::autoRerunDisabled($budget) || ! empty($settings['auto_rerun_disabled']))
+        ) {
+            $outcome['action'] = GlobalAutoGenerationPolicy::ACTION_PERMANENT_FAIL;
+            $outcome['reason'] = 'auto_rerun_disabled_by_budget';
+        }
 
         if ($outcome['action'] === GlobalAutoGenerationPolicy::ACTION_RUN_PAID) {
             $item->update([
@@ -1434,7 +1691,35 @@ final class GlobalMonthlyBatchOrchestrator
                 'finished_at' => now(),
                 'updated_at' => now(),
             ]);
+            $settings = is_array($batch->settings) ? $batch->settings : [];
+            $recorded = GlobalBatchCircuitBreakerState::recordItemFailure(
+                $settings,
+                (string) ($errorCategory ?? 'unknown'),
+                $errorMessage,
+                (int) $item->getKey(),
+                $projectRunId,
+                false,
+            );
+            $batch->update(['settings' => $recorded['settings']]);
             $this->recount($batch);
+
+            if ($recorded['tripped']) {
+                RuntimeLogger::warning('global_monthly_batch.circuit_breaker_tripped', [
+                    'batch_id' => $batchId,
+                    'batch_item_id' => (int) $item->getKey(),
+                    'child_run_id' => $projectRunId,
+                    'failure_type' => 'consecutive_item_failures',
+                    'error_category' => $errorCategory,
+                    'consecutive_failures' => $recorded['consecutive'],
+                    'breaker_state' => 'stopped',
+                ]);
+
+                return [
+                    'action' => 'circuit_breaker',
+                    'reason' => 'consecutive_item_failures',
+                    'consecutive' => $recorded['consecutive'],
+                ];
+            }
 
             return ['action' => 'continue', 'reason' => 'permanent_fail'];
         }
@@ -1498,6 +1783,16 @@ final class GlobalMonthlyBatchOrchestrator
         $settings = is_array($batch->settings) ? $batch->settings : [];
         if ($batch->stopRequested() || ! empty($settings['auto_rerun_disabled'])) {
             return ['ok' => true, 'message' => 'Auto rerun disabled — no wake.', 'metadata' => ['reason' => 'auto_rerun_disabled']];
+        }
+
+        if (GlobalBatchCircuitBreakerState::isStopped($settings)
+            || (string) $batch->status === SeoContentGlobalBatch::STATUS_STOPPED_CIRCUIT_BREAKER
+        ) {
+            return [
+                'ok' => true,
+                'message' => 'Circuit breaker open — no wake.',
+                'metadata' => ['reason' => 'circuit_breaker_open'],
+            ];
         }
 
         if (! GlobalMonthlyAiPolicy::isAutoCost($batch->ai_cost_policy)) {
@@ -1703,6 +1998,7 @@ final class GlobalMonthlyBatchOrchestrator
             'finished_at' => now(),
             'current_project_id' => null,
             'current_project_run_id' => null,
+            'current_batch_item_id' => null,
         ]);
 
         if ($token !== '') {
@@ -1711,6 +2007,17 @@ final class GlobalMonthlyBatchOrchestrator
                 (int) $batch->id,
                 $token,
             );
+        }
+
+        $fresh = $batch->fresh() ?? $batch;
+        try {
+            app(GlobalMonthlyBatchNotificationPublisher::class)->notifyBatchTerminal($fresh);
+        } catch (Throwable $e) {
+            RuntimeLogger::warning('global_monthly_batch.terminal_notification_failed', [
+                'batch_id' => (int) $fresh->getKey(),
+                'status' => $status,
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 

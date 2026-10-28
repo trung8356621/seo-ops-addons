@@ -78,6 +78,14 @@ final class OperationalNotificationContractTest extends TestCase
         self::assertStringContainsString('function notify(', $service);
         self::assertStringContainsString('function resolve(', $service);
         self::assertStringContainsString('dedup_key', $service);
+        self::assertStringContainsString('operational-notif-dedup:', $service);
+        self::assertStringContainsString('findActiveForUpdate', $service);
+        self::assertStringContainsString('withCrossWorkerDedupLock', $service);
+        self::assertStringContainsString('Cache::lock', $service);
+        self::assertStringContainsString('GET_LOCK', $service);
+        self::assertStringContainsString('RELEASE_LOCK', $service);
+        self::assertStringContainsString('LockTimeoutException', $service);
+        self::assertStringContainsString('lockForUpdate', $service);
         self::assertStringContainsString('occurrence_count', $service);
         self::assertStringContainsString('resolved_at', $service);
         self::assertStringContainsString('unreadOperationalCount', $service);

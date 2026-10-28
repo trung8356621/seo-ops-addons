@@ -12,6 +12,9 @@ use Filament\Notifications\Actions\Action;
 use Filament\Notifications\Notification as FilamentNotification;
 use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Collection;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -87,10 +90,31 @@ final class OperationalNotificationService
         $updated = 0;
 
         foreach ($users as $user) {
-            $existing = $this->findActive($dedupKey, $user);
-            if ($existing instanceof DatabaseNotification) {
-                $this->updateExisting(
-                    $existing,
+            // Atomic per (dedup_key, notifiable) across workers:
+            // shared Cache::lock (database/redis) OR MySQL GET_LOCK when store is process-local.
+            $lockKey = sprintf(
+                'operational-notif-dedup:%s:%s:%s',
+                $dedupKey,
+                $user->getMorphClass(),
+                (string) $user->getKey(),
+            );
+            $outcome = $this->withCrossWorkerDedupLock($lockKey, function () use (
+                $user,
+                $dedupKey,
+                $code,
+                $sev,
+                $title,
+                $message,
+                $context,
+                $filamentActions,
+                $groupKey,
+                $resolvable,
+                $surfaces,
+                $now,
+            ): string {
+                return DB::transaction(function () use (
+                    $user,
+                    $dedupKey,
                     $code,
                     $sev,
                     $title,
@@ -101,26 +125,50 @@ final class OperationalNotificationService
                     $resolvable,
                     $surfaces,
                     $now,
-                );
-                $updated++;
-                continue;
-            }
+                ): string {
+                    // Re-check under row lock — covers "no row yet" race after lock acquisition.
+                    $existing = $this->findActiveForUpdate($dedupKey, $user);
+                    if ($existing instanceof DatabaseNotification) {
+                        $this->updateExisting(
+                            $existing,
+                            $code,
+                            $sev,
+                            $title,
+                            $message,
+                            $context,
+                            $filamentActions,
+                            $groupKey,
+                            $resolvable,
+                            $surfaces,
+                            $now,
+                        );
 
-            $this->createNew(
-                $user,
-                $code,
-                $sev,
-                $title,
-                $message,
-                $context,
-                $filamentActions,
-                $dedupKey,
-                $groupKey,
-                $resolvable,
-                $surfaces,
-                $now,
-            );
-            $created++;
+                        return 'updated';
+                    }
+
+                    $this->createNew(
+                        $user,
+                        $code,
+                        $sev,
+                        $title,
+                        $message,
+                        $context,
+                        $filamentActions,
+                        $dedupKey,
+                        $groupKey,
+                        $resolvable,
+                        $surfaces,
+                        $now,
+                    );
+
+                    return 'created';
+                });
+            });
+            if ($outcome === 'updated') {
+                $updated++;
+            } else {
+                $created++;
+            }
         }
 
         $this->audit->recorded(
@@ -264,6 +312,62 @@ final class OperationalNotificationService
             ->first();
 
         return $row;
+    }
+
+    private function findActiveForUpdate(string $dedupKey, User $user): ?DatabaseNotification
+    {
+        /** @var DatabaseNotification|null $row */
+        $row = DatabaseNotification::query()
+            ->where('dedup_key', $dedupKey)
+            ->where('notifiable_type', $user->getMorphClass())
+            ->where('notifiable_id', $user->getKey())
+            ->whereNull('resolved_at')
+            ->orderByDesc('last_occurred_at')
+            ->orderByDesc('created_at')
+            ->lockForUpdate()
+            ->first();
+
+        return $row;
+    }
+
+    /**
+     * @template T
+     * @param  callable(): T  $callback
+     * @return T
+     */
+    private function withCrossWorkerDedupLock(string $lockKey, callable $callback): mixed
+    {
+        $store = (string) config('cache.default', 'database');
+        // array/null locks are process-local — not safe with multiple queue workers.
+        if (in_array($store, ['array', 'null'], true)) {
+            $mysqlLock = 'ondi_'.substr(hash('sha256', $lockKey), 0, 48);
+            $got = DB::selectOne('select GET_LOCK(?, 8) as acquired', [$mysqlLock]);
+            $acquired = (int) ($got->acquired ?? 0) === 1;
+            if (! $acquired) {
+                // Fail-closed: skip create rather than risk duplicate spam under lock timeout.
+                return 'updated';
+            }
+            try {
+                return $callback();
+            } finally {
+                DB::selectOne('select RELEASE_LOCK(?) as released', [$mysqlLock]);
+            }
+        }
+
+        $lock = Cache::lock($lockKey, 15);
+        $acquired = false;
+        try {
+            $acquired = (bool) $lock->block(8);
+
+            return $callback();
+        } catch (LockTimeoutException) {
+            // Fail-closed on timeout — prefer missing notify over duplicate storm.
+            return 'updated';
+        } finally {
+            if ($acquired) {
+                $lock->release();
+            }
+        }
     }
 
     /**

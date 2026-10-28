@@ -293,6 +293,8 @@ final class GlobalGenerationLockReconciler
 
         $settings = is_array($batch->settings) ? $batch->settings : [];
         $autoRerunDisabled = ! empty($settings['auto_rerun_disabled']);
+        $circuitOpen = GlobalBatchCircuitBreakerState::isStopped($settings)
+            || (string) $batch->status === SeoContentGlobalBatch::STATUS_STOPPED_CIRCUIT_BREAKER;
 
         if ($batch->stopRequested() || $autoRerunDisabled) {
             // Emergency Stop settled — cancel waiting_retry and release exclusive lock.
@@ -305,6 +307,22 @@ final class GlobalGenerationLockReconciler
                 'reason' => 'stop_requested_without_active_child',
                 'details' => array_merge($holder, [
                     'auto_rerun_disabled' => $autoRerunDisabled,
+                    'waiting_retry' => $waitingRetry,
+                ]),
+            ];
+        }
+
+        if ($circuitOpen) {
+            // Never auto-resume / wake a circuit-breaker-stopped batch.
+            $released = $this->lock->releaseIfOwner(SeoContentGenerationLock::OWNER_GLOBAL_BATCH, $batchId, $ownerToken);
+
+            return [
+                'reconciled' => true,
+                'action' => $released ? 'retained_circuit_breaker_stop_released_lock' : 'circuit_breaker_stop_lock_already_clear',
+                'reason' => 'circuit_breaker_open_no_auto_resume',
+                'details' => array_merge($holder, [
+                    'consecutive_failures' => GlobalBatchCircuitBreakerState::consecutiveFailures($settings),
+                    'pending' => $pendingItems,
                     'waiting_retry' => $waitingRetry,
                 ]),
             ];

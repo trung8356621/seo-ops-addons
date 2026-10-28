@@ -22,6 +22,13 @@ final class GenerationBatchNotificationPublisher
 
     public function notifyRunCompleted(SeoProject $project, SeoProjectRun $run, ?int $initiatorUserId = null): void
     {
+        $runSettings = is_array($run->settings) ? $run->settings : [];
+        // Child runs owned by Global Monthly Batch must not spam "Hoàn tất project".
+        // Parent emits at most one terminal notification via GlobalMonthlyBatchNotificationPublisher.
+        if ((int) ($runSettings['global_batch_id'] ?? 0) > 0) {
+            return;
+        }
+
         $succeeded = (int) ($run->succeeded ?? 0);
         $failed = (int) ($run->failed ?? 0);
         $total = (int) ($run->total ?? ($succeeded + $failed));

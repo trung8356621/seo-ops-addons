@@ -464,7 +464,42 @@ final class GlobalAutoGenerationPolicy
             return AiFailureClass::ProviderInvalidOutput->value;
         }
 
+        if ($this->isInfrastructureFailure(AiFailureClass::SystemError->value, $lower)) {
+            return AiFailureClass::SystemError->value;
+        }
+
         return AiFailureClass::SystemError->value;
+    }
+
+    /**
+     * Schema/connection/auth infrastructure failures must fail-fast at Global Batch scope.
+     */
+    public function isInfrastructureFailure(?string $category, ?string $message): bool
+    {
+        $cat = $this->normalizeCategory($category);
+        $lower = strtolower(trim((string) $message));
+
+        if ($cat === AiFailureClass::SystemError->value) {
+            if ($lower === '') {
+                return false;
+            }
+        }
+
+        if (str_contains($lower, 'sqlstate[42s02]')
+            || str_contains($lower, 'base table or view not found')
+            || str_contains($lower, "doesn't exist")
+            || str_contains($lower, 'does not exist')
+            || str_contains($lower, 'sqlstate[42s22]')
+            || str_contains($lower, 'sqlstate[hy000]')
+            || str_contains($lower, 'connection refused')
+            || str_contains($lower, 'could not find driver')
+            || str_contains($lower, 'access denied for user')
+            || str_contains($lower, 'seo_connection_users')
+        ) {
+            return true;
+        }
+
+        return false;
     }
 
     /**

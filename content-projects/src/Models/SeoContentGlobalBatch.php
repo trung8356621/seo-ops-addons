@@ -29,6 +29,9 @@ final class SeoContentGlobalBatch extends Model
     /** Both Free and Paid unavailable — resumable when AI returns. */
     public const STATUS_STOPPED_AI_UNAVAILABLE = 'stopped_ai_unavailable';
 
+    /** Consecutive/systemic failure guard — resumable after operator review (no auto-retry of failed items). */
+    public const STATUS_STOPPED_CIRCUIT_BREAKER = 'stopped_circuit_breaker';
+
     protected $connection = 'omi_seo_ai';
 
     protected $table = 'seo_content_global_batches';
@@ -71,6 +74,7 @@ final class SeoContentGlobalBatch extends Model
             self::STATUS_FAILED,
             self::STATUS_CANCELLED,
             self::STATUS_STOPPED_AI_UNAVAILABLE,
+            self::STATUS_STOPPED_CIRCUIT_BREAKER,
         ], true);
     }
 
@@ -89,6 +93,7 @@ final class SeoContentGlobalBatch extends Model
             self::STATUS_CANCELLED,
             self::STATUS_FAILED,
             self::STATUS_STOPPED_AI_UNAVAILABLE,
+            self::STATUS_STOPPED_CIRCUIT_BREAKER,
         ], true);
     }
 
