@@ -4839,6 +4839,7 @@ return [
         'archive_completed' => 'Đã archive project',
         'archive_completed_body' => 'Đã đưa :archived bài vào kho lưu trữ và gỡ :tasks_removed hạng mục khỏi project tháng.',
         'archive_failed' => 'Không thể archive project',
+        'archive_access_denied' => 'Bạn không có quyền archive project này (domain-neutral hoặc site không thuộc quyền truy cập).',
         'archive_no_active_articles' => 'Project không còn bài viết đang hoạt động để archive.',
         'archive_source_is_archive' => 'Không thể archive từ kho lưu trữ.',
         'archive_project_name' => 'Lưu trữ',

@@ -477,6 +477,137 @@ final class ContentProjectArchiveWorkspaceCleanupIntegrationTest extends TestCas
         self::assertTrue(Storage::disk('public')->exists($reusedPath));
     }
 
+    public function test_local_media_cleaner_keeps_wp_shared_and_unsynced_featured(): void
+    {
+        if (! Schema::connection('omi_seo_ai')->hasTable('seo_media')
+            || ! Schema::connection('omi_seo_ai')->hasTable('article_media_states')
+        ) {
+            $this->markTestSkipped('Media tables unavailable.');
+        }
+
+        $siteId = 93077;
+        $aiArticle = $this->createArticle($siteId, 'AI local only');
+        $wpArticle = $this->createArticle($siteId, 'WP synced featured');
+        $unsyncedArticle = $this->createArticle($siteId, 'Unsynced featured local');
+        $sharedArticleA = $this->createArticle($siteId, 'Shared A');
+        $sharedArticleB = $this->createArticle($siteId, 'Shared B outside');
+
+        if (Schema::connection('omi_seo_ai')->hasTable('wordpress_article_links')) {
+            WordpressArticleLink::query()->create([
+                'article_id' => (int) $wpArticle->id,
+                'site_id' => $siteId,
+                'wp_post_id' => 777001,
+                'sync_status' => 'synced',
+            ]);
+        }
+
+        $aiPath = 'gc-media-own/ai-'.$this->seq.'.jpg';
+        $wpPath = 'gc-media-own/wp-'.$this->seq.'.jpg';
+        $unsyncedPath = 'gc-media-own/unsynced-'.$this->seq.'.jpg';
+        $sharedPath = 'gc-media-own/shared-'.$this->seq.'.jpg';
+        Storage::disk('public')->put($aiPath, 'ai');
+        Storage::disk('public')->put($wpPath, 'wp');
+        Storage::disk('public')->put($unsyncedPath, 'unsynced');
+        Storage::disk('public')->put($sharedPath, 'shared');
+
+        $aiMedia = $this->createLocalMedia((int) $aiArticle->id, $siteId, $aiPath);
+        $wpMedia = SeoMedia::query()->create([
+            'filename' => 'wp-'.$this->seq.'.jpg',
+            'slug' => 'wp-'.$this->seq,
+            'path' => $wpPath,
+            'url' => '/storage/'.$wpPath,
+            'source' => 'local',
+            'status' => 'ready',
+            'article_id' => (int) $wpArticle->id,
+            'site_id' => $siteId,
+            'wp_attachment_id' => 888001,
+        ]);
+        $unsyncedMedia = $this->createLocalMedia((int) $unsyncedArticle->id, $siteId, $unsyncedPath);
+        $sharedMedia = SeoMedia::query()->create([
+            'filename' => 'shared-'.$this->seq.'.jpg',
+            'slug' => 'shared-'.$this->seq,
+            'path' => $sharedPath,
+            'url' => '/storage/'.$sharedPath,
+            'source' => 'local',
+            'status' => 'ready',
+            'article_id' => [(int) $sharedArticleA->id, (int) $sharedArticleB->id],
+            'site_id' => $siteId,
+        ]);
+
+        \Omnichannel\Addons\Media\Models\ArticleMediaState::query()->updateOrCreate(
+            ['article_id' => (int) $aiArticle->id, 'role' => 'featured'],
+            [
+                'media_id' => (int) $aiMedia->id,
+                'display_url' => 'https://cdn.example/ai-featured.jpg',
+                'status' => 'available',
+                'source' => 'seo_media',
+                'position' => 0,
+            ],
+        );
+        \Omnichannel\Addons\Media\Models\ArticleMediaState::query()->updateOrCreate(
+            ['article_id' => (int) $wpArticle->id, 'role' => 'featured'],
+            [
+                'media_id' => (int) $wpMedia->id,
+                'display_url' => 'https://example.com/wp-content/uploads/wp.jpg',
+                'status' => 'available',
+                'source' => 'conflict_resolved',
+                'position' => 0,
+            ],
+        );
+        \Omnichannel\Addons\Media\Models\ArticleMediaState::query()->updateOrCreate(
+            ['article_id' => (int) $unsyncedArticle->id, 'role' => 'featured'],
+            [
+                'media_id' => (int) $unsyncedMedia->id,
+                'display_url' => null,
+                'status' => 'available',
+                'source' => 'editor_local',
+                'position' => 0,
+            ],
+        );
+
+        $project = $this->createProject(userId: 93078, siteId: $siteId, name: 'Media ownership');
+        foreach ([$aiArticle, $wpArticle, $unsyncedArticle, $sharedArticleA] as $article) {
+            $this->createTask($project, (int) $article->id, SeoProjectTask::STATUS_COMPLETED);
+        }
+
+        $service = $this->resolveArchiveCleanupService();
+        $archive = $service->archive($project->fresh(), 1, note: 'media-own');
+
+        self::assertSame(4, (int) ($archive->articles_count ?? 0));
+        self::assertSame(4, $archive->items()->count());
+
+        self::assertNull(SeoMedia::query()->find($aiMedia->id), 'AI workspace media deleted');
+        self::assertNotNull(SeoMedia::query()->find($wpMedia->id), 'WP mirror kept');
+        self::assertNotNull(SeoMedia::query()->find($unsyncedMedia->id), 'Unsynced featured without URL kept');
+        self::assertNotNull(SeoMedia::query()->find($sharedMedia->id), 'Shared media kept');
+
+        $sharedFresh = SeoMedia::query()->find($sharedMedia->id);
+        self::assertNotNull($sharedFresh);
+        $linked = SeoMedia::normalizeArticleIds($sharedFresh->article_id);
+        self::assertSame([(int) $sharedArticleB->id], $linked);
+
+        $aiState = \Omnichannel\Addons\Media\Models\ArticleMediaState::query()
+            ->where('article_id', (int) $aiArticle->id)
+            ->where('role', 'featured')
+            ->first();
+        self::assertNotNull($aiState);
+        self::assertNull($aiState->media_id);
+        self::assertSame('https://cdn.example/ai-featured.jpg', (string) $aiState->display_url);
+
+        $wpState = \Omnichannel\Addons\Media\Models\ArticleMediaState::query()
+            ->where('article_id', (int) $wpArticle->id)
+            ->where('role', 'featured')
+            ->first();
+        self::assertNotNull($wpState);
+        self::assertSame('https://example.com/wp-content/uploads/wp.jpg', (string) $wpState->display_url);
+
+        // Idempotent second cleanup.
+        $stats = $service->cleanupArchivedWorkspace($archive->fresh(['project', 'items']), 1);
+        self::assertSame(0, (int) ($stats['local_media_deleted'] ?? 0));
+        self::assertNotNull(SeoMedia::query()->find($unsyncedMedia->id));
+        self::assertNotNull(SeoMedia::query()->find($wpMedia->id));
+    }
+
     public function test_article_can_be_audited_in_two_projects_without_losing_history_or_wp_identity(): void
     {
         if (! Schema::connection('omi_seo_ai')->hasTable('seo_content_project_business_audits')) {

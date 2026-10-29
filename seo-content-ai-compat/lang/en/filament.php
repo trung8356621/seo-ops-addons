@@ -4840,6 +4840,7 @@ return [
         'archive_completed' => 'Project archived',
         'archive_completed_body' => 'Stored :archived article(s) in the archive and removed :tasks_removed active item(s) from the monthly project.',
         'archive_failed' => 'Unable to archive project',
+        'archive_access_denied' => 'You cannot archive this project (domain-neutral ownership or inaccessible site).',
         'archive_no_active_articles' => 'This project has no active articles to archive.',
         'archive_source_is_archive' => 'Cannot archive from the archive store itself.',
         'archive_project_name' => 'Archive',

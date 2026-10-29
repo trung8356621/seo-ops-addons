@@ -118,13 +118,22 @@ final class ArchiveContentProjectHandler extends AbstractPublishingHandler
                         $command->confirmHiddenStaleRuns,
                     );
 
+                    $affectedCount = (int) ($archive->articles_count
+                        ?? $archive->total_articles
+                        ?? 0);
+                    if ($affectedCount <= 0) {
+                        $affectedCount = $archive->relationLoaded('items')
+                            ? $archive->items->count()
+                            : $archive->items()->count();
+                    }
+
                     return ContentProjectActionResult::ok(
                         ContentProjectActionCodes::PROJECT_ARCHIVED,
                         'Project archived.',
                         $projectId,
                         metadata: [
                             'archive_id' => (int) $archive->getKey(),
-                            'affected_count' => 1,
+                            'affected_count' => max(0, $affectedCount),
                         ],
                     );
                 },

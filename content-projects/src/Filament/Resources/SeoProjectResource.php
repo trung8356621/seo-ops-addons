@@ -143,6 +143,34 @@ class SeoProjectResource extends SeoPanelResource
             );
     }
 
+    /**
+     * Archive action authorization for domain-bound AND domain-neutral projects.
+     * Never call canAccessSite(0) — SiteAccess fail-closes on non-positive ids.
+     */
+    public static function canAccessArchiveProjectAction(SeoProject $project): bool
+    {
+        if (! SeoAccessControl::canArchiveContentProjects()) {
+            return false;
+        }
+
+        return static::canAccessPublishingQueueProject($project);
+    }
+
+    public static function archiveFailureMessage(\Throwable $exception): string
+    {
+        if ($exception instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface
+            && $exception->getStatusCode() === 403
+        ) {
+            return (string) __('seo-content-ai::filament.projects.archive_access_denied');
+        }
+
+        $message = trim($exception->getMessage());
+
+        return $message !== ''
+            ? $message
+            : (string) __('seo-content-ai::filament.projects.archive_failed');
+    }
+
     public static function projectRecordUrl(SeoProject $record): string
     {
         if ($record->isProjectArchived()) {
@@ -1199,8 +1227,9 @@ class SeoProjectResource extends SeoPanelResource
                         })
                         ->action(function (SeoProject $record, array $data): void {
                             try {
-                                abort_unless(SeoAccessControl::canArchiveContentProjects(), 403);
-                                abort_unless(SeoAccessControl::canAccessSite((int) ($record->site_id ?? 0)), 403);
+                                abort_unless(static::canAccessArchiveProjectAction($record), 403);
+
+                                $siteId = (int) ($record->site_id ?? 0);
 
                                 $result = app(ContentProjectCommandBus::class)->dispatch(
                                     new ArchiveContentProjectCommand(
@@ -1211,11 +1240,22 @@ class SeoProjectResource extends SeoPanelResource
                                     ),
                                     ActorContext::user(
                                         auth()->id() !== null ? (int) auth()->id() : null,
-                                        (int) ($record->site_id ?? 0) ?: null,
+                                        $siteId > 0 ? $siteId : null,
                                     ),
                                 );
 
-                                app(ContentProjectActionResultNotifier::class)->send($result);
+                                if ($result->success) {
+                                    Notification::make()
+                                        ->title(__('seo-content-ai::filament.projects.archive_completed'))
+                                        ->body(__('seo-content-ai::filament.projects.archive_completed_project_body', [
+                                            'name' => (string) ($record->name ?? ''),
+                                            'count' => (int) ($result->metadata['affected_count'] ?? 1),
+                                        ]))
+                                        ->success()
+                                        ->send();
+                                } else {
+                                    app(ContentProjectActionResultNotifier::class)->send($result);
+                                }
                             } catch (\Throwable $exception) {
                                 RuntimeLogger::report($exception, [
                                     'endpoint' => 'content_project.archive',
@@ -1224,7 +1264,7 @@ class SeoProjectResource extends SeoPanelResource
 
                                 Notification::make()
                                     ->title(__('seo-content-ai::filament.projects.archive_failed'))
-                                    ->body($exception->getMessage())
+                                    ->body(static::archiveFailureMessage($exception))
                                     ->danger()
                                     ->send();
                             }

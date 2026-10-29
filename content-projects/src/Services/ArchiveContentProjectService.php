@@ -19,6 +19,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Content
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectWorkspaceArticleOwnershipGuard;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectWorkspaceCleanupContext;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectPublicRef;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExportReviewedAtResolver;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGlobalLegacyArchive;
 use Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder;
@@ -29,6 +30,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use RuntimeException;
+use Throwable;
 use Omnichannel\Addons\Media\Services\ArticlePostImagesService;
 
 /**
@@ -82,7 +84,7 @@ final class ArchiveContentProjectService
         return [
             'project_id' => (int) $project->getKey(),
             'project_name' => (string) ($project->name ?? ''),
-            'domain_id' => $this->nullablePositiveInt($project->site_id),
+            'domain_id' => $this->resolveArchiveDomainId($project),
             'domain_name' => $this->resolveDomainName($project),
             'owner_id' => $this->nullablePositiveInt($project->user_id),
             'owner_name' => $this->resolveOwnerName($project->user),
@@ -322,12 +324,20 @@ final class ArchiveContentProjectService
             return $archive->fresh(['items']) ?? $archive;
         });
 
-        if ($cleanupContext instanceof ContentProjectWorkspaceCleanupContext) {
-            $this->workspaceDestroyer->releaseDeferredSideEffects($cleanupContext);
+        // Post-commit side effects must not flip a committed archive into a UI failure.
+        try {
+            if ($cleanupContext instanceof ContentProjectWorkspaceCleanupContext) {
+                $this->workspaceDestroyer->releaseDeferredSideEffects($cleanupContext);
+            }
+        } catch (Throwable $e) {
+            RuntimeLogger::report($e, [
+                'endpoint' => 'content_project.archive_deferred_cleanup',
+                'project_id' => (int) $project->getKey(),
+                'archive_id' => (int) $archive->getKey(),
+            ]);
         }
 
-        app(\Omnichannel\Addons\Seo\Services\SiteStatistics\SiteStatisticsRefresh::class)
-            ->afterSuccessfulArchive((int) ($archive->site_id ?? 0));
+        $this->refreshSiteStatisticsAfterArchive($project, $archive);
 
         return $archive;
     }
@@ -897,14 +907,75 @@ final class ArchiveContentProjectService
         }
     }
 
+    /**
+     * Prefer project.site_id; for domain-neutral projects use the sole item site_id.
+     * Multi-domain packs keep null (stats refresh covers each item site separately).
+     */
+    private function resolveArchiveDomainId(SeoProject $project): ?int
+    {
+        $projectSiteId = $this->nullablePositiveInt($project->site_id);
+        if ($projectSiteId !== null) {
+            return $projectSiteId;
+        }
+
+        $itemSiteIds = app(ContentProjectTenantGuard::class)->resolveProjectItemSiteIds($project);
+        if (count($itemSiteIds) === 1) {
+            return $itemSiteIds[0];
+        }
+
+        return null;
+    }
+
+    private function refreshSiteStatisticsAfterArchive(SeoProject $project, SeoProjectArchive $archive): void
+    {
+        $siteIds = [];
+        $archiveSiteId = $this->nullablePositiveInt($archive->site_id);
+        if ($archiveSiteId !== null) {
+            $siteIds[] = $archiveSiteId;
+        }
+
+        foreach (app(ContentProjectTenantGuard::class)->resolveProjectItemSiteIds($project) as $itemSiteId) {
+            $siteIds[] = $itemSiteId;
+        }
+
+        $siteIds = array_values(array_unique(array_filter(
+            $siteIds,
+            static fn (int $id): bool => $id > 0,
+        )));
+
+        $refresh = app(\Omnichannel\Addons\Seo\Services\SiteStatistics\SiteStatisticsRefresh::class);
+        foreach ($siteIds as $siteId) {
+            try {
+                $refresh->afterSuccessfulArchive($siteId);
+            } catch (Throwable $e) {
+                RuntimeLogger::report($e, [
+                    'endpoint' => 'content_project.archive_site_statistics',
+                    'project_id' => (int) $project->getKey(),
+                    'archive_id' => (int) $archive->getKey(),
+                    'site_id' => $siteId,
+                ]);
+            }
+        }
+    }
+
     private function resolveDomainName(SeoProject $project): string
     {
         $site = $project->site;
-        if ($site === null) {
+        if ($site !== null) {
+            $name = trim((string) ($site->domain ?? ''));
+            if ($name !== '') {
+                return $name;
+            }
+        }
+
+        $domainId = $this->resolveArchiveDomainId($project);
+        if ($domainId === null) {
             return '';
         }
 
-        return trim((string) ($site->domain ?? ''));
+        $site = \App\Models\Site::query()->find($domainId);
+
+        return $site ? trim((string) ($site->domain ?? '')) : '';
     }
 
     private function resolveOwnerName(?User $user): string

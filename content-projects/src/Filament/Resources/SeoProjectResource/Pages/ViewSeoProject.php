@@ -966,8 +966,9 @@ final class ViewSeoProject extends Page
                     })
                     ->action(function (array $data) use ($project): void {
                         try {
-                            abort_unless(SeoAccessControl::canArchiveContentProjects(), 403);
-                            abort_unless(SeoAccessControl::canAccessSite((int) ($project->site_id ?? 0)), 403);
+                            abort_unless(SeoProjectResource::canAccessArchiveProjectAction($project), 403);
+
+                            $siteId = (int) ($project->site_id ?? 0);
 
                             $result = app(ContentProjectCommandBus::class)->dispatch(
                                 new ArchiveContentProjectCommand(
@@ -978,11 +979,22 @@ final class ViewSeoProject extends Page
                                 ),
                                 ActorContext::user(
                                     auth()->id() !== null ? (int) auth()->id() : null,
-                                    (int) ($project->site_id ?? 0) ?: null,
+                                    $siteId > 0 ? $siteId : null,
                                 ),
                             );
 
-                            app(ContentProjectActionResultNotifier::class)->send($result);
+                            if ($result->success) {
+                                Notification::make()
+                                    ->title(__('seo-content-ai::filament.projects.archive_completed'))
+                                    ->body(__('seo-content-ai::filament.projects.archive_completed_project_body', [
+                                        'name' => (string) ($project->name ?? ''),
+                                        'count' => (int) ($result->metadata['affected_count'] ?? 1),
+                                    ]))
+                                    ->success()
+                                    ->send();
+                            } else {
+                                app(ContentProjectActionResultNotifier::class)->send($result);
+                            }
                             $this->project = null;
                             $this->cachedOperationsPayload = null;
                             $this->cachedOperationsKey = '';
@@ -995,7 +1007,7 @@ final class ViewSeoProject extends Page
 
                             Notification::make()
                                 ->title(__('seo-content-ai::filament.projects.archive_failed'))
-                                ->body($exception->getMessage())
+                                ->body(SeoProjectResource::archiveFailureMessage($exception))
                                 ->danger()
                                 ->send();
                         }

@@ -81,9 +81,22 @@ final class ArticleEditorView
             ];
         }
 
+        $mediaId = $state->media_id !== null ? (int) $state->media_id : null;
+        if ($mediaId !== null && $mediaId > 0) {
+            try {
+                if (! \Omnichannel\Addons\Media\Models\SeoMedia::query()->whereKey($mediaId)->exists()) {
+                    $mediaId = null;
+                }
+            } catch (\Throwable) {
+                $mediaId = null;
+            }
+        } else {
+            $mediaId = null;
+        }
+
         return [
             'featured' => [
-                'media_id' => $state->media_id,
+                'media_id' => $mediaId,
                 'url' => $state->display_url,
                 'status' => $state->status,
                 'source' => $state->source,

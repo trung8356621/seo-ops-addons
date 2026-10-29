@@ -155,6 +155,8 @@ final class ArticleFeaturedImageResolver
             $status = ArticleFeaturedImageStatus::UNKNOWN;
         }
 
+        // List reads use display_url as presentation SoT. media_id is optional and may be
+        // dangling after workspace cleanup — callers that load SeoMedia by id must fail-soft.
         return [
             'status' => $status,
             'url' => $status === ArticleFeaturedImageStatus::AVAILABLE ? $url : null,

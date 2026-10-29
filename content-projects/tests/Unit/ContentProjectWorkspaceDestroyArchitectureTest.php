@@ -115,18 +115,18 @@ final class ContentProjectWorkspaceDestroyArchitectureTest extends TestCase
         self::assertStringNotContainsString('workspaceDestroyer', $source);
     }
 
-    public function test_local_media_cleaner_deletes_laravel_copies_even_when_synced_to_wordpress(): void
+    public function test_local_media_cleaner_preserves_wp_mirrors_and_unsynced_featured(): void
     {
-        $source = $this->readMethodSource(
-            (new ReflectionClass(LocalMediaWorkspaceCleaner::class))->getMethod('clean'),
+        $source = (string) file_get_contents(
+            (string) (new ReflectionClass(LocalMediaWorkspaceCleaner::class))->getFileName(),
         );
 
-        self::assertStringContainsString("whereIn('article_id', \$articleIds)", $source);
-        self::assertStringContainsString("get(['id', 'path'])", $source);
+        self::assertStringContainsString('collectCandidateMedia', $source);
+        self::assertStringContainsString('wp_attachment_id', $source);
+        self::assertStringContainsString('mustKeepForUnsyncedFeatured', $source);
+        self::assertStringContainsString('nullOrphanStateMediaIds', $source);
         self::assertStringContainsString('queueDiskPath', $source);
-        self::assertStringContainsString('SeoMedia::query()->whereIn', $source);
-        self::assertStringNotContainsString('wp_attachment_id', $source);
-        self::assertStringNotContainsString('SOURCE_LOCAL', $source);
+        self::assertStringContainsString('ArticleMediaState', $source);
     }
 
     public function test_manual_sync_fail_closed_for_content_project_and_publish_stays_on_queue(): void
