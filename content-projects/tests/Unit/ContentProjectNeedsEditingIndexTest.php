@@ -53,12 +53,16 @@ final class ContentProjectNeedsEditingIndexTest extends TestCase
         $list = (string) file_get_contents(
             (string) (new ReflectionClass(ListSeoProjects::class))->getFileName(),
         );
+        $index = (string) file_get_contents(
+            (string) (new ReflectionClass(\Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectEditorialListIndex::class))->getFileName(),
+        );
 
-        self::assertStringContainsString('usesContentManagerOpsPresentation()', $resource);
-        self::assertStringContainsString('needs_editing_count', $resource);
+        self::assertStringContainsString('listTableViewMode()', $resource);
         self::assertStringContainsString('displayGeneratedCount()', $resource);
-        self::assertStringContainsString('ContentProjectNeedsEditingIndex::countsByProject', $list);
-        self::assertStringContainsString("getTableSortColumn() === 'active_generated_count'", $list);
+        self::assertStringContainsString('ops_needs_review_count', $resource);
+        self::assertStringContainsString('ContentProjectEditorialListIndex::countsByProject', $list);
+        self::assertStringContainsString('ContentProjectNeedsEditingIndex::evidenceRow', $index);
+        self::assertStringContainsString('ops_needs_review_count', $list);
     }
 
     /**

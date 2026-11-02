@@ -945,6 +945,24 @@ class SeoProjectResource extends SeoPanelResource
         ];
     }
 
+    /**
+     * Effective Projects-list column mode (Generate | Biên tập).
+     * Content Manager presentation is always editorial.
+     */
+    public static function listTableViewMode(): string
+    {
+        $livewire = \Livewire\Livewire::current();
+        if ($livewire instanceof Pages\ListSeoProjects) {
+            return $livewire->effectiveListViewMode();
+        }
+
+        if (SeoAccessControl::usesContentManagerOpsPresentation()) {
+            return Pages\ListSeoProjects::VIEW_EDITORIAL;
+        }
+
+        return Pages\ListSeoProjects::VIEW_GENERATE;
+    }
+
     public static function table(Table $table): Table
     {
         return $table
@@ -988,28 +1006,20 @@ class SeoProjectResource extends SeoPanelResource
                     ->sortable(),
 
                 Tables\Columns\TextColumn::make('active_generated_count')
-                    ->label(fn (): string => SeoAccessControl::usesContentManagerOpsPresentation()
-                        ? (string) __('seo-content-ai::filament.projects.ops_needs_review')
-                        : (string) __('seo-content-ai::filament.projects.generated'))
+                    ->label(__('seo-content-ai::filament.projects.generated'))
                     ->numeric()
                     ->alignCenter()
                     ->sortable()
-                    ->getStateUsing(function (SeoProject $record): int {
-                        if (SeoAccessControl::usesContentManagerOpsPresentation()) {
-                            return (int) ($record->getAttribute('needs_editing_count') ?? 0);
-                        }
-
-                        return $record->displayGeneratedCount();
-                    })
-                    ->tooltip(fn (): string => SeoAccessControl::usesContentManagerOpsPresentation()
-                        ? (string) __('seo-content-ai::filament.projects.ops_needs_review_hint')
-                        : (string) __('seo-content-ai::filament.projects.generated_tooltip')),
+                    ->visible(fn (): bool => static::listTableViewMode() === Pages\ListSeoProjects::VIEW_GENERATE)
+                    ->getStateUsing(fn (SeoProject $record): int => $record->displayGeneratedCount())
+                    ->tooltip((string) __('seo-content-ai::filament.projects.generated_tooltip')),
 
                 Tables\Columns\TextColumn::make('active_pending_count')
                     ->label(__('seo-content-ai::filament.projects.pending_never_generated'))
                     ->numeric()
                     ->alignCenter()
                     ->sortable()
+                    ->visible(fn (): bool => static::listTableViewMode() === Pages\ListSeoProjects::VIEW_GENERATE)
                     ->getStateUsing(fn (SeoProject $record): int => $record->displayPendingCount()),
 
                 Tables\Columns\TextColumn::make('active_failed_count')
@@ -1018,7 +1028,37 @@ class SeoProjectResource extends SeoPanelResource
                     ->alignCenter()
                     ->sortable()
                     ->toggleable()
+                    ->visible(fn (): bool => static::listTableViewMode() === Pages\ListSeoProjects::VIEW_GENERATE)
                     ->getStateUsing(fn (SeoProject $record): int => $record->displayFailedCount()),
+
+                Tables\Columns\TextColumn::make('ops_normal_count')
+                    ->label(__('seo-content-ai::filament.projects.ops_normal'))
+                    ->numeric()
+                    ->alignCenter()
+                    ->sortable()
+                    ->visible(fn (): bool => static::listTableViewMode() === Pages\ListSeoProjects::VIEW_EDITORIAL)
+                    ->getStateUsing(fn (SeoProject $record): int => (int) ($record->getAttribute('ops_normal_count') ?? 0))
+                    ->tooltip(fn (): string => SeoAccessControl::usesContentManagerOpsPresentation()
+                        ? (string) __('seo-content-ai::filament.projects.ops_normal_operational_hint')
+                        : (string) __('seo-content-ai::filament.projects.ops_normal_hint')),
+
+                Tables\Columns\TextColumn::make('ops_needs_review_count')
+                    ->label(__('seo-content-ai::filament.projects.ops_needs_review'))
+                    ->numeric()
+                    ->alignCenter()
+                    ->sortable()
+                    ->visible(fn (): bool => static::listTableViewMode() === Pages\ListSeoProjects::VIEW_EDITORIAL)
+                    ->getStateUsing(fn (SeoProject $record): int => (int) ($record->getAttribute('ops_needs_review_count') ?? 0))
+                    ->tooltip((string) __('seo-content-ai::filament.projects.ops_needs_review_hint')),
+
+                Tables\Columns\TextColumn::make('ops_reviewed_count')
+                    ->label(__('seo-content-ai::filament.projects.ops_in_review'))
+                    ->numeric()
+                    ->alignCenter()
+                    ->sortable()
+                    ->visible(fn (): bool => static::listTableViewMode() === Pages\ListSeoProjects::VIEW_EDITORIAL)
+                    ->getStateUsing(fn (SeoProject $record): int => (int) ($record->getAttribute('ops_reviewed_count') ?? 0))
+                    ->tooltip((string) __('seo-content-ai::filament.projects.ops_in_review_hint')),
 
                 Tables\Columns\TextColumn::make('status')
                     ->label(__('seo-content-ai::filament.projects.status'))

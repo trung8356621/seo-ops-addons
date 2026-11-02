@@ -12,8 +12,8 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMon
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthlyWorkloadService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\SitePlanningReadModel;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectStaffAvailabilityService;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectEditorialListIndex;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectListBucket;
-use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectNeedsEditingIndex;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthChartPresenter;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -31,10 +31,15 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\HtmlString;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Url;
 use Throwable;
 
 class ListSeoProjects extends ListRecords
 {
+    public const VIEW_GENERATE = 'generate';
+
+    public const VIEW_EDITORIAL = 'editorial';
+
     protected static string $resource = SeoProjectResource::class;
 
     protected static string $view = 'seo-content-ai::filament.resources.seo-project-resource.pages.list-seo-projects';
@@ -44,6 +49,13 @@ class ListSeoProjects extends ListRecords
 
     /** High-level list bucket: all|project|archived */
     public string $projectType = ContentProjectListBucket::ALL;
+
+    /**
+     * Table column mode — Generate (default) | Biên tập.
+     * Content Manager presentation always resolves to editorial (URL cannot force generate).
+     */
+    #[Url(as: 'view', history: true, keep: true)]
+    public string $listViewMode = self::VIEW_GENERATE;
 
     /** @var array<string, mixed>|null Request-local cache for forMonth() (domain + writer share one query set). */
     private ?array $monthWorkloadCache = null;
@@ -57,7 +69,47 @@ class ListSeoProjects extends ListRecords
 
         $this->planningMonth = $this->resolvePlanningMonthFromRequest();
         $this->projectType = $this->resolveProjectTypeFromRequest();
+        $this->listViewMode = $this->resolveListViewModeForMount($this->listViewMode);
         $this->syncToolbarFiltersToTableState();
+    }
+
+    public function effectiveListViewMode(): string
+    {
+        if (SeoAccessControl::usesContentManagerOpsPresentation()) {
+            return self::VIEW_EDITORIAL;
+        }
+
+        return self::normalizeListViewMode($this->listViewMode);
+    }
+
+    public function canSwitchListViewMode(): bool
+    {
+        return ! SeoAccessControl::usesContentManagerOpsPresentation();
+    }
+
+    public function updatedListViewMode(mixed $value): void
+    {
+        if (! $this->canSwitchListViewMode()) {
+            $this->listViewMode = self::VIEW_EDITORIAL;
+
+            return;
+        }
+
+        $this->listViewMode = self::normalizeListViewMode(is_string($value) ? $value : null);
+    }
+
+    public static function normalizeListViewMode(?string $value): string
+    {
+        return $value === self::VIEW_EDITORIAL ? self::VIEW_EDITORIAL : self::VIEW_GENERATE;
+    }
+
+    private function resolveListViewModeForMount(string $fromUrl): string
+    {
+        if (SeoAccessControl::usesContentManagerOpsPresentation()) {
+            return self::VIEW_EDITORIAL;
+        }
+
+        return self::normalizeListViewMode($fromUrl);
     }
 
     protected function getTableQuery(): Builder
@@ -80,7 +132,7 @@ class ListSeoProjects extends ListRecords
 
     protected function applySortingToTableQuery(Builder $query): Builder
     {
-        if ($this->sortsNeedsEditingColumn()) {
+        if ($this->sortsEditorialKpiColumn()) {
             return $query;
         }
 
@@ -89,36 +141,44 @@ class ListSeoProjects extends ListRecords
 
     protected function paginateTableQuery(Builder $query): Paginator|CursorPaginator
     {
-        if (! SeoAccessControl::usesContentManagerOpsPresentation()) {
+        if ($this->effectiveListViewMode() !== self::VIEW_EDITORIAL) {
             return parent::paginateTableQuery($query);
         }
 
-        if ($this->sortsNeedsEditingColumn()) {
-            return $this->paginateSortedByNeedsEditing($query);
+        if ($this->sortsEditorialKpiColumn()) {
+            return $this->paginateSortedByEditorialKpi($query);
         }
 
         $records = parent::paginateTableQuery($query);
         if ($records instanceof LengthAwarePaginator) {
-            $this->attachNeedsEditingCounts($records->getCollection());
+            $this->attachEditorialKpiCounts($records->getCollection());
         }
 
         return $records;
     }
 
-    private function sortsNeedsEditingColumn(): bool
+    private function sortsEditorialKpiColumn(): bool
     {
-        return SeoAccessControl::usesContentManagerOpsPresentation()
-            && $this->getTableSortColumn() === 'active_generated_count';
+        if ($this->effectiveListViewMode() !== self::VIEW_EDITORIAL) {
+            return false;
+        }
+
+        return in_array($this->getTableSortColumn(), [
+            'ops_normal_count',
+            'ops_needs_review_count',
+            'ops_reviewed_count',
+        ], true);
     }
 
-    private function paginateSortedByNeedsEditing(Builder $query): LengthAwarePaginator
+    private function paginateSortedByEditorialKpi(Builder $query): LengthAwarePaginator
     {
         /** @var Collection<int, SeoProject> $projects */
         $projects = (clone $query)->get();
-        $this->attachNeedsEditingCounts($projects);
+        $this->attachEditorialKpiCounts($projects);
+        $sortColumn = (string) $this->getTableSortColumn();
         $direction = $this->getTableSortDirection() === 'asc' ? 1 : -1;
-        $sorted = $projects->sort(static function (SeoProject $left, SeoProject $right) use ($direction): int {
-            $cmp = ((int) $left->getAttribute('needs_editing_count')) <=> ((int) $right->getAttribute('needs_editing_count'));
+        $sorted = $projects->sort(static function (SeoProject $left, SeoProject $right) use ($direction, $sortColumn): int {
+            $cmp = ((int) $left->getAttribute($sortColumn)) <=> ((int) $right->getAttribute($sortColumn));
             if ($cmp !== 0) {
                 return $cmp * $direction;
             }
@@ -144,13 +204,20 @@ class ListSeoProjects extends ListRecords
     /**
      * @param  Collection<int, SeoProject>  $projects
      */
-    private function attachNeedsEditingCounts(Collection $projects): void
+    private function attachEditorialKpiCounts(Collection $projects): void
     {
         $ids = $projects->map(static fn (SeoProject $project): int => (int) $project->getKey())->all();
-        $counts = ContentProjectNeedsEditingIndex::countsByProject($ids, (int) (auth()->id() ?? 0));
+        $counts = ContentProjectEditorialListIndex::countsByProject(
+            $ids,
+            (int) (auth()->id() ?? 0),
+            SeoAccessControl::usesContentManagerOpsPresentation(),
+        );
         foreach ($projects as $project) {
             $projectId = (int) $project->getKey();
-            $project->setAttribute('needs_editing_count', (int) ($counts[$projectId] ?? 0));
+            $row = $counts[$projectId] ?? ['normal' => 0, 'needs_review' => 0, 'review' => 0];
+            $project->setAttribute('ops_normal_count', (int) ($row['normal'] ?? 0));
+            $project->setAttribute('ops_needs_review_count', (int) ($row['needs_review'] ?? 0));
+            $project->setAttribute('ops_reviewed_count', (int) ($row['review'] ?? 0));
         }
     }
 
@@ -802,6 +869,9 @@ class ListSeoProjects extends ListRecords
         if ($type !== ContentProjectListBucket::ALL) {
             $params['project_type'] = $type;
             $params['tableFilters']['project_type'] = ['value' => $type];
+        }
+        if ($this->canSwitchListViewMode() && $this->effectiveListViewMode() === self::VIEW_EDITORIAL) {
+            $params['view'] = self::VIEW_EDITORIAL;
         }
 
         return $base.(str_contains($base, '?') ? '&' : '?').http_build_query($params);
