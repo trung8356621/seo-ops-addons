@@ -15,6 +15,7 @@ use Omnichannel\Addons\SearchFoundation\Models\SeoPendingInternalLink;
 use Omnichannel\Addons\Seo\Services\SeoIssueProjectTaskAssignmentService;
 use Omnichannel\Addons\WordPress\Services\ArticleWordPressSyncFlagService;
 use Omnichannel\Addons\WordPress\Services\WordPressInternalLinkTargetPolicy;
+use Illuminate\Support\Str;
 
 final class ArticlePendingInternalLinkService
 {
@@ -337,15 +338,33 @@ final class ArticlePendingInternalLinkService
             'source_article_id' => (int) $sourceArticle->id,
             'keyword_id' => $keywordId,
             'anchor_phrase' => $anchorPhrase,
-            'placeholder_hash' => $this->generateUniqueHash(),
+            'placeholder_hash' => $this->generateUniqueHash($anchorPhrase),
             'status' => SeoPendingInternalLink::STATUS_PENDING,
         ]);
     }
 
-    private function generateUniqueHash(): string
+    /**
+     * Human-readable placeholder fragment derived from the anchor phrase (e.g. #tu-khoa).
+     * Column limit is 16 chars; uniqueness suffix only when the base slug collides.
+     * Existing hex hashes remain valid for resolution.
+     */
+    private function generateUniqueHash(string $anchorPhrase = ''): string
     {
-        for ($attempt = 0; $attempt < 8; $attempt++) {
-            $hash = bin2hex(random_bytes(4));
+        $base = Str::slug($anchorPhrase);
+        if ($base === '') {
+            $base = 'tu-khoa';
+        }
+        $base = substr($base, 0, 16);
+
+        for ($attempt = 0; $attempt < 12; $attempt++) {
+            if ($attempt === 0) {
+                $hash = $base;
+            } else {
+                $suffix = substr(bin2hex(random_bytes(2)), 0, 4);
+                $trim = max(1, 16 - 1 - strlen($suffix));
+                $hash = substr($base, 0, $trim).'-'.$suffix;
+            }
+
             if (! SeoPendingInternalLink::query()->where('placeholder_hash', $hash)->exists()) {
                 return $hash;
             }

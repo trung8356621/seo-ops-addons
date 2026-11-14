@@ -456,6 +456,22 @@ final class OperationalNotificationService
             'last_occurred_at' => $now,
             'resolved_at' => null,
         ])->save();
+
+        $this->dispatchSmtpDelivery((string) $row->getKey());
+    }
+
+    private function dispatchSmtpDelivery(string $notificationId): void
+    {
+        $dispatcher = 'App\\Core\\Mail\\OperationalNotificationSmtpDispatcher';
+        if (! class_exists($dispatcher)) {
+            return;
+        }
+
+        try {
+            app($dispatcher)->dispatchAfterPersist($notificationId);
+        } catch (\Throwable) {
+            // SMTP must never break Site Health / operational writers.
+        }
     }
 
     /**

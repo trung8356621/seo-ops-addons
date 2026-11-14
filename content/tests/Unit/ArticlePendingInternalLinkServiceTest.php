@@ -30,6 +30,33 @@ final class ArticlePendingInternalLinkServiceTest extends TestCase
         $this->assertStringNotContainsString('#a1b2c3d4', $next);
     }
 
+    public function test_placeholder_hash_generator_uses_anchor_slug_not_random_hex(): void
+    {
+        $src = (string) file_get_contents(
+            (string) (new \ReflectionClass(ArticlePendingInternalLinkService::class))->getFileName(),
+        );
+
+        $this->assertStringContainsString('generateUniqueHash($anchorPhrase)', $src);
+        $this->assertStringContainsString('Str::slug($anchorPhrase)', $src);
+        $this->assertStringContainsString("'tu-khoa'", $src);
+        $this->assertStringNotContainsString('bin2hex(random_bytes(4))', $src);
+        $this->assertMatchesRegularExpression(
+            "/\\\$base = substr\\(\\\$base, 0, 16\\)/",
+            $src,
+        );
+    }
+
+    public function test_replace_placeholder_supports_slug_style_hash(): void
+    {
+        $service = app(ArticlePendingInternalLinkService::class);
+
+        $html = '<p><a href="#tu-khoa">anchor</a></p>';
+        $next = $service->replacePlaceholderInHtml($html, 'tu-khoa', 'https://shop.test/tu-khoa');
+
+        $this->assertStringContainsString('href="https://shop.test/tu-khoa"', $next);
+        $this->assertStringNotContainsString('#tu-khoa', $next);
+    }
+
     public function test_assign_from_editor_fails_when_keyword_already_in_other_project(): void
     {
         $this->requireSeoDatabaseConnection();

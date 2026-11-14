@@ -3,6 +3,7 @@
  */
 
 import { exitLinkAtBoundary, removeLinkKeepText } from '../editorLinkCommands';
+import { resolveLinkableSelectionRange } from '../linkAnchorValidation';
 import { EDITOR_COMMAND_CODES, failCommand } from './editorCommandResult';
 import { resolveTargetEditor } from './resolveTargetEditor';
 import { runEditorTransaction } from './runEditorTransaction';
@@ -17,9 +18,16 @@ function withEditor(context, payload, name, run) {
 
 export function createLinkCommand(context, payload = {}) {
     return withEditor(context, payload, 'create_link', (editor, editorId) => {
-        const href = String(payload.href ?? '').trim();
+        const href = String(payload.href ?? payload.url ?? '').trim();
         if (!href) {
             return failCommand('create_link', EDITOR_COMMAND_CODES.NO_CHANGE, { editor_id: editorId });
+        }
+        const range = resolveLinkableSelectionRange(editor);
+        if (!range) {
+            return failCommand('create_link', EDITOR_COMMAND_CODES.NO_CHANGE, {
+                editor_id: editorId,
+                reason: 'invalid_anchor',
+            });
         }
         const attrs = {
             href,
@@ -35,15 +43,18 @@ export function createLinkCommand(context, payload = {}) {
             historyPolicy: 'add',
             successCode: EDITOR_COMMAND_CODES.UPDATED,
             build: (ed) => {
-                const { from, to, empty } = ed.state.selection;
                 const chain = ed.chain().focus();
-                if (empty) {
+                if (range.empty) {
                     if (payload.extendMarkRange !== false && ed.isActive('link')) {
                         chain.extendMarkRange('link');
                     }
                     return chain.setLink(attrs).run();
                 }
-                return chain.setTextSelection({ from, to }).unsetLink().setLink(attrs).run();
+                return chain
+                    .setTextSelection({ from: range.from, to: range.to })
+                    .unsetLink()
+                    .setLink(attrs)
+                    .run();
             },
         });
     });

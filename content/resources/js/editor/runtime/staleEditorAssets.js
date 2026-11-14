@@ -18,23 +18,41 @@ export function isEditorChunkLoadError(error) {
 }
 
 /**
- * Allow one automatic full reload per page session for stale assets.
- * Call {@link clearStaleEditorAssetReloadFlag} on fresh editor boot.
+ * @returns {boolean}
+ */
+export function isEditorDocumentDirty() {
+    if (typeof window === 'undefined') {
+        return false;
+    }
+
+    return Boolean(window.__SEO_EDITOR_DIRTY__ || window.__seoEditorSaveInFlight);
+}
+
+/**
+ * Auto full-page reload is disabled (reload loops + unsaved-data risk).
+ * Kept as a no-op so callers/tests can still reference the historic API.
  *
- * @returns {boolean} true when a reload was triggered
+ * @returns {boolean} always false — never triggers reload
  */
 export function reloadForStaleEditorAssetsOnce() {
+    return false;
+}
+
+/**
+ * User-initiated reload only. Honors browser beforeunload when dirty.
+ * Does not clear dirty state.
+ *
+ * @returns {boolean} true when reload was requested
+ */
+export function requestManualEditorReload() {
     if (typeof window === 'undefined') {
         return false;
     }
 
     try {
-        if (window.sessionStorage.getItem(STALE_ASSET_RELOAD_KEY) === '1') {
-            return false;
-        }
         window.sessionStorage.setItem(STALE_ASSET_RELOAD_KEY, '1');
     } catch {
-        // sessionStorage unavailable — still attempt a single reload
+        // ignore
     }
 
     window.location.reload();
@@ -54,8 +72,23 @@ export function clearStaleEditorAssetReloadFlag() {
     }
 }
 
+export function hasStaleEditorAssetReloadFlag() {
+    if (typeof window === 'undefined') {
+        return false;
+    }
+
+    try {
+        return window.sessionStorage.getItem(STALE_ASSET_RELOAD_KEY) === '1';
+    } catch {
+        return false;
+    }
+}
+
 export default {
     clearStaleEditorAssetReloadFlag,
+    hasStaleEditorAssetReloadFlag,
     isEditorChunkLoadError,
+    isEditorDocumentDirty,
     reloadForStaleEditorAssetsOnce,
+    requestManualEditorReload,
 };

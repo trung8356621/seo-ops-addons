@@ -3,6 +3,7 @@ import { ExternalLink, Loader2, Search, Trash2 } from 'lucide-react';
 import { useDebouncedCallback } from '../hooks/useDebouncedCallback';
 import { callEditArticleLivewire } from '../utils/articleEditorLivewire';
 import { computeLinkBubblePosition } from '../utils/linkEditorAnchor';
+import { resolveLinkableSelectionRange } from '../utils/linkAnchorValidation';
 import { applyLinkToSelection } from '../utils/inlineLinkNormalizer';
 import { executeEditorCommand } from '../utils/editorCommands';
 import { openAssignToContentProject, AssignToContentProjectContract } from '../utils/assignToContentProject';
@@ -16,12 +17,17 @@ function readEditorSelectionText(editor) {
         return '';
     }
 
+    const range = resolveLinkableSelectionRange(editor);
+    if (range && !range.empty) {
+        return range.text;
+    }
+
     const { from, to, empty } = editor.state.selection;
     if (empty) {
         return '';
     }
 
-    return editor.state.doc.textBetween(from, to, ' ').trim();
+    return editor.state.doc.textBetween(from, to, ' ').replace(/\s+/gu, ' ').trim();
 }
 
 function isFilamentModalTarget(target) {
@@ -41,6 +47,9 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
     const [articleResults, setArticleResults] = useState([]);
     const [articleLoading, setArticleLoading] = useState(false);
     const [articleSearchError, setArticleSearchError] = useState('');
+    const [ordinarySearchEmpty, setOrdinarySearchEmpty] = useState(false);
+    const [semanticLoading, setSemanticLoading] = useState(false);
+    const [semanticTried, setSemanticTried] = useState(false);
     const [assignNotice, setAssignNotice] = useState('');
     const [assigning, setAssigning] = useState(false);
     const [position, setPosition] = useState({ top: 0, left: 0 });
@@ -49,6 +58,7 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
     const panelRef = useRef(null);
     const searchSeqRef = useRef(0);
     const savedSelectionRef = useRef(null);
+    const positionLockedRef = useRef(false);
     const canSearchArticles = articleId != null && Number(articleId) > 0;
 
     const captureEditorSelection = useCallback(() => {
@@ -57,11 +67,18 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
             return;
         }
 
+        const range = resolveLinkableSelectionRange(editor);
+        if (range && !range.empty) {
+            savedSelectionRef.current = { from: range.from, to: range.to };
+            return;
+        }
+
         const { from, to, empty } = editor.state.selection;
         savedSelectionRef.current = empty ? null : { from, to };
     }, [editor]);
 
-    const restoreEditorSelection = useCallback(() => {
+    const restoreEditorSelection = useCallback((options = {}) => {
+        const { focusEditor = true } = options;
         const saved = savedSelectionRef.current;
         if (!editor || !saved) {
             return false;
@@ -74,7 +91,9 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
             return false;
         }
 
-        editor.chain().focus().setTextSelection({ from, to }).run();
+        // focusEditor=false keeps Search/URL inputs editable (PM selection only).
+        const chain = focusEditor ? editor.chain().focus() : editor.chain();
+        chain.setTextSelection({ from, to }).run();
         return true;
     }, [editor]);
 
@@ -106,9 +125,13 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
 
         setArticleResults([]);
         setArticleSearchError('');
+        setOrdinarySearchEmpty(false);
+        setSemanticLoading(false);
+        setSemanticTried(false);
         setAssignNotice('');
         setArticleLoading(false);
         searchSeqRef.current += 1;
+        positionLockedRef.current = false;
         captureEditorSelection();
 
         const selectedPhrase = readEditorSelectionText(editor);
@@ -181,23 +204,32 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
             return;
         }
 
+        // Lock position after first layout so result/loading height changes do not jump the popup.
+        if (positionLockedRef.current) {
+            return;
+        }
+
         const next = computeLinkBubblePosition(anchorRect, container, {
             width: panel.offsetWidth,
             height: panel.offsetHeight,
         });
         setPosition(next);
-    }, [anchorRect, containerRef, articleResults.length, articleSearchError, articleLoading, assigning, assignNotice, url]);
+        positionLockedRef.current = true;
+    }, [anchorRect, containerRef]);
 
     const fetchArticleResults = useCallback(async (query) => {
         if (!canSearchArticles) {
             setArticleResults([]);
+            setOrdinarySearchEmpty(false);
             return;
         }
 
-        const trimmed = String(query ?? '').trim();
+        const trimmed = String(query ?? '').replace(/\s+/gu, ' ').trim();
         if (trimmed === '' || trimmed.length < ARTICLE_SEARCH_MIN_CHARS) {
             setArticleResults([]);
             setArticleSearchError('');
+            setOrdinarySearchEmpty(false);
+            setSemanticTried(false);
             setArticleLoading(false);
             return;
         }
@@ -205,18 +237,25 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
         const seq = ++searchSeqRef.current;
         setArticleLoading(true);
         setArticleSearchError('');
+        setOrdinarySearchEmpty(false);
+        setSemanticTried(false);
+        setSemanticLoading(false);
 
         try {
+            // Ordinary same-domain keyword search only — never auto-run semantic.
             const results = await callEditArticleLivewire('searchInternalLinkArticles', trimmed);
             if (seq !== searchSeqRef.current) {
                 return;
             }
-            setArticleResults(Array.isArray(results) ? results : []);
+            const rows = Array.isArray(results) ? results : [];
+            setArticleResults(rows);
+            setOrdinarySearchEmpty(rows.length === 0);
         } catch {
             if (seq !== searchSeqRef.current) {
                 return;
             }
             setArticleResults([]);
+            setOrdinarySearchEmpty(false);
             setArticleSearchError(t('link_bubble_article_search_failed'));
         } finally {
             if (seq === searchSeqRef.current) {
@@ -224,6 +263,43 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
             }
         }
     }, [canSearchArticles]);
+
+    const runSemanticSearch = useCallback(async () => {
+        if (!canSearchArticles || semanticLoading) {
+            return;
+        }
+        const trimmed = String(articleQuery ?? '').replace(/\s+/gu, ' ').trim();
+        if (trimmed.length < ARTICLE_SEARCH_MIN_CHARS) {
+            return;
+        }
+
+        const seq = ++searchSeqRef.current;
+        setSemanticLoading(true);
+        setArticleSearchError('');
+        setSemanticTried(true);
+
+        try {
+            const results = await callEditArticleLivewire('searchInternalLinkArticlesSemantic', trimmed);
+            if (seq !== searchSeqRef.current) {
+                return;
+            }
+            const rows = Array.isArray(results) ? results : [];
+            setArticleResults(rows);
+            if (rows.length === 0) {
+                setArticleSearchError(t('link_bubble_article_search_semantic_empty'));
+            }
+        } catch {
+            if (seq !== searchSeqRef.current) {
+                return;
+            }
+            setArticleResults([]);
+            setArticleSearchError(t('link_bubble_article_search_semantic_failed'));
+        } finally {
+            if (seq === searchSeqRef.current) {
+                setSemanticLoading(false);
+            }
+        }
+    }, [articleQuery, canSearchArticles, semanticLoading]);
 
     const { debounced: debouncedFetchArticles, cancel: cancelArticleSearch } = useDebouncedCallback((query) => {
         void fetchArticleResults(query);
@@ -249,7 +325,13 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
                 executeEditorCommand('remove_link_keep_text', { editor }, { notifyOnFailure: false });
             }
         } else {
-            const commandName = editor.isActive('link') ? 'update_link' : 'create_link';
+            const range = resolveLinkableSelectionRange(editor);
+            if (!range && !editor.isActive('link')) {
+                setArticleSearchError(t('link_bubble_assign_select_text'));
+                return;
+            }
+
+            const commandName = editor.isActive('link') && (!range || range.empty) ? 'update_link' : 'create_link';
             const result = executeEditorCommand(commandName, {
                 editor,
                 href: trimmed,
@@ -257,6 +339,9 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
             }, { notifyOnFailure: false });
             // Fallback only if command registry missing handler (should not happen in Phase 4+).
             if (!(result?.ok && result.transaction_applied)) {
+                if (range && !range.empty) {
+                    editor.chain().focus().setTextSelection({ from: range.from, to: range.to }).run();
+                }
                 applyLinkToSelection(editor, trimmed);
             }
         }
@@ -283,8 +368,9 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
             return;
         }
 
+        // Fill URL only — never rewrite Search input (avoids re-search + layout jump).
         setUrl(nextUrl);
-        setArticleQuery(String(item?.title ?? '').trim());
+        setArticleSearchError('');
         inputRef.current?.focus();
     };
 
@@ -325,7 +411,10 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
             ref={panelRef}
             className="seo-link-bubble"
             style={{ top: `${position.top}px`, left: `${position.left}px` }}
-            onMouseDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => {
+                // Never preventDefault on inputs — that blocks focus and looks "readonly".
+                e.stopPropagation();
+            }}
         >
             {canSearchArticles ? (
                 <div className="seo-link-bubble-section">
@@ -342,8 +431,10 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
                                 className="seo-link-bubble-input seo-link-bubble-input--search"
                                 value={articleQuery}
                                 onChange={(e) => setArticleQuery(e.target.value)}
+                                onFocus={() => restoreEditorSelection({ focusEditor: false })}
                                 placeholder={t('link_bubble_article_search_placeholder')}
                                 autoComplete="off"
+                                readOnly={false}
                             />
                         </div>
                         <button
@@ -360,13 +451,15 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
                     </div>
                     {assignNotice ? <p className="seo-link-bubble-assign-notice">{assignNotice}</p> : null}
                     <div className="seo-link-bubble-results" role="listbox" aria-label={t('link_bubble_article_search_label')}>
-                        {articleLoading ? (
+                        {articleLoading || semanticLoading ? (
                             <p className="seo-link-bubble-results-empty is-loading">
                                 <Loader2 size={14} className="seo-link-bubble-results-spinner animate-spin" aria-hidden />
-                                <span>{t('link_bubble_article_search_loading')}</span>
+                                <span>
+                                    {semanticLoading
+                                        ? t('link_bubble_article_search_semantic_loading')
+                                        : t('link_bubble_article_search_loading')}
+                                </span>
                             </p>
-                        ) : articleSearchError ? (
-                            <p className="seo-link-bubble-results-empty">{articleSearchError}</p>
                         ) : articleResults.length > 0 ? (
                             articleResults.map((item) => {
                                 const key = `${item.id ?? item.url}-${item.title}`;
@@ -387,17 +480,32 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
                                 );
                             })
                         ) : (
-                            <p className="seo-link-bubble-results-empty">
-                                {articleQuery.trim().length === 0
-                                    ? t('link_bubble_article_search_type_to_search', {
-                                          count: ARTICLE_SEARCH_MIN_CHARS,
-                                      })
-                                    : articleQuery.trim().length < ARTICLE_SEARCH_MIN_CHARS
-                                      ? t('link_bubble_article_search_min_chars', {
-                                            count: ARTICLE_SEARCH_MIN_CHARS,
-                                        })
-                                      : t('link_bubble_article_search_empty')}
-                            </p>
+                            <div className="seo-link-bubble-results-empty">
+                                <p>
+                                    {articleSearchError
+                                        || (articleQuery.trim().length === 0
+                                            ? t('link_bubble_article_search_type_to_search', {
+                                                  count: ARTICLE_SEARCH_MIN_CHARS,
+                                              })
+                                            : articleQuery.trim().length < ARTICLE_SEARCH_MIN_CHARS
+                                              ? t('link_bubble_article_search_min_chars', {
+                                                    count: ARTICLE_SEARCH_MIN_CHARS,
+                                                })
+                                              : t('link_bubble_article_search_empty'))}
+                                </p>
+                                {ordinarySearchEmpty
+                                && !semanticTried
+                                && articleQuery.trim().length >= ARTICLE_SEARCH_MIN_CHARS ? (
+                                    <button
+                                        type="button"
+                                        className="seo-link-bubble-semantic-btn"
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        onClick={() => void runSemanticSearch()}
+                                    >
+                                        {t('link_bubble_article_search_semantic')}
+                                    </button>
+                                ) : null}
+                            </div>
                         )}
                     </div>
                     {siteId ? (
@@ -418,6 +526,8 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
                     className="seo-link-bubble-input"
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
+                    onFocus={() => restoreEditorSelection({ focusEditor: false })}
+                    readOnly={false}
                     autoComplete="off"
                     autoCorrect="off"
                     autoCapitalize="off"

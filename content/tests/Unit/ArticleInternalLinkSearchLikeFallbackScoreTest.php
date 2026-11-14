@@ -157,4 +157,19 @@ final class ArticleInternalLinkSearchLikeFallbackScoreTest extends TestCase
         self::assertStringContainsString("\$b['score']", $src);
         self::assertStringContainsString('formatResult($article, $query)', $src);
     }
+
+    public function test_ordinary_search_does_not_drop_rows_via_fallback_min_accept(): void
+    {
+        $src = (string) file_get_contents(
+            (string) (new ReflectionClass(ArticleInternalLinkSearchService::class))->getFileName(),
+        );
+
+        self::assertStringContainsString("preg_replace('/\\s+/u', ' ', trim(\$query))", $src);
+        self::assertStringContainsString('function search(', $src);
+        self::assertStringContainsString('function searchSemantic(', $src);
+        self::assertStringContainsString('InternalLinkV2Suggester', $src);
+        // Ordinary search must not gate picker rows on semantic fallbackMinAccept.
+        self::assertStringNotContainsString('>= $minAccept', $src);
+        self::assertStringNotContainsString('fallbackMinAccept()', explode('function scoreLikeFallbackRelevance', $src)[0]);
+    }
 }

@@ -91,6 +91,8 @@ final class OperationalNotificationContractTest extends TestCase
         self::assertStringContainsString('unreadOperationalCount', $service);
         self::assertStringContainsString('displaySurfaces', $service);
         self::assertStringContainsString('display_surfaces', $service);
+        self::assertStringContainsString('dispatchSmtpDelivery', $service);
+        self::assertStringContainsString('OperationalNotificationSmtpDispatcher', $service);
         self::assertTrue(enum_exists(\Omnichannel\Addons\Seo\Enums\NotificationDisplaySurface::class));
     }
 

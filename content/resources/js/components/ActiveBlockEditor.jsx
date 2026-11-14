@@ -437,12 +437,14 @@ function ActiveBlockEditor({
             <EditorContextMenu
                 editor={editor}
                 snapshot={contextMenu?.snapshot ?? null}
-                siteId={siteId}
-                articleId={articleId}
                 open={Boolean(contextMenu)}
                 x={contextMenu?.x ?? 0}
                 y={contextMenu?.y ?? 0}
                 onClose={() => setContextMenu(null)}
+                onEditLink={(selection) => {
+                    setContextMenu(null);
+                    openLinkEditorAtSelection(selection);
+                }}
             />
             <BlockEditorResizeHandle
                 minHeight={minHeight}

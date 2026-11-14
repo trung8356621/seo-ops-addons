@@ -73,7 +73,9 @@ final class ArticleEditorModuleSyncQueueHardeningTest extends TestCase
         self::assertStringContainsString('this.props.slotName', $source);
         self::assertStringContainsString('handleRetry', $source);
         self::assertStringContainsString('isEditorChunkLoadError', $source);
-        self::assertStringContainsString('reloadForStaleEditorAssetsOnce', $source);
+        self::assertStringContainsString('requestManualEditorReload', $source);
+        self::assertStringNotContainsString('reloadForStaleEditorAssetsOnce()', $source);
+        self::assertStringNotContainsString("window.location.reload()", $source);
         self::assertFileDoesNotExist(
             ProjectRoot::addonsPath().'/content/resources/js/components/ArticleEditorModuleErrorBoundary.jsx',
         );
@@ -81,6 +83,9 @@ final class ArticleEditorModuleSyncQueueHardeningTest extends TestCase
         $stale = $this->js('editor/runtime/staleEditorAssets.js');
         self::assertStringContainsString('Failed to fetch dynamically imported module', $stale);
         self::assertStringContainsString('seo_editor_stale_asset_reload', $stale);
+        self::assertStringContainsString('return false;', $stale);
+        self::assertStringContainsString('requestManualEditorReload', $stale);
+        self::assertStringContainsString('isEditorDocumentDirty', $stale);
     }
 
     public function test_assistant_accordion_exclusive_by_default(): void

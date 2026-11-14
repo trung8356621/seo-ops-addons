@@ -7823,6 +7823,7 @@ section[data-seo-section-id].is-outline-jump-highlight {
 
 .seo-link-bubble-results {
     margin-top: 0.45rem;
+    min-height: 180px;
     max-height: 180px;
     overflow: auto;
     border: 1px solid #e5e7eb;
@@ -7885,6 +7886,28 @@ section[data-seo-section-id].is-outline-jump-highlight {
     padding: 0.65rem 0.55rem;
     font-size: 12px;
     color: #6b7280;
+}
+
+.seo-link-bubble-results-empty > p {
+    margin: 0;
+}
+
+.seo-link-bubble-semantic-btn {
+    display: inline-flex;
+    align-items: center;
+    margin-top: 0.55rem;
+    padding: 0.35rem 0.65rem;
+    font-size: 12px;
+    font-weight: 600;
+    color: #1d4ed8;
+    background: #eff6ff;
+    border: 1px solid #93c5fd;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.seo-link-bubble-semantic-btn:hover {
+    background: #dbeafe;
 }
 
 .seo-link-bubble-hint {

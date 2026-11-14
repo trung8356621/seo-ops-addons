@@ -19,7 +19,6 @@ import {
     Unlink,
 } from 'lucide-react';
 import { executeEditorCommand } from '../utils/editorCommands';
-import { searchInternalLinkArticlesCached } from '../utils/internalLinkArticleSearch';
 import {
     applyContextMenuSelection,
     clampMenuPosition,
@@ -29,7 +28,6 @@ import {
 } from '../utils/editorContextMenuController';
 import { t } from '../utils/i18n';
 
-const SEARCH_DEBOUNCE_MS = 280;
 const ICON = 15;
 const MENU_WIDTH = 252;
 
@@ -107,23 +105,17 @@ function Separator() {
 export default function EditorContextMenu({
     editor,
     snapshot = null,
-    siteId = 0,
-    articleId = 0,
     open,
     x,
     y,
     onClose,
+    onEditLink = null,
 }) {
     const rootRef = useRef(null);
     const ranRef = useRef(false);
     const [coords, setCoords] = useState({ left: x, top: y, flipSubmenuLeft: false });
     const [renameOpen, setRenameOpen] = useState(false);
     const [renameDraft, setRenameDraft] = useState('');
-    const [linkOpen, setLinkOpen] = useState(false);
-    const [linkQuery, setLinkQuery] = useState('');
-    const [linkResults, setLinkResults] = useState([]);
-    const [linkLoading, setLinkLoading] = useState(false);
-    const searchTimerRef = useRef(null);
 
     const hasRange = Boolean(snapshot && snapshot.empty === false);
     const isHeading = snapshot?.nodeName === 'heading';
@@ -132,9 +124,7 @@ export default function EditorContextMenu({
     useEffect(() => {
         ranRef.current = false;
         setRenameOpen(false);
-        setLinkOpen(false);
-        setLinkQuery('');
-        setLinkResults([]);
+        setRenameDraft('');
         setCoords({ left: x, top: y, flipSubmenuLeft: false });
     }, [open, x, y, snapshot]);
 
@@ -148,7 +138,7 @@ export default function EditorContextMenu({
             vh: window.innerHeight,
             pad: 8,
         }));
-    }, [open, x, y, renameOpen, linkOpen]);
+    }, [open, x, y, renameOpen]);
 
     useEffect(() => {
         if (!open) {
@@ -206,32 +196,15 @@ export default function EditorContextMenu({
         onClose?.();
     }, [editor, onClose, snapshot]);
 
-    const searchLinks = useCallback((phrase) => {
-        if (searchTimerRef.current) {
-            window.clearTimeout(searchTimerRef.current);
-        }
-        const trimmed = String(phrase ?? '').trim();
-        if (trimmed.length < 2) {
-            setLinkResults([]);
-            setLinkLoading(false);
+    const openUnifiedLinkPicker = useCallback(() => {
+        if (!editor || editor.isDestroyed || !snapshot || typeof onEditLink !== 'function') {
             return;
         }
-        setLinkLoading(true);
-        searchTimerRef.current = window.setTimeout(() => {
-            searchInternalLinkArticlesCached(trimmed, { siteId, articleId, limit: 8 })
-                .then((rows) => setLinkResults(Array.isArray(rows) ? rows : []))
-                .catch(() => setLinkResults([]))
-                .finally(() => setLinkLoading(false));
-        }, SEARCH_DEBOUNCE_MS);
-    }, [articleId, siteId]);
-
-    const applyHref = useCallback((href) => {
-        const next = String(href ?? '').trim();
-        if (next === '') {
-            return;
-        }
-        runMapped(inLink ? CMD.updateLink : CMD.createLink, next);
-    }, [inLink, runMapped]);
+        applyContextMenuSelection(editor, snapshot);
+        const selection = { from: snapshot.from, to: snapshot.to };
+        onClose?.();
+        onEditLink(selection);
+    }, [editor, onClose, onEditLink, snapshot]);
 
     const commitRename = useCallback(() => {
         const text = String(renameDraft ?? '').replace(/\s+/g, ' ').trim();
@@ -343,57 +316,12 @@ export default function EditorContextMenu({
             <MenuItem
                 icon={Link2}
                 label={inLink ? t('ctx_edit_link') : t('ctx_add_link')}
-                onSelect={() => {
-                    setLinkOpen(true);
-                    setLinkQuery('');
-                }}
+                onSelect={openUnifiedLinkPicker}
             />
             {inLink ? (
                 <MenuItem icon={Unlink} label={t('ctx_remove_link')} onSelect={() => runMapped(CMD.removeLink)} />
             ) : null}
             <MenuItem icon={RemoveFormatting} label={t('ctx_clear_formatting')} onSelect={() => runMapped(CMD.clearFormatting)} />
-
-            {linkOpen ? (
-                <div className="seo-editor-context-menu__link">
-                    <input
-                        type="text"
-                        className="seo-editor-context-menu__input"
-                        autoFocus
-                        value={linkQuery}
-                        placeholder={t('ctx_link_placeholder')}
-                        onChange={(event) => {
-                            setLinkQuery(event.target.value);
-                            searchLinks(event.target.value);
-                        }}
-                        onKeyDown={(event) => {
-                            if (event.key === 'Enter') {
-                                event.preventDefault();
-                                applyHref(linkQuery);
-                            }
-                        }}
-                        onMouseDown={(event) => event.stopPropagation()}
-                    />
-                    {linkLoading ? (
-                        <div className="seo-editor-context-menu__hint">{t('ctx_link_searching')}</div>
-                    ) : null}
-                    {linkResults.map((row) => (
-                        <button
-                            key={`${row.id}-${row.url}`}
-                            type="button"
-                            className="seo-editor-context-menu__result"
-                            onMouseDown={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                applyHref(row.url);
-                            }}
-                        >
-                            <span>{row.label || row.title}</span>
-                            <small>{row.url}</small>
-                        </button>
-                    ))}
-                    <MenuItem icon={Link2} label={t('ctx_link_use_url')} onSelect={() => applyHref(linkQuery)} />
-                </div>
-            ) : null}
 
             {isHeading ? (
                 <>

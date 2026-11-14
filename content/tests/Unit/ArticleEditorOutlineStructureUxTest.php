@@ -41,17 +41,23 @@ final class ArticleEditorOutlineStructureUxTest extends TestCase
         self::assertStringNotContainsString('SeoArticle::query()->where(\'id\'', $body);
     }
 
-    public function test_context_menu_reuses_cached_same_site_search(): void
+    public function test_context_menu_opens_unified_link_picker(): void
     {
         $menu = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/components/EditorContextMenu.jsx',
+        );
+        $active = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/components/ActiveBlockEditor.jsx',
         );
         $helper = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/utils/internalLinkArticleSearch.js',
         );
 
-        self::assertStringContainsString('searchInternalLinkArticlesCached', $menu);
-        self::assertStringContainsString('siteId', $menu);
+        self::assertStringContainsString('onEditLink', $menu);
+        self::assertStringContainsString('openUnifiedLinkPicker', $menu);
+        self::assertStringNotContainsString('searchInternalLinkArticlesCached', $menu);
+        self::assertStringContainsString('onEditLink=', $active);
+        self::assertStringContainsString('openLinkEditorAtSelection', $active);
         self::assertStringContainsString("callEditArticleLivewire('searchInternalLinkArticles'", $helper);
         self::assertStringContainsString('id === articleId', $helper);
     }

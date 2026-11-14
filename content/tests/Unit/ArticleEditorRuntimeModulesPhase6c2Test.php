@@ -105,6 +105,15 @@ final class ArticleEditorRuntimeModulesPhase6c2Test extends TestCase
         self::assertStringContainsString("executeEditorCommand(commandName", $bubble);
         self::assertStringContainsString('create_link', $bubble);
         self::assertStringContainsString('update_link', $bubble);
+        self::assertStringContainsString('resolveLinkableSelectionRange', $bubble);
+        self::assertStringContainsString('positionLockedRef', $bubble);
+        self::assertStringContainsString('// Fill URL only', $bubble);
+        self::assertStringNotContainsString('setArticleQuery(String(item?.title', $bubble);
+        self::assertStringContainsString('focusEditor: false', $bubble);
+        self::assertStringContainsString('Never preventDefault on inputs', $bubble);
+        self::assertStringContainsString('searchInternalLinkArticlesSemantic', $bubble);
+        self::assertStringContainsString('link_bubble_article_search_semantic', $bubble);
+        self::assertStringContainsString('never auto-run semantic', $bubble);
     }
 
     public function test_scoped_hooks_exist_without_giant_host_bag(): void

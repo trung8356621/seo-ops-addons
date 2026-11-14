@@ -18,8 +18,11 @@ export { EditorRuntimeSlot } from './EditorRuntimeSlot';
 export { EditorModuleErrorBoundary } from './EditorModuleErrorBoundary';
 export {
     clearStaleEditorAssetReloadFlag,
+    hasStaleEditorAssetReloadFlag,
     isEditorChunkLoadError,
+    isEditorDocumentDirty,
     reloadForStaleEditorAssetsOnce,
+    requestManualEditorReload,
 } from './staleEditorAssets';
 export {
     selectEnabledModules,

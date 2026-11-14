@@ -49,7 +49,7 @@ final class ArticleInternalLinkSearchService
             return [];
         }
 
-        $query = trim($query);
+        $query = preg_replace('/\s+/u', ' ', trim($query)) ?? '';
         if ($query === '') {
             return [];
         }
@@ -96,7 +96,107 @@ final class ArticleInternalLinkSearchService
             return ((int) ($b['id'] ?? 0)) <=> ((int) ($a['id'] ?? 0));
         });
 
+        // Ordinary picker search: rank by score; never drop LIKE hits with a relevance gate.
         return array_slice($scored, 0, $limit);
+    }
+
+    /**
+     * Optional semantic follow-up for the Link Picker when ordinary search returned zero rows.
+     * Reuses InternalLinkV2Suggester — never invents a new engine. No-op when semantic is disabled.
+     *
+     * @return list<array{id: int, title: string, url: string, label: string, score?: int, match_reason?: string}>
+     */
+    public function searchSemantic(int $siteId, int $excludeArticleId, string $query, int $limit = 15): array
+    {
+        if ($siteId <= 0 || ! (bool) config('semantic.enabled', false)) {
+            return [];
+        }
+
+        $query = preg_replace('/\s+/u', ' ', trim($query)) ?? '';
+        if ($query === '') {
+            return [];
+        }
+
+        $source = SeoArticle::query()
+            ->where('site_id', $siteId)
+            ->whereKey($excludeArticleId)
+            ->first();
+        if (! $source instanceof SeoArticle) {
+            return [];
+        }
+
+        $limit = max(1, min(30, $limit));
+        $result = app(InternalLinkV2Suggester::class)->suggest($source, $query);
+        $suggestions = is_array($result['suggestions'] ?? null) ? $result['suggestions'] : [];
+        if ($suggestions === []) {
+            return [];
+        }
+
+        $ids = [];
+        foreach ($suggestions as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $id = (int) ($row['target_article_id'] ?? 0);
+            if ($id > 0 && $id !== $excludeArticleId) {
+                $ids[] = $id;
+            }
+        }
+        $ids = array_values(array_unique($ids));
+        if ($ids === []) {
+            return [];
+        }
+
+        $titles = SeoArticle::query()
+            ->where('site_id', $siteId)
+            ->whereIn('id', $ids)
+            ->pluck('title', 'id');
+
+        $out = [];
+        $seenUrls = [];
+        foreach ($suggestions as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $id = (int) ($row['target_article_id'] ?? 0);
+            if ($id <= 0 || $id === $excludeArticleId) {
+                continue;
+            }
+            $url = trim((string) ($row['target_url'] ?? $row['href'] ?? ''));
+            if ($url === '') {
+                continue;
+            }
+            $urlKey = mb_strtolower($url);
+            if (isset($seenUrls[$urlKey])) {
+                continue;
+            }
+            $seenUrls[$urlKey] = true;
+            $title = trim((string) ($titles[$id] ?? ''));
+            if ($title === '') {
+                $title = trim((string) ($row['text'] ?? ''));
+            }
+            if ($title === '') {
+                $title = $url;
+            }
+            $scoreRaw = $row['score'] ?? null;
+            $score = is_numeric($scoreRaw)
+                ? LinkSuggestionScoreScale::clamp((int) round((float) $scoreRaw * (abs((float) $scoreRaw) <= 1.0 ? 100 : 1)))
+                : 0;
+
+            $out[] = [
+                'id' => $id,
+                'title' => $title,
+                'url' => $url,
+                'label' => sprintf('#%d · %s', $id, $title),
+                'score' => $score,
+                'match_reason' => 'semantic',
+            ];
+            if (count($out) >= $limit) {
+                break;
+            }
+        }
+
+        return $out;
     }
 
     /**

@@ -5447,6 +5447,20 @@ class EditArticle extends SeoEditRecord
         );
     }
 
+    /**
+     * Opt-in semantic follow-up for Link Picker when ordinary same-domain search is empty.
+     *
+     * @return list<array{id: int, title: string, url: string, label: string}>
+     */
+    public function searchInternalLinkArticlesSemantic(string $query = ''): array
+    {
+        return app(ArticleInternalLinkSearchService::class)->searchSemantic(
+            (int) $this->record->site_id,
+            (int) $this->record->id,
+            $query,
+        );
+    }
+
     public function generateFeaturedSnippetFromEditor(string $refBlockId, string $position = 'after'): void
     {
         if (! $this->canGenerateFeaturedSnippet()) {
