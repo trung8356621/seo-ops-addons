@@ -234,13 +234,28 @@ final class ContentProjectPublishingQueueService
             return 0;
         }
 
-        return $this->batchUpdate($project, $ids, [
+        $updated = $this->batchUpdate($project, $ids, [
             'publishing_queued_at' => now(),
             'publishing_queued_by' => $actorUserId,
             'scheduled_publish_at' => null,
             'publish_queue_status' => ContentProjectPublishQueueStatus::None->value,
             'last_publish_error' => null,
         ], onlyStatuses: null, onlyWherePublishingQueued: false);
+
+        // Durable editorial completion: Queue entry ⇒ Đã biên tập even after leaving Queue.
+        // Existing column only; no backfill of historical rows.
+        if ($updated > 0 && \Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'content_manager_reviewed_at')) {
+            SeoProjectTask::query()
+                ->where('project_id', (int) $project->getKey())
+                ->whereIn('id', $ids)
+                ->whereNull('content_manager_reviewed_at')
+                ->update([
+                    'content_manager_reviewed_at' => now(),
+                    'content_manager_reviewed_by' => $actorUserId && $actorUserId > 0 ? $actorUserId : null,
+                ]);
+        }
+
+        return $updated;
     }
 
     /**

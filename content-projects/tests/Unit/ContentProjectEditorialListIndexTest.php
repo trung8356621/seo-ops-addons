@@ -28,8 +28,9 @@ final class ContentProjectEditorialListIndexTest extends TestCase
         self::assertStringContainsString('ContentProjectOpsStateClassifier::classify', $src);
         self::assertStringContainsString('BUCKET_NEEDS_REVIEW', $src);
         self::assertStringContainsString('BUCKET_IN_REVIEW', $src);
-        self::assertStringContainsString('inContentProjectWorkingSet()', $src);
+        self::assertStringContainsString('in_publishing_queue', $src);
         self::assertStringContainsString('isUngeneratedPlanStatus', $src);
+        self::assertStringContainsString('inWorkingSet', $src);
         self::assertTrue(class_exists(ContentProjectNeedsEditingIndex::class));
         self::assertTrue(class_exists(ContentProjectOpsStateClassifier::class));
     }

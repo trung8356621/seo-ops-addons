@@ -8,6 +8,7 @@ use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemAction;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Content\Support\ArticleKeywordDistinctCounter;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Models\SeoArticleReview;
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectItemOrigin;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
@@ -170,6 +171,14 @@ final class ContentProjectItemOperationsReadModel
             }
         }
 
+        $articleIds = $tasks
+            ->map(static fn (SeoProjectTask $t): int => (int) ($t->article_id ?? 0))
+            ->filter(static fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+        $latestReviewByArticle = $this->latestHumanReviewsByArticleIds($articleIds);
+
         $rows = [];
         $index = 0;
         foreach ($tasks as $task) {
@@ -179,7 +188,8 @@ final class ContentProjectItemOperationsReadModel
             $index++;
             $tid = (int) $task->id;
             $viewed = $viewedByTask[$tid] ?? null;
-            $rows[] = $this->mapRow(
+            $articleId = (int) ($task->article_id ?? 0);
+            $row = $this->mapRow(
                 $project,
                 $task,
                 $index,
@@ -190,6 +200,21 @@ final class ContentProjectItemOperationsReadModel
                 isset($keywordDirtyByTask[$tid]),
                 $runtimeContext,
             );
+            $latestReview = $articleId > 0 ? ($latestReviewByArticle[$articleId] ?? null) : null;
+            if (is_array($latestReview)) {
+                $row['latest_review_note'] = $latestReview['note'];
+                $row['latest_reviewer_name'] = $latestReview['reviewer_name'];
+                $row['latest_review_at'] = $latestReview['created_at'];
+                $row['latest_review_at_relative'] = $latestReview['created_at_relative'];
+            } else {
+                $row['latest_review_note'] = null;
+                $row['latest_reviewer_name'] = null;
+                $row['latest_review_at'] = null;
+                $row['latest_review_at_relative'] = null;
+            }
+            // Single project assignee → do not repeat CM name next to the note.
+            $row['hide_review_reviewer_name'] = (int) ($project->user_id ?? 0) > 0;
+            $rows[] = $row;
         }
 
         $contentManager = $this->viewerIsContentManager($viewerUserId);
@@ -216,6 +241,10 @@ final class ContentProjectItemOperationsReadModel
         $stats['publishing_queue'] = $publishingQueueCount;
         $stats['normal'] = $contentManager ? count($operationalRows) : $workingSetCount;
         $stats['total_items'] = $workingSetCount + $publishingQueueCount;
+        // Đã biên tập = DISTINCT(stamped working-set ∪ publishing queue).
+        // Sets are disjoint (publishing_queued_at null vs not null) → safe sum.
+        $editedWorkingSet = (int) ($stats['waiting_review'] ?? 0);
+        $stats['waiting_review'] = $editedWorkingSet + $publishingQueueCount;
 
         $listRows = $contentManager ? $operationalRows : $rows;
         $filtered = $this->applyFilters(collect($listRows), $filters);
@@ -959,7 +988,63 @@ final class ContentProjectItemOperationsReadModel
             'in_publishing_queue' => $rowBase['in_publishing_queue'],
             'can_send_to_publishing_queue' => PublishingQueueHandoffEligibility::canSend($rowBase),
             'keywords_count' => $this->distinctKeywordCount($article),
+            'latest_review_note' => null,
+            'latest_reviewer_name' => null,
+            'latest_review_at' => null,
+            'latest_review_at_relative' => null,
         ];
+    }
+
+    /**
+     * Latest human approval/review note per article (skips synthetic ensureApproved:* notes).
+     *
+     * @param  list<int>  $articleIds
+     * @return array<int, array{note: string, reviewer_name: string|null, created_at: string|null, created_at_relative: string|null}>
+     */
+    private function latestHumanReviewsByArticleIds(array $articleIds): array
+    {
+        if ($articleIds === []) {
+            return [];
+        }
+
+        if (! Schema::connection('omi_seo_ai')->hasTable('seo_article_reviews')) {
+            return [];
+        }
+
+        /** @var Collection<int, SeoArticleReview> $reviews */
+        $reviews = SeoArticleReview::query()
+            ->whereIn('article_id', $articleIds)
+            ->whereNotNull('note')
+            ->where('note', '!=', '')
+            ->with('reviewer:id,name')
+            ->orderByDesc('id')
+            ->get();
+
+        $out = [];
+        foreach ($reviews as $review) {
+            if (! $review instanceof SeoArticleReview) {
+                continue;
+            }
+            $articleId = (int) ($review->article_id ?? 0);
+            if ($articleId <= 0 || isset($out[$articleId])) {
+                continue;
+            }
+            $note = trim((string) ($review->note ?? ''));
+            if ($note === '' || str_starts_with($note, 'ensureApproved:')) {
+                continue;
+            }
+            $createdAt = $review->created_at;
+            $out[$articleId] = [
+                'note' => $note,
+                'reviewer_name' => $review->reviewer?->name !== null
+                    ? (string) $review->reviewer->name
+                    : null,
+                'created_at' => $createdAt?->toIso8601String(),
+                'created_at_relative' => $createdAt?->diffForHumans(),
+            ];
+        }
+
+        return $out;
     }
 
     /**

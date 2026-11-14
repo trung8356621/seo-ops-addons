@@ -11,7 +11,7 @@ use ReflectionClass;
 use Tests\Support\LegacyAddonPath;
 
 /**
- * Content Projects list: single numeric month navigator (no selectbox).
+ * Content Projects list: month strip — arrows paginate display only; chips select month.
  */
 final class ContentProjectListMonthNavContractTest extends TestCase
 {
@@ -40,7 +40,7 @@ final class ContentProjectListMonthNavContractTest extends TestCase
         self::assertSame('2026-02', ContentProjectMonthContext::shift('2026-01', 1));
     }
 
-    public function test_list_nav_has_no_month_selectbox(): void
+    public function test_list_nav_arrows_paginate_strip_without_navigation(): void
     {
         $view = LegacyAddonPath::read(
             'resources/views/filament/resources/seo-project-resource/pages/list-seo-projects.blade.php',
@@ -50,15 +50,34 @@ final class ContentProjectListMonthNavContractTest extends TestCase
         );
 
         self::assertStringContainsString('data-cp-list-month-nav', $nav);
-        self::assertStringContainsString('shortLabel', $nav);
-        self::assertStringContainsString('monthUrls', $nav);
-        self::assertStringContainsString('prevUrl', $nav);
-        self::assertStringContainsString('nextUrl', $nav);
-        self::assertStringNotContainsString('planning-month-jump', $nav);
+        self::assertStringContainsString('data-cp-month-strip', $nav);
+        self::assertStringContainsString('cpListMonthStrip', $nav);
+        self::assertStringContainsString('shiftStrip', $nav);
+        self::assertStringContainsString('type="button"', $nav);
+        self::assertStringContainsString('@click.prevent="shiftStrip(-1)"', $nav);
+        self::assertStringContainsString('@click.prevent="shiftStrip(1)"', $nav);
+        self::assertStringContainsString('active_month_strip_prev', $nav);
+        self::assertStringContainsString('active_month_strip_next', $nav);
+        self::assertStringContainsString('active_month_all', $nav);
+        self::assertStringContainsString('month-catalog', $view);
+        self::assertStringContainsString('selectOptions(18, 12)', $view);
+        // Arrows must not wire:navigate / href to month URLs.
+        self::assertStringNotContainsString(':prev-url', $view);
+        self::assertStringNotContainsString(':next-url', $view);
+        self::assertStringNotContainsString('href="{{ $prevUrl }}"', $nav);
+        self::assertStringNotContainsString('href="{{ $nextUrl }}"', $nav);
         self::assertStringNotContainsString('wire:model.live="planningMonth"', $nav);
-        self::assertStringNotContainsString('<x-select', $nav);
-        self::assertStringNotContainsString(':all-options', $view);
-        self::assertStringNotContainsString('getPlanningMonthOptions()', $view);
+        self::assertStringNotContainsString('planning-month-jump', $nav);
+    }
+
+    public function test_month_chip_click_still_uses_url_navigation(): void
+    {
+        $nav = LegacyAddonPath::read(
+            'resources/views/components/content-project-list-month-nav.blade.php',
+        );
+        self::assertStringContainsString('wire:navigate', $nav);
+        self::assertStringContainsString(':href="month.url"', $nav);
+        self::assertStringContainsString('visibleMonths', $nav);
     }
 
     public function test_list_page_still_syncs_month_via_url(): void

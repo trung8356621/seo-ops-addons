@@ -35,10 +35,11 @@ final class ContentProjectEditorialListIndex
             return $counts;
         }
 
+        // Working set + Publishing Queue (disjoint via publishing_queued_at).
+        // Queue membership counts as Đã biên tập; Normal stays working-set-only.
         $tasks = SeoProjectTask::query()
             ->whereIn('project_id', $projectIds)
             ->planned()
-            ->inContentProjectWorkingSet()
             ->get([
                 'id',
                 'project_id',
@@ -114,9 +115,20 @@ final class ContentProjectEditorialListIndex
             $status = (string) $task->status;
             $type = (string) ($task->type ?? '');
             $ungenerated = SeoProjectTask::isUngeneratedPlanStatus($status, $type, $articleId);
+            $inWorkingSet = $task->publishing_queued_at === null;
 
-            if (! $contentManagerPresentation || ! $ungenerated) {
+            // Normal = Content Project working set only (excludes Publishing Queue).
+            if ($inWorkingSet && (! $contentManagerPresentation || ! $ungenerated)) {
                 $counts[$projectId]['normal']++;
+            }
+
+            // Publishing Queue ⇒ Đã biên tập (same UNION as project detail).
+            // Do NOT route queue rows through OpsStateClassifier: queue_status
+            // waiting/processing matches Scheduled and would undercount (e.g. 2 vs 27).
+            if (! $inWorkingSet) {
+                $counts[$projectId]['review']++;
+
+                continue;
             }
 
             $reviewed = $task->content_manager_reviewed_at;
@@ -136,6 +148,7 @@ final class ContentProjectEditorialListIndex
             $row['task_status'] = $status;
             $row['type'] = $type;
             $row['article_id'] = $articleId;
+            $row['in_publishing_queue'] = false;
 
             $classified = ContentProjectOpsStateClassifier::classify($row);
             if ($classified['summary_bucket'] === ContentProjectOpsStateClassifier::BUCKET_NEEDS_REVIEW) {

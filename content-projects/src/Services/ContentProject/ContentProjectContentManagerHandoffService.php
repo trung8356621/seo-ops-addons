@@ -62,7 +62,8 @@ final class ContentProjectContentManagerHandoffService
             return [...$empty, 'reason' => 'no_actor'];
         }
 
-        if (! SeoAccessControl::canSubmitArticleReview()) {
+        // CM exact role OR planner/manager+ (canApprove) — Save stamps "Đã biên tập", not Approved.
+        if (! SeoAccessControl::canSubmitArticleReview() && ! SeoAccessControl::canApproveArticleReview()) {
             return [...$empty, 'reason' => 'actor_not_content_manager'];
         }
 

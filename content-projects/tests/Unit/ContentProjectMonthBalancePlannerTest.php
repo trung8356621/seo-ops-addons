@@ -441,11 +441,12 @@ final class ContentProjectMonthBalancePlannerTest extends TestCase
         self::assertStringNotContainsString('id="planning-month"', $view);
         self::assertStringNotContainsString('wire:model.live="planningMonth"', $nav);
         self::assertStringNotContainsString('planning-month-jump', $nav);
-        self::assertStringNotContainsString('allOptions', $nav);
         self::assertStringNotContainsString(':all-options', $view);
         self::assertStringContainsString('shortLabel', $nav);
         self::assertStringContainsString('active_month', $nav);
         self::assertStringContainsString('data-cp-list-month-nav', $nav);
+        self::assertStringContainsString('shiftStrip', $nav);
+        self::assertStringContainsString('cpListMonthStrip', $nav);
         self::assertStringContainsString('data-cp-list-monthly-planning', $matrix);
         self::assertStringContainsString('list_monthly_planning_title', $matrix);
         self::assertStringContainsString('is-active', $matrix);

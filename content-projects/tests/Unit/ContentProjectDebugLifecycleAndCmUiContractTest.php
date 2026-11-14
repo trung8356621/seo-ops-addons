@@ -136,6 +136,7 @@ final class ContentProjectDebugLifecycleAndCmUiContractTest extends TestCase
             ProjectRoot::addonsPath().'/content-projects/src/Services/ContentProject/ContentProjectContentManagerHandoffService.php',
         );
         self::assertStringContainsString('canSubmitArticleReview', $src);
+        self::assertStringContainsString('canApproveArticleReview', $src);
         self::assertStringContainsString('ORIGIN_ARTICLE_EDITOR', $src);
         self::assertStringContainsString('content_manager_reviewed_at', $src);
         self::assertStringNotContainsString('SubmitReview', $src);

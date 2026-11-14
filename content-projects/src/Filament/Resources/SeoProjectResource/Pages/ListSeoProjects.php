@@ -126,7 +126,7 @@ class ListSeoProjects extends ListRecords
         return ContentProjectListBucket::apply(
             $query,
             $this->projectType,
-            ContentProjectMonthContext::toDateString($this->planningMonth ?: null),
+            $this->planningMonthDateOrNull(),
         );
     }
 
@@ -800,7 +800,7 @@ class ListSeoProjects extends ListRecords
 
     public function updatedPlanningMonth(mixed $value): void
     {
-        $normalized = ContentProjectMonthContext::normalize(is_string($value) ? $value : null);
+        $normalized = $this->normalizePlanningMonthSelection(is_string($value) ? $value : null);
         $this->planningMonth = $normalized;
         $this->syncToolbarFiltersToTableState();
         $this->redirect($this->planningMonthUrl($normalized, $this->projectType), navigate: true);
@@ -853,21 +853,26 @@ class ListSeoProjects extends ListRecords
 
     public function planningMonthUrl(string $month, ?string $projectType = null): string
     {
-        $normalized = ContentProjectMonthContext::normalize($month);
+        $normalized = $this->normalizePlanningMonthSelection($month);
         $type = ContentProjectListBucket::normalize($projectType ?? $this->projectType);
         $base = SeoProjectResource::getUrl('index');
-        $monthDate = ContentProjectMonthContext::toDateString($normalized);
 
-        $params = [
-            'month' => $normalized,
-            'tableFilters' => [
+        $params = [];
+        if ($normalized === '') {
+            // Explicit "all" so reload does not re-apply Admin's current-month default.
+            $params['month'] = 'all';
+        } else {
+            $monthDate = ContentProjectMonthContext::toDateString($normalized);
+            $params['month'] = $normalized;
+            $params['tableFilters'] = [
                 'month' => [
                     'month' => $monthDate,
                 ],
-            ],
-        ];
+            ];
+        }
         if ($type !== ContentProjectListBucket::ALL) {
             $params['project_type'] = $type;
+            $params['tableFilters'] ??= [];
             $params['tableFilters']['project_type'] = ['value' => $type];
         }
         if ($this->canSwitchListViewMode() && $this->effectiveListViewMode() === self::VIEW_EDITORIAL) {
@@ -877,13 +882,44 @@ class ListSeoProjects extends ListRecords
         return $base.(str_contains($base, '?') ? '&' : '?').http_build_query($params);
     }
 
+    /**
+     * Empty string = no month filter (Tất cả). Non-empty = YYYY-MM.
+     */
+    public function normalizePlanningMonthSelection(?string $value): string
+    {
+        $raw = trim((string) $value);
+        if ($raw === '' || strtolower($raw) === 'all') {
+            return '';
+        }
+
+        return ContentProjectMonthContext::parseOrNull($raw) ?? '';
+    }
+
+    public function isAllPlanningMonths(): bool
+    {
+        return $this->planningMonth === '';
+    }
+
+    /** DB date (Y-m-d) for list filter, or null when Tất cả. */
+    private function planningMonthDateOrNull(): ?string
+    {
+        $parsed = ContentProjectMonthContext::parseOrNull($this->planningMonth !== '' ? $this->planningMonth : null);
+
+        return $parsed !== null ? ContentProjectMonthContext::toDateString($parsed) : null;
+    }
+
     private function resolvePlanningMonthFromRequest(): string
     {
-        $fromQuery = ContentProjectMonthContext::parseOrNull(
-            is_string(request()->query('month')) ? (string) request()->query('month') : null,
-        );
-        if ($fromQuery !== null) {
-            return $fromQuery;
+        $rawQuery = request()->query('month');
+        if (is_string($rawQuery)) {
+            $trimmed = trim($rawQuery);
+            if ($trimmed === '' || strtolower($trimmed) === 'all') {
+                return '';
+            }
+            $fromQuery = ContentProjectMonthContext::parseOrNull($trimmed);
+            if ($fromQuery !== null) {
+                return $fromQuery;
+            }
         }
 
         $fromFilter = $this->monthFromTableFilters();
@@ -898,6 +934,12 @@ class ListSeoProjects extends ListRecords
         );
         if ($fromTableQuery !== null) {
             return $fromTableQuery;
+        }
+
+        // Content Manager: default to all assigned projects (no current-month filter).
+        // Admin / planner: keep current month as Generate Monthly context.
+        if (SeoAccessControl::usesContentManagerOpsPresentation()) {
+            return '';
         }
 
         return ContentProjectMonthContext::current();
@@ -947,9 +989,13 @@ class ListSeoProjects extends ListRecords
     private function syncToolbarFiltersToTableState(): void
     {
         $this->tableFilters ??= [];
-        $this->tableFilters['month'] = [
-            'month' => ContentProjectMonthContext::toDateString($this->planningMonth),
-        ];
+        if ($this->planningMonth === '') {
+            unset($this->tableFilters['month']);
+        } else {
+            $this->tableFilters['month'] = [
+                'month' => ContentProjectMonthContext::toDateString($this->planningMonth),
+            ];
+        }
 
         $type = ContentProjectListBucket::normalize($this->projectType);
         if ($type === ContentProjectListBucket::ALL) {

@@ -4,20 +4,26 @@
     $writerChart = $this->getWriterWorkloadChart();
     $monthlyPlanning = $this->getMonthlyPlanningMatrix();
     $queueStatus = $this->getCompactQueueStatus();
-    $activeMonth = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::normalize($this->planningMonth ?: null);
-    $nearbyMonths = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::nearbyMonths($activeMonth, 2);
-    $monthUrls = [];
-    foreach ($nearbyMonths as $month) {
-        $monthUrls[$month] = $this->planningMonthUrl($month, $this->projectType);
+    $isAllMonths = $this->isAllPlanningMonths();
+    // Strip center anchors to selected month, or wall-clock current when "Tất cả".
+    $navAnchorMonth = $isAllMonths
+        ? \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::current()
+        : \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::normalize($this->planningMonth);
+    $monthCatalog = [];
+    foreach (\Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::selectOptions(18, 12) as $option) {
+        $month = (string) ($option['value'] ?? '');
+        if ($month === '') {
+            continue;
+        }
+        $monthCatalog[] = [
+            'value' => $month,
+            'short' => \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::shortLabel($month),
+            'label' => \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::display($month),
+            'url' => $this->planningMonthUrl($month, $this->projectType),
+            'year' => substr($month, 0, 4),
+        ];
     }
-    $prevUrl = $this->planningMonthUrl(
-        \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::shift($activeMonth, -1),
-        $this->projectType,
-    );
-    $nextUrl = $this->planningMonthUrl(
-        \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::shift($activeMonth, 1),
-        $this->projectType,
-    );
+    $allMonthsUrl = $this->planningMonthUrl('all', $this->projectType);
 @endphp
 
 <x-filament-panels::page
@@ -34,10 +40,10 @@
     <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div class="flex min-w-0 flex-1 flex-wrap items-center gap-3">
             <x-seo-content-ai::content-project-list-month-nav
-                :active-month="$activeMonth"
-                :month-urls="$monthUrls"
-                :prev-url="$prevUrl"
-                :next-url="$nextUrl"
+                :active-month="$navAnchorMonth"
+                :is-all-months="$isAllMonths"
+                :all-months-url="$allMonthsUrl"
+                :month-catalog="$monthCatalog"
                 :radius="2"
             />
 

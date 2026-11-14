@@ -96,6 +96,7 @@ final class ContentProjectOpsStateClassifier
     public static function classify(array $row): array
     {
         $published = ContentProjectPublishedDefinition::matches($row);
+        $inPublishingQueue = ContentProjectInReviewReportingDefinition::inPublishingQueue($row);
         $scheduled = ContentProjectScheduledDefinition::matches($row);
         $approved = ContentProjectApprovedDefinition::matches($row);
         $failed = ContentProjectFailedOpsDefinition::matches($row);
@@ -107,8 +108,10 @@ final class ContentProjectOpsStateClassifier
         // still land in the Pending summary bucket, but must not paint "Đang chạy".
         $running = ! empty($row['is_genuinely_running']);
 
+        // Queue membership ⇒ Đã biên tập summary (before Scheduled waiting/processing).
         $summary = match (true) {
             $published => self::BUCKET_PUBLISHED,
+            $inPublishingQueue && $inReview => self::BUCKET_IN_REVIEW,
             $scheduled => self::BUCKET_SCHEDULED,
             $failed => self::BUCKET_FAILED,
             $approved => self::BUCKET_APPROVED,

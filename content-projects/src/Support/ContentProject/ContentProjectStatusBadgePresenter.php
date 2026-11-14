@@ -166,8 +166,8 @@ final class ContentProjectStatusBadgePresenter
             ),
             'in_review' => self::badge(
                 'in_review',
-                self::t('badge_reviewed_by_content_manager', 'Reviewed by Content Manager'),
-                'heroicon-o-eye',
+                self::t('badge_reviewed_by_content_manager', 'Edited'),
+                'heroicon-o-pencil-square',
                 'bg-warning-100 text-warning-900 ring-warning-600/30 dark:bg-warning-400/15 dark:text-warning-200 dark:ring-warning-400/40',
             ),
             default => null,

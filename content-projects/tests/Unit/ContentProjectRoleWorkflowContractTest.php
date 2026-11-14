@@ -105,7 +105,7 @@ final class ContentProjectRoleWorkflowContractTest extends TestCase
         ]));
     }
 
-    public function test_in_review_reporting_matches_stamp_only(): void
+    public function test_in_review_reporting_matches_stamp_or_publishing_queue(): void
     {
         self::assertTrue(ContentProjectInReviewReportingDefinition::matches([
             'is_content_manager_reviewed' => true,
@@ -113,6 +113,15 @@ final class ContentProjectRoleWorkflowContractTest extends TestCase
             'review_status' => 'draft',
             'is_scheduled' => false,
             'queue_status' => 'none',
+        ]));
+
+        self::assertTrue(ContentProjectInReviewReportingDefinition::matches([
+            'is_content_manager_reviewed' => false,
+            'in_publishing_queue' => true,
+            'publishing_queued_at' => '2026-11-14T00:00:00+00:00',
+            'lifecycle' => 'review',
+            'review_status' => 'draft',
+            'generation_status' => 'completed',
         ]));
 
         self::assertFalse(ContentProjectInReviewReportingDefinition::matches([
@@ -328,6 +337,7 @@ final class ContentProjectRoleWorkflowContractTest extends TestCase
         );
         self::assertStringContainsString('ORIGIN_ARTICLE_EDITOR', $src);
         self::assertStringContainsString('canSubmitArticleReview', $src);
+        self::assertStringContainsString('canApproveArticleReview', $src);
         self::assertStringContainsString('content_manager_reviewed_at', $src);
         self::assertStringContainsString('content_manager_reviewed_by', $src);
         self::assertStringNotContainsString('SubmitReview', $src);
