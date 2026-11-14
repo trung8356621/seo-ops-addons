@@ -172,21 +172,50 @@ function stickyOffset(pane) {
     return Math.max(SCROLL_OFFSET, Math.ceil(height) + 12);
 }
 
-function scrollTarget(element) {
-    const highlight = element.matches('section[data-seo-section-id]')
+/**
+ * Scroll the editor scroller so `element` aligns near the top (sticky-aware).
+ * Used by Outline H2/H3/H4 jump and CTA section navigation — never block:center.
+ *
+ * @param {Element|null|undefined} element
+ * @param {{ highlightClass?: string, align?: 'start'|'nearest' }} [options]
+ */
+export function scrollEditorTargetIntoView(element, options = {}) {
+    if (!(element instanceof Element)) {
+        return false;
+    }
+
+    const highlightClass = String(options.highlightClass ?? '').trim();
+    const preferSection = element.matches?.('section[data-seo-section-id]');
+    const highlight = preferSection
         ? element
-        : element.closest('.seo-editor-block-slot') || element;
+        : (element.closest?.('.seo-editor-block-slot') || element);
     const pane = highlight.closest?.('.seo-article-editor-mainpane') ?? mainPane();
     const container = selectEditorScroller(highlight);
     if (!container || !pane) {
-        return;
+        return false;
     }
-    const top = highlight.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - stickyOffset(pane);
+
+    const top = highlight.getBoundingClientRect().top
+        - container.getBoundingClientRect().top
+        + container.scrollTop
+        - stickyOffset(pane);
     container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
-    highlight.classList.add(highlight.matches('section[data-seo-section-id]') ? 'is-outline-jump-highlight' : 'is-cta-jump-highlight');
-    window.setTimeout(() => {
-        highlight.classList.remove('is-outline-jump-highlight', 'is-cta-jump-highlight');
-    }, 2400);
+
+    if (highlightClass !== '') {
+        highlight.classList.add(highlightClass);
+        window.setTimeout(() => {
+            highlight.classList.remove(highlightClass);
+        }, 2400);
+    }
+
+    return true;
+}
+
+function scrollTarget(element) {
+    const highlightClass = element?.matches?.('section[data-seo-section-id]')
+        ? 'is-outline-jump-highlight'
+        : 'is-cta-jump-highlight';
+    scrollEditorTargetIntoView(element, { highlightClass });
 }
 
 /**

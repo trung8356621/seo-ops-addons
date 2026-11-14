@@ -99,6 +99,28 @@ final class ArticleEditorOutlineStructureUxTest extends TestCase
         self::assertStringContainsString('focusHeadingIndex', $blockEditor);
     }
 
+    public function test_outline_jump_scrolls_section_top_for_h2_and_heading_start_for_h3(): void
+    {
+        $outline = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/hooks/useArticleEditorOutline.js',
+        );
+        $active = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/components/ActiveBlockEditor.jsx',
+        );
+        $nav = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/utils/ctaSectionNavigator.js',
+        );
+
+        self::assertStringContainsString('scrollEditorTargetIntoView', $outline);
+        self::assertStringContainsString('jumpToSectionTop', $outline);
+        self::assertStringContainsString('level === 2', $outline);
+        self::assertStringNotContainsString("block: 'center'", $outline);
+        self::assertStringContainsString('scrollEditorTargetIntoView', $active);
+        self::assertStringNotContainsString("block: 'center'", $active);
+        self::assertStringContainsString('export function scrollEditorTargetIntoView', $nav);
+        self::assertStringContainsString('stickyOffset', $nav);
+    }
+
     public function test_active_block_insert_bars_remain_in_editor_shell(): void
     {
         $editor = (string) file_get_contents(

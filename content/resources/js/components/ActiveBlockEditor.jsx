@@ -37,6 +37,7 @@ import {
 } from '../utils/editorSelectionUtils';
 import EditorContextMenu from './EditorContextMenu';
 import { findHeadingByIndex } from '../utils/editorCommands/headingSplitEngine';
+import { scrollEditorTargetIntoView } from '../utils/ctaSectionNavigator';
 import { captureEditorContextMenuSnapshot } from '../utils/editorContextMenuController';
 
 /**
@@ -345,13 +346,13 @@ function ActiveBlockEditor({
             return undefined;
         }
 
-        const from = found.pos + 1;
-        const to = found.pos + found.node.nodeSize - 1;
-        editor.chain().focus().setTextSelection({ from, to }).run();
+        // Outline H3/H4 jump: scroll heading start only — no focus/selection (avoids dirty races).
         try {
             const dom = editor.view.nodeDOM(found.pos);
             const el = dom instanceof HTMLElement ? dom : dom?.parentElement;
-            el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+            if (el) {
+                scrollEditorTargetIntoView(el, { highlightClass: 'is-outline-jump-highlight' });
+            }
         } catch {
             // ignore
         }

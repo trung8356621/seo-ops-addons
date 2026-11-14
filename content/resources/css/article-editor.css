@@ -12284,6 +12284,19 @@ body.article-editor-page:has([data-seo-editor-exclusive-lock="1"]) .wp-article-e
     max-width: 100%;
 }
 
+.seo-cta-automation__actions--row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.4rem;
+}
+
+.seo-cta-automation__actions--row .seo-cta-automation__btn {
+    width: auto;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
 .seo-cta-automation__btn {
     display: flex;
     align-items: center;

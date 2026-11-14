@@ -97,7 +97,7 @@ final class ArticleEditorLinksPayloadService
             is_array($base['extracted_links']['internal'] ?? null) ? $base['extracted_links']['internal'] : [],
             $existingInternal,
         );
-        $internal = app(InternalLinkV2Suggester::class)->suggest($article, $content, $occupied, $cursor);
+        $internal = $this->suggestInternalLinks($article, $content, $occupied, $cursor);
         $suggestions = is_array($internal['suggestions'] ?? null) ? $internal['suggestions'] : [];
         $exhausted = ($internal['discovery']['exhausted'] ?? false) === true;
 
@@ -110,6 +110,7 @@ final class ArticleEditorLinksPayloadService
             'internal_link_v2' => $internal,
             'suggestion_status' => (string) ($internal['status'] ?? 'empty'),
             'suggestion_reason' => $internal['reason'] ?? null,
+            'suggestion_source' => (string) ($internal['suggestion_source'] ?? 'semantic_v2'),
             'suggestions_exhausted' => $exhausted,
             'discovery_cursor' => is_array($internal['discovery'] ?? null) ? $internal['discovery'] : null,
             'content_source' => $this->describeContentSource($article, $submittedContent, $content),
@@ -190,15 +191,15 @@ final class ArticleEditorLinksPayloadService
     {
         $scope = self::normalizeScope($scope);
         if ($scope !== 'external') {
-            $internal = app(InternalLinkV2Suggester::class)->suggest(
-                $article,
-                $content,
-                is_array($payload['extracted_links']['internal'] ?? null) ? $payload['extracted_links']['internal'] : [],
-            );
+            $existing = is_array($payload['extracted_links']['internal'] ?? null)
+                ? $payload['extracted_links']['internal']
+                : [];
+            $internal = $this->suggestInternalLinks($article, $content, $existing);
             $payload['internal_link_v2'] = $internal;
             $payload['suggested_internal_links'] = $internal['suggestions'] ?? [];
             $payload['suggested_internal_links_catalog'] = $internal['suggestions'] ?? [];
             $payload['suggestion_status'] = (string) ($internal['status'] ?? 'empty');
+            $payload['suggestion_source'] = (string) ($internal['suggestion_source'] ?? 'semantic_v2');
             $payload['discovery_cursor'] = is_array($internal['discovery'] ?? null) ? $internal['discovery'] : null;
             $payload['suggestions_exhausted'] = ($internal['discovery']['exhausted'] ?? false) === true;
             if (is_string($internal['reason'] ?? null) && $internal['reason'] !== '') {
@@ -213,6 +214,35 @@ final class ArticleEditorLinksPayloadService
         }
 
         return $this->publishSuggestionLists($payload);
+    }
+
+    /**
+     * Link Assistant pipeline: lexical content-phrase search first; semantic V2 only when empty.
+     *
+     * @param  list<array<string, mixed>>  $existingInternal
+     * @param  array<string, mixed>  $cursor
+     * @return array<string, mixed>
+     */
+    private function suggestInternalLinks(
+        SeoArticle $article,
+        string $content,
+        array $existingInternal = [],
+        array $cursor = [],
+    ): array {
+        $lexical = app(ArticleInternalLinkLexicalSuggester::class)->suggest($article, $content, $existingInternal);
+        $lexicalSuggestions = is_array($lexical['suggestions'] ?? null) ? $lexical['suggestions'] : [];
+        if ($lexicalSuggestions !== []) {
+            $lexical['suggestion_source'] = 'lexical_search';
+
+            return $lexical;
+        }
+
+        // Existing semantic capability only — no new engine. Reports semantic_unavailable when disabled.
+        $semantic = app(InternalLinkV2Suggester::class)->suggest($article, $content, $existingInternal, $cursor);
+        $semantic['suggestion_source'] = 'semantic_v2';
+        $semantic['lexical_metrics'] = is_array($lexical['metrics'] ?? null) ? $lexical['metrics'] : [];
+
+        return $semantic;
     }
 
     /**
@@ -259,7 +289,12 @@ final class ArticleEditorLinksPayloadService
     {
         $stamped = [];
         foreach ($rows as $row) {
-            $row['suggestion_engine'] = $engine;
+            if (! is_array($row)) {
+                continue;
+            }
+            if (! isset($row['suggestion_engine']) || trim((string) $row['suggestion_engine']) === '') {
+                $row['suggestion_engine'] = $engine;
+            }
             $stamped[] = $row;
         }
 

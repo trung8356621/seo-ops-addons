@@ -54,6 +54,25 @@ final class ArticleEditorLinksPayloadServiceTest extends TestCase
         self::assertStringNotContainsString('->suggestExternalCatalog(', $body);
     }
 
+    public function test_link_assistant_runs_lexical_search_before_semantic_v2(): void
+    {
+        $source = (string) file_get_contents(
+            (string) (new ReflectionClass(ArticleEditorLinksPayloadService::class))->getFileName(),
+        );
+        $body = $this->methodBody(ArticleEditorLinksPayloadService::class, 'suggestInternalLinks');
+
+        self::assertStringContainsString('ArticleInternalLinkLexicalSuggester', $source);
+        self::assertStringContainsString('suggestInternalLinks', $source);
+        self::assertStringContainsString('ArticleInternalLinkLexicalSuggester::class', $body);
+        self::assertStringContainsString('InternalLinkV2Suggester::class', $body);
+        self::assertLessThan(
+            strpos($body, 'InternalLinkV2Suggester::class') ?: PHP_INT_MAX,
+            strpos($body, 'ArticleInternalLinkLexicalSuggester::class') ?: PHP_INT_MAX,
+        );
+        self::assertStringContainsString("['suggestion_source'] = 'lexical_search'", $body);
+        self::assertStringContainsString("['suggestion_source'] = 'semantic_v2'", $body);
+    }
+
     public function test_service_never_calls_seo_payload_bundle(): void
     {
         $ref = new ReflectionClass(ArticleEditorLinksPayloadService::class);

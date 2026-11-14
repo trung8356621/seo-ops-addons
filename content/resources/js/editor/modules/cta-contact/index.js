@@ -1,5 +1,5 @@
 /**
- * CTA Automation — independent right-sidebar widget, mounted after Link Assistant.
+ * CTA Detector — independent right-sidebar widget, mounted after Link Assistant.
  */
 
 import { CtaAutomationSidebarPanel } from './CtaAutomationSidebarPanel';
@@ -17,14 +17,14 @@ export const ctaContactModule = {
             panelId: 'cta',
             labelKey: 'cta',
             label: 'CTA',
-            fullLabel: 'CTA Automation',
+            fullLabel: 'CTA Detector',
             order: 145,
             host: 'editor',
             portalRootKey: 'cta',
             slot: 'sidebar.main',
             component: CtaAutomationSidebarPanel,
-            keywords: ['cta', 'call', 'phone'],
-            note: 'Independent CTA Automation widget. Contact configuration stays in Site settings.',
+            keywords: ['cta', 'call', 'phone', 'detector'],
+            note: 'CTA Detector: scan shortcodes and plain-text CTAs. Contact configuration stays in Site settings.',
         },
     ],
     commands: [

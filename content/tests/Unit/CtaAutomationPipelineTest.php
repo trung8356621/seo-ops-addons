@@ -63,6 +63,38 @@ final class CtaAutomationPipelineTest extends TestCase
         self::assertSame('mixed_paragraph', $detected[0]['structural_signal']);
     }
 
+    public function test_lone_email_or_phone_is_not_a_cta(): void
+    {
+        $html = '<p>Email support@shop.test for records.</p><p>Hotline 0901234567 is listed on the invoice.</p>';
+        self::assertSame([], (new LegacyCtaDetector())->detect($html));
+    }
+
+    public function test_vietnamese_consult_and_quote_verbs_are_detected(): void
+    {
+        $html = '<blockquote>Liên hệ Công ty may ba lô túi xách Hợp Phát qua Zalo hoặc email để nhận tư vấn.</blockquote>'
+            .'<p>Gửi yêu cầu báo giá qua website https://shop.test khi cần.</p>';
+        $detected = (new LegacyCtaDetector())->detect($html);
+        self::assertCount(2, $detected);
+        self::assertSame('standalone_blockquote', $detected[0]['structural_signal']);
+    }
+
+    public function test_seo_ops_cta_container_syntax_is_the_managed_contract(): void
+    {
+        $block = (new CtaBlockRenderer())->blockHtml(
+            'cta_001',
+            'section_1',
+            'consultation',
+            'zalo',
+            'detector',
+            'Liên hệ qua [zalo] để được tư vấn.',
+            'soft',
+        );
+        self::assertStringContainsString('[seo_ops_cta style="soft"', $block);
+        self::assertStringContainsString('[/seo_ops_cta]', $block);
+        self::assertStringContainsString('seo-managed-cta', $block);
+        self::assertStringNotContainsString('[shortcode_cta]', $block);
+    }
+
     public function test_validator_rejects_raw_contacts_and_extra_shortcodes(): void
     {
         $validator = new CtaOutputValidator();

@@ -201,11 +201,19 @@
     "cta": {
       "label": "CTA",
       "locked": false,
-      "note": "CTA Automation is in active development. Contact configuration stays in Site settings; the widget no longer inserts raw contact channels.",
+      "note": "CTA Detector is in active development. Scan/locate/wrap/delete plain-text CTAs; do not use AI generate/improve. Contact configuration stays in Site settings.",
       "paths": [
         {
           "file": "content/resources/js/editor/modules/cta-contact/index.js",
-          "fingerprint": "ea1433f58799570ebb70dcc1fdb4a158327e6ef25cc5d8ccdbd54632446ea7ed"
+          "fingerprint": "5b9d5cca40183da03a79234bd3d1ae4a3e828348e3cef91f08816426173ce5c0"
+        },
+        {
+          "file": "content/resources/js/components/CtaAutomationPanel.jsx",
+          "fingerprint": "c18fe3a80c7378ffe1d6c53deea4742dc54c876f3f3daa3dd1949796bf70040b"
+        },
+        {
+          "file": "content/resources/js/utils/ctaDetector.js",
+          "fingerprint": "78e7c788cba20c2fa2e7a04e584d357eccbccb2e5dfaeaf6e531d815a0111927"
         },
         {
           "file": "content/resources/js/components/CtaContactInsertList.jsx",

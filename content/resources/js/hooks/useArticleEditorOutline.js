@@ -30,6 +30,7 @@ import {
 } from '../utils/contentDocumentHelpers';
 import { isCanonicalLockedHeadingHtml } from '../utils/editorHtmlUtils';
 import { callEditArticleLivewire } from '../utils/articleEditorLivewire';
+import { scrollEditorTargetIntoView } from '../utils/ctaSectionNavigator';
 import { normalizeBlocks, parseFeaturedSnippetNewSectionBlocks } from '@media-addon/utils/blockImageUtils.js';
 import { setArticleAutosaveLock } from '../utils/articleAutosaveLock';
 import { t } from '../utils/i18n';
@@ -677,29 +678,36 @@ export default function useArticleEditorOutline({ activeBlockId, activateBlock =
                 return;
             }
 
-            if (sectionHeadingBlockIds.has(blockId) || sectionByBlockId.get(blockId)) {
-                const sectionId = sectionByBlockId.get(blockId);
-                if (sectionId) {
-                    collapseSectionsExcept(sectionId);
-                    window.requestAnimationFrame(() => {
-                        const sectionEl = document.querySelector(`[data-seo-section-id="${sectionId}"]`);
-                        sectionEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        sectionEl?.classList.add('is-outline-jump-highlight');
-                        window.setTimeout(() => sectionEl?.classList.remove('is-outline-jump-highlight'), 2400);
-                    });
-                }
+            const level = Number(node?.level ?? 0);
+            const sectionId = sectionByBlockId.get(blockId) || null;
+            // H2 owns the Section — scroll the Section top via stable section id, not heading center.
+            const jumpToSectionTop = level === 2 || (sectionHeadingBlockIds.has(blockId) && (!Number.isFinite(headingIndex) || headingIndex <= 0));
+
+            if (sectionId) {
+                collapseSectionsExcept(sectionId);
             }
 
-            setOutlineJumpTarget?.({
-                blockId,
-                headingIndex: Number.isFinite(headingIndex) ? headingIndex : 0,
-                token: Date.now(),
+            window.requestAnimationFrame(() => {
+                if (jumpToSectionTop && sectionId) {
+                    const sectionEl = document.querySelector(`[data-seo-section-id="${CSS.escape(sectionId)}"]`);
+                    scrollEditorTargetIntoView(sectionEl, { highlightClass: 'is-outline-jump-highlight' });
+                    // Avoid a second TipTap heading scroll that re-centers mid-section.
+                    setOutlineJumpTarget?.(null);
+                } else {
+                    setOutlineJumpTarget?.({
+                        blockId,
+                        headingIndex: Number.isFinite(headingIndex) ? headingIndex : 0,
+                        token: Date.now(),
+                        align: 'start',
+                    });
+                }
+
+                if (typeof activateBlock === 'function') {
+                    activateBlock(blockId);
+                } else {
+                    focusImageBlock(blockId);
+                }
             });
-            if (typeof activateBlock === 'function') {
-                activateBlock(blockId);
-            } else {
-                focusImageBlock(blockId);
-            }
         },
         [activateBlock, collapseSectionsExcept, focusImageBlock, sectionByBlockId, sectionHeadingBlockIds, setOutlineJumpTarget],
     );
@@ -797,10 +805,8 @@ export default function useArticleEditorOutline({ activeBlockId, activateBlock =
     const focusNewSectionHeader = useCallback((sectionUiId) => {
         setSectionTitleEditRequest({ sectionId: sectionUiId, token: Date.now() });
         window.requestAnimationFrame(() => {
-            document.querySelector(`[data-seo-section-id="${sectionUiId}"]`)?.scrollIntoView({
-                behavior: 'smooth',
-                block: 'center',
-            });
+            const sectionEl = document.querySelector(`[data-seo-section-id="${CSS.escape(String(sectionUiId))}"]`);
+            scrollEditorTargetIntoView(sectionEl, { highlightClass: 'is-outline-jump-highlight' });
         });
     }, []);
 

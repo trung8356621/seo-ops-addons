@@ -71,7 +71,7 @@ final class LegacyCtaDetector
     {
         $lower = mb_strtolower($text);
         $channel = $this->channelCount($text) > 0;
-        $verb = preg_match('/liên hệ|contact us|gọi ngay|inbox|đặt hàng|mua ngay|tham quan|showroom|send an email|browse our website|visit our/iu', $lower) === 1;
+        $verb = preg_match('/liên hệ|contact us|gọi ngay|inbox|đặt hàng|mua ngay|tham quan|showroom|tư vấn|báo giá|send an email|browse our website|visit our/iu', $lower) === 1;
 
         return $channel && $verb;
     }
