@@ -245,6 +245,20 @@ export default function EditorContextMenu({
                         disabled={!snapshot.canSplitParagraph}
                         onSelect={() => runMapped(CMD.splitParagraph)}
                     />
+                    <MenuItem
+                        icon={Scissors}
+                        label={t('ctx_split_by_sentences')}
+                        disabled={!snapshot.canSplitBySentences}
+                        onSelect={() => runMapped(CMD.splitBySentences)}
+                    />
+                    {!snapshot.canSplitBySentences ? (
+                        <div className="seo-editor-context-menu__hint" role="note">
+                            {snapshot.splitBySentencesReason === 'shortcode_or_special'
+                                || snapshot.splitBySentencesReason === 'complex_inline'
+                                ? t('ctx_split_by_sentences_unsafe')
+                                : t('ctx_split_by_sentences_unavailable')}
+                        </div>
+                    ) : null}
                     <MenuItem icon={Heading2} label={t('ctx_split_h2')} shortcut="Alt+2" onSelect={() => runMapped(CMD.splitH2)} />
                     <MenuItem icon={Heading3} label={t('ctx_split_h3')} shortcut="Alt+3" onSelect={() => runMapped(CMD.splitH3)} />
                     <MenuItem icon={Heading4} label={t('ctx_split_h4')} shortcut="Alt+4" onSelect={() => runMapped(CMD.splitH4)} />
@@ -301,6 +315,24 @@ export default function EditorContextMenu({
                         disabled={!snapshot.canSplitCursor}
                         onSelect={() => runMapped(CMD.splitAtCursor)}
                     />
+                    <MenuItem
+                        icon={Scissors}
+                        label={t('ctx_split_by_sentences')}
+                        disabled={!snapshot.canSplitBySentences}
+                        onSelect={() => runMapped(CMD.splitBySentences)}
+                    />
+                    {!snapshot.canSplitBySentences ? (
+                        <div className="seo-editor-context-menu__hint" role="note">
+                            {snapshot.splitBySentencesReason === 'shortcode_or_special'
+                                || snapshot.splitBySentencesReason === 'complex_inline'
+                                ? t('ctx_split_by_sentences_unsafe')
+                                : t('ctx_split_by_sentences_unavailable')}
+                        </div>
+                    ) : (
+                        <div className="seo-editor-context-menu__hint" role="note">
+                            {t('ctx_split_by_sentences_hint')}
+                        </div>
+                    )}
                     <MenuItem icon={Heading3} label={t('ctx_change_h3')} onSelect={() => runMapped(CMD.changeH3)} />
                     <MenuItem icon={Heading4} label={t('ctx_change_h4')} onSelect={() => runMapped(CMD.changeH4)} />
                 </>

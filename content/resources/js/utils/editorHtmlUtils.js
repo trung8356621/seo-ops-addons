@@ -394,10 +394,19 @@ export function flattenHtmlBodyNodes(parent) {
         }
 
         const tag = node.tagName.toLowerCase();
+        // Managed CTA must stay atomic: unwrap would split [seo_ops_cta], body, [/seo_ops_cta]
+        // into separate classic blocks (opening / content / closing).
+        if (tag === 'div' && node.classList?.contains('seo-managed-cta')) {
+            flushInlineParagraph();
+            result.push(node);
+            return;
+        }
+
         const unwrap =
             (tag === 'div' || tag === 'section' || tag === 'article') &&
             !node.classList?.contains('wp-block-image') &&
-            !node.classList?.contains('wp-caption');
+            !node.classList?.contains('wp-caption') &&
+            !node.classList?.contains('seo-managed-cta');
 
         if (unwrap) {
             flushInlineParagraph();

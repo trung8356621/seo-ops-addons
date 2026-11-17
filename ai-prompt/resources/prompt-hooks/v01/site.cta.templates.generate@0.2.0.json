@@ -1,0 +1,46 @@
+{
+  "spec_version": "0.1",
+  "key": "site.cta.templates.generate",
+  "version": "0.2.0",
+  "name": "Site CTA Template Pool Generator",
+  "description": "Append exactly 10 new reusable Site CTA templates from MCP Site Context. Does not rewrite existing pool items.",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "site",
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "structured_output": true,
+    "settings": {}
+  },
+  "locale": { "mode": "site", "fallback": "en" },
+  "input_schema": {
+    "language": { "type": "string", "required": true, "label": "Output language" },
+    "site_context": { "type": "string", "required": true, "label": "Verified MCP Site Context snapshot" },
+    "site_short_description": { "type": "string", "required": false, "label": "Site short description" },
+    "existing_ctas": { "type": "string", "required": false, "label": "Short summary of existing CTA texts to avoid duplicates" }
+  },
+  "output_schema": {
+    "type": "json",
+    "normalize": ["trim", "strip_markdown_fence"],
+    "validation": { "not_empty": true, "json_object": true }
+  },
+  "template": { "source": "legacy_prompt_content", "system": null, "user": null },
+  "canonical_default": {
+    "markdown": "# ROLE\n\nYou are an experienced Vietnamese SEO conversion copywriter.\n\nGenerate exactly 10 NEW distinct, reusable call-to-action templates for the supplied website.\nThis is an APPEND batch — do not rewrite or replace existing CTAs.\n\n# INPUT\n\n- Language: {{language}}\n- Website Context: {{site_context}}\n- Site Description: {{site_short_description}}\n- Existing CTAs (avoid duplicates): {{existing_ctas}}\n\n# RULES\n\n1. Generate exactly 10 NEW CTA templates.\n2. Write naturally in the requested language.\n3. Tailor every CTA to the actual website business context.\n4. Vary CTA intent and wording; do not paraphrase existing CTAs.\n5. Include suitable intents such as consultation, quotation, product inquiry, service inquiry, information request, and business contact when relevant.\n6. Do not invent prices, guarantees, customer counts, certifications, unsupported advantages, 24/7 claims, or response-time promises unless present in Website Context.\n7. Keep each template concise and suitable for insertion into an informative article.\n8. Avoid aggressive sales language and generic repetitive text.\n9. Use only verified contact channels listed in the context.\n10. Prefer dynamic contact tokens (for example [[cta:zalo]] or [[cta:phone]]) when a channel is available.\n11. Do not insert fabricated phone numbers, addresses, links, emails, or raw URLs when a dynamic token exists.\n12. Return structured JSON with exactly 10 items. Slot numbers may be 1–10 as batch indices.\n\n# OUTPUT\n\nReturn valid JSON only:\n{\"templates\":[{\"slot\":1,\"intent\":\"consultation\",\"content\":\"...\"}]}\nReturn exactly 10 items.\nDo not include Markdown fences or explanations."
+  },
+  "presentation": {
+    "description": "Append a 10-item Site CTA template batch from verified Site Context.",
+    "variables": [
+      { "key": "language", "required": true },
+      { "key": "site_context", "required": true },
+      { "key": "site_short_description", "required": false },
+      { "key": "existing_ctas", "required": false }
+    ]
+  },
+  "retry": { "max": 1 },
+  "logging": { "store_full_prompt": false, "redact_sensitive": true },
+  "side_effects": [],
+  "strict_template_variables": false
+}

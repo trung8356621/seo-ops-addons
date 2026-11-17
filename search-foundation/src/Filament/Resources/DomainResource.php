@@ -256,6 +256,11 @@ class DomainResource extends SeoPanelResource
                         ->icon('heroicon-o-chart-bar')
                         ->color('info')
                         ->url(fn (Site $record): string => static::getUrl('general', ['record' => $record])),
+                    Tables\Actions\Action::make('cta_manager')
+                        ->label(__('seo-content-ai::filament.domain.cta_manager_nav'))
+                        ->icon('heroicon-o-megaphone')
+                        ->color('primary')
+                        ->url(fn (Site $record): string => static::getUrl('cta-settings', ['record' => $record])),
                     Tables\Actions\Action::make('set_as_main')
                         ->label(__('seo-content-ai::filament.domain.set_as_main'))
                         ->icon('heroicon-o-star')
@@ -331,6 +336,7 @@ class DomainResource extends SeoPanelResource
             'info' => Pages\RedirectDomainInfoToEdit::route('/{record}/info'),
             'general' => Pages\GeneralDomain::route('/{record}/general'),
             'internal-links' => Pages\ListDomainInternalLinks::route('/{record}/internal-links'),
+            'cta-settings' => Pages\ManageDomainCtaTemplates::route('/{record}/cta-settings'),
         ];
     }
 }

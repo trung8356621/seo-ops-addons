@@ -25,11 +25,14 @@ export const faqModule = {
     toolbar: [
         {
             id: 'faq.toolbar.extract',
-            group: 'insert',
+            group: 'format',
             order: 80,
             labelKey: 'faq_extract',
+            iconKey: 'listTree',
             command: 'faq_extract_selection',
-            note: 'Custom toolbar contribution — BlockFormatToolbar reads registry id faq.toolbar.extract',
+            // Host-owned: BlockFormatToolbar renders icon-only seo-toolbar-btn (runFaqExtractFromToolbar).
+            hostOwned: true,
+            note: 'Custom toolbar contribution — BlockFormatToolbar owns UI for faq.toolbar.extract',
         },
     ],
     commands: [

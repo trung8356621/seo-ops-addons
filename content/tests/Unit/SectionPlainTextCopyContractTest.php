@@ -53,4 +53,13 @@ final class SectionPlainTextCopyContractTest extends TestCase
         self::assertStringContainsString('/^h[1-6]$/', $src);
         self::assertStringContainsString("join('\\n\\n')", $src);
     }
+
+    public function test_helper_strips_cta_shortcode_from_clipboard_only(): void
+    {
+        $src = $this->helperSource();
+        self::assertStringContainsString('stripCtaFromCopyRoot', $src);
+        self::assertStringContainsString('seo-managed-cta', $src);
+        self::assertStringContainsString('seo_ops_cta', $src);
+        self::assertStringContainsString('Clipboard-only', $src);
+    }
 }

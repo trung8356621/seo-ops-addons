@@ -74,6 +74,7 @@ import {
     renameHeadingCommand,
     setHeadingOutlineVisibleCommand,
     splitParagraphAtCursorCommand,
+    splitParagraphBySentencesCommand,
     splitSelectionToHeadingCommand,
     splitSelectionToParagraphCommand,
 } from './headingStructureCommands';
@@ -190,6 +191,7 @@ mut('split_block', splitBlockCommand);
 mut('split_selection_to_heading', splitSelectionToHeadingCommand);
 mut('split_selection_to_paragraph', splitSelectionToParagraphCommand);
 mut('split_paragraph_at_cursor', splitParagraphAtCursorCommand);
+mut('split_paragraph_by_sentences', splitParagraphBySentencesCommand);
 mut('change_current_block_heading', changeCurrentBlockHeadingCommand);
 mut('rename_heading', renameHeadingCommand);
 mut('change_heading_level', changeHeadingLevelCommand);

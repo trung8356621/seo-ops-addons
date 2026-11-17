@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Pages;
 
-use Omnichannel\Addons\Seo\Filament\Pages\DomainGlobalCtaSettings;
 use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource;
 use Omnichannel\Addons\Seo\Services\SeoMainDomainService;
 use Filament\Actions;
@@ -23,12 +22,9 @@ class ListDomains extends ListRecords
 
     protected function getHeaderActions(): array
     {
+        // Legacy global CTA Settings UI stays retired. CTA Manager V2 is per-Site
+        // at domains/{id}/cta-settings (table action "Quản lý CTA"). CTA Detector stays in Article Editor.
         return [
-            Actions\Action::make('global_cta_settings')
-                ->label(__('seo-content-ai::filament.domain.global_cta_settings'))
-                ->icon('heroicon-o-cog-6-tooth')
-                ->color('gray')
-                ->url(DomainGlobalCtaSettings::getUrl()),
             Actions\CreateAction::make()
                 ->label(__('Add domain'))
                 ->icon('heroicon-o-plus'),

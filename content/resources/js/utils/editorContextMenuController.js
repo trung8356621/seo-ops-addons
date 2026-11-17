@@ -5,6 +5,7 @@
 
 import { listHeadings, textblockDepth } from './editorCommands/headingSplitEngine.js';
 import { canSplitIntoCanonicalBlocks } from './editorCommands/canonicalArticleBlockSplit.js';
+import { canSplitParagraphBySentences } from './editorCommands/sentenceParagraphSplit.js';
 
 export const CONTEXT_MENU_ROOT_ATTR = 'data-seo-ctx-menu';
 
@@ -218,6 +219,13 @@ export function captureEditorContextMenuSnapshot(editor, input) {
             selection.empty
             && canSplitIntoCanonicalBlocks(state, { empty: true })
         ),
+        ...(() => {
+            const sentence = canSplitParagraphBySentences(state);
+            return {
+                canSplitBySentences: sentence.canSplit,
+                splitBySentencesReason: sentence.reason,
+            };
+        })(),
     };
 }
 
@@ -246,6 +254,7 @@ export function applyContextMenuSelection(editor, snapshot) {
  */
 export const CONTEXT_MENU_COMMANDS = Object.freeze({
     splitParagraph: { name: 'split_selection_to_paragraph', args: () => ({}) },
+    splitBySentences: { name: 'split_paragraph_by_sentences', args: () => ({}) },
     splitH2: { name: 'split_selection_to_heading', args: () => ({ level: 2 }) },
     splitH3: { name: 'split_selection_to_heading', args: () => ({ level: 3 }) },
     splitH4: { name: 'split_selection_to_heading', args: () => ({ level: 4 }) },

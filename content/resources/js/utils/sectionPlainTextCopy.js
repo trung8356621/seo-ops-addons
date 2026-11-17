@@ -51,6 +51,38 @@ export function extractSectionPlainText(section, blocksSource) {
  * @param {string} html
  * @returns {string}
  */
+/**
+ * Clipboard-only: strip managed CTA wrappers and [seo_ops_cta] shortcodes.
+ * Does not mutate the live editor document.
+ * @param {Element} root
+ */
+function stripCtaFromCopyRoot(root) {
+    if (!(root instanceof Element)) {
+        return;
+    }
+    root.querySelectorAll('.seo-managed-cta, .seo-managed-cta-view, [data-cta-placement]').forEach((node) => {
+        node.remove();
+    });
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    /** @type {Text[]} */
+    const textNodes = [];
+    let current = walker.nextNode();
+    while (current) {
+        textNodes.push(/** @type {Text} */ (current));
+        current = walker.nextNode();
+    }
+    const ctaPair = /\[seo_ops_cta\b[^\]]*\][\s\S]*?\[\/seo_ops_cta\]/gi;
+    const ctaSelf = /\[seo_ops_cta\b[^\]]*\/\]/gi;
+    for (const textNode of textNodes) {
+        const value = String(textNode.nodeValue ?? '');
+        if (!/seo_ops_cta/i.test(value)) {
+            continue;
+        }
+        const next = value.replace(ctaPair, '').replace(ctaSelf, '');
+        textNode.nodeValue = next;
+    }
+}
+
 export function htmlToSectionPlainText(html) {
     const raw = String(html ?? '').trim();
     if (raw === '') {
@@ -62,6 +94,8 @@ export function htmlToSectionPlainText(html) {
     if (!root) {
         return '';
     }
+
+    stripCtaFromCopyRoot(root);
 
     /** @type {string[]} */
     const lines = [];
@@ -86,6 +120,14 @@ export function htmlToSectionPlainText(html) {
         const tag = el.tagName.toLowerCase();
 
         if (tag === 'script' || tag === 'style') {
+            return;
+        }
+
+        if (
+            el.classList?.contains('seo-managed-cta')
+            || el.classList?.contains('seo-managed-cta-view')
+            || el.getAttribute?.('data-cta-placement')
+        ) {
             return;
         }
 

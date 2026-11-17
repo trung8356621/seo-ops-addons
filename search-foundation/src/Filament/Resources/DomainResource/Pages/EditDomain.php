@@ -259,6 +259,11 @@ class EditDomain extends SeoEditRecord
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('cta_manager')
+                ->label(__('seo-content-ai::filament.domain.cta_manager_nav'))
+                ->icon('heroicon-o-megaphone')
+                ->color('primary')
+                ->url(fn (): string => DomainResource::getUrl('cta-settings', ['record' => $this->getRecord()])),
             Action::make('apply_site_mcp')
                 ->label('Áp dụng & Lưu MCP')
                 ->icon('heroicon-o-arrow-down-tray')

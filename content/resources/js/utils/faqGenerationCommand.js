@@ -46,6 +46,10 @@ export function restoreFaqGenerationPreview(requestId) {
     return store.restorePreview(requestId);
 }
 
+export function adoptPersistedFaqGenerationPreview(source = 'persisted-preview') {
+    return store.adoptPersistedPreview(source);
+}
+
 export function noteFaqGenerationEvent(event, detail = {}) {
     store.note(event, detail);
 }

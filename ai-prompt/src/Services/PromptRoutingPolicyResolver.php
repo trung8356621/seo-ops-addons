@@ -20,6 +20,7 @@ final class PromptRoutingPolicyResolver
      */
     private const HOOK_MAP = [
         'seeding.comment.generate' => AiRoutingPolicy::QuickFree,
+        'site.cta.templates.generate' => AiRoutingPolicy::QuickFree,
     ];
 
     public function resolve(?SeoPrompt $prompt, ?string $hookKey = null): AiRoutingPolicy

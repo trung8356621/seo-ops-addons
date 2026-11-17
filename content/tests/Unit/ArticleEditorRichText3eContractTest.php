@@ -43,7 +43,7 @@ final class ArticleEditorRichText3eContractTest extends TestCase
         self::assertStringContainsString('removeMark', $commands);
         self::assertStringNotContainsString('deleteSelection', $commands);
         self::assertStringNotContainsString('deleteRange', $commands);
-        self::assertStringContainsString('removeLinkKeepText', $toolbar);
+        self::assertStringContainsString('remove_link_keep_text', $toolbar);
         self::assertStringNotContainsString('.unsetLink().run()', $toolbar);
     }
 

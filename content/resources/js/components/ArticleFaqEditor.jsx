@@ -3,7 +3,7 @@ import { RefreshCw, Plus, Trash2, AlertCircle, Sparkles, ListTree } from 'lucide
 import FaqAnswerEditor from './FaqAnswerEditor';
 import { answerHtmlForEditor } from '../utils/faqAnswerHtml';
 import { useDebouncedCallback } from '../hooks/useDebouncedCallback';
-import { loadFaqDraft, saveFaqDraft, clearFaqDraft } from '../utils/articleEditorStorage';
+import { loadFaqDraftState, saveFaqDraft, clearFaqDraft } from '../utils/articleEditorStorage';
 import {
     applyFaqSnapshot,
     generateFaqPreview,
@@ -30,6 +30,7 @@ import {
     registerFaqGenerationExecutor,
     requestFaqGeneration,
     restoreFaqGenerationPreview,
+    adoptPersistedFaqGenerationPreview,
     unregisterFaqGenerationExecutor,
     useFaqGenerationState,
 } from '../utils/faqGenerationCommand';
@@ -212,6 +213,11 @@ export default function ArticleFaqEditor({
     initialFaqSnapshot = null,
 }) {
     const [faqs, setFaqs] = useState(() => {
+        const draft = loadFaqDraftState(articleId);
+        // Pending AI preview survives F5 — restore draft even when server already has FAQ rows.
+        if (draft.aiPreviewPending && Array.isArray(draft.faqs) && draft.faqs.length > 0) {
+            return normalizeFaqRows(draft.faqs);
+        }
         // Phase 2C: server/initial snapshot wins — never hydrate SoT from localStorage.
         if (Array.isArray(initialFaqs) && initialFaqs.length > 0) {
             return normalizeFaqRows(initialFaqs);
@@ -220,13 +226,15 @@ export default function ArticleFaqEditor({
             return normalizeFaqRows(itemsFromFaqSnapshot(initialFaqSnapshot));
         }
         // Recovery-only: local draft if server empty (shown once; cleared after first canonical save).
-        const localFaqs = loadFaqDraft(articleId);
-        return normalizeFaqRows(localFaqs ?? initialFaqs);
+        return normalizeFaqRows(draft.faqs ?? initialFaqs);
     });
     const [extractDebug, setExtractDebug] = useState(
         initialExtractDebug && typeof initialExtractDebug === 'object' ? initialExtractDebug : null,
     );
-    const [aiPreviewPending, setAiPreviewPending] = useState(false);
+    const [aiPreviewPending, setAiPreviewPending] = useState(() => {
+        const draft = loadFaqDraftState(articleId);
+        return draft.aiPreviewPending === true && Array.isArray(draft.faqs) && draft.faqs.length > 0;
+    });
     const faqsRef = React.useRef(faqs);
     faqsRef.current = faqs;
 
@@ -234,9 +242,13 @@ export default function ArticleFaqEditor({
         if (initialFaqSnapshot) {
             rememberFaqSnapshot(articleId, initialFaqSnapshot);
         }
-        // Drop legacy canonical shadow LS when server items present.
-        if (Array.isArray(initialFaqs) && initialFaqs.length > 0) {
+        const draft = loadFaqDraftState(articleId);
+        // Keep pending AI preview draft across reload; only drop stale non-preview drafts.
+        if (Array.isArray(initialFaqs) && initialFaqs.length > 0 && !draft.aiPreviewPending) {
             clearFaqDraft(articleId);
+        }
+        if (draft.aiPreviewPending && Array.isArray(draft.faqs) && draft.faqs.length > 0) {
+            adoptPersistedFaqGenerationPreview('reload-draft');
         }
     }, [articleId, initialFaqSnapshot, initialFaqs]);
 
@@ -568,6 +580,7 @@ export default function ArticleFaqEditor({
                 faqsRef.current = merged;
                 setAiPreviewPending(true);
                 setSaveStatus('pending');
+                saveFaqDraft(articleId, merged, { aiPreviewPending: true });
                 markFaqGenerationPreviewReady(claimedRequestId);
             } catch (error) {
                 window.dispatchEvent(
@@ -621,6 +634,7 @@ export default function ArticleFaqEditor({
                 }));
                 setFaqs(appliedRows);
                 faqsRef.current = appliedRows;
+                saveFaqDraft(articleId, appliedRows, { aiPreviewPending: false });
                 clearFaqDraft(articleId);
                 setAiPreviewPending(false);
                 setSaveStatus('saved');

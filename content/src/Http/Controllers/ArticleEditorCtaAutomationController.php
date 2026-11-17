@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Content\Http\Controllers;
 
 use App\Http\Controllers\Controller;
-use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Omnichannel\Addons\Content\Models\SeoArticle;
@@ -13,7 +12,7 @@ use Omnichannel\Addons\Content\Services\CtaAutomation\CtaAutomationService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 
 /**
- * Improve / regenerate CTA preview. Apply returns HTML for the editor save lifecycle.
+ * Legacy CTA Automation HTTP surface. Improve/apply retired — use Article Editor CTA Detector.
  */
 final class ArticleEditorCtaAutomationController extends Controller
 {
@@ -24,55 +23,24 @@ final class ArticleEditorCtaAutomationController extends Controller
     public function preview(Request $request, SeoArticle $article): JsonResponse
     {
         abort_unless(SeoAccessControl::canAccessArticle($article), 403);
-        $user = $request->user();
-        if (! $user instanceof User) {
-            abort(401);
-        }
-        $html = (string) $request->input('editor_html', '');
-        if (trim($html) === '') {
-            $html = (string) ($article->body ?? '');
-        }
-        $mode = (string) $request->input('mode', 'improve');
-        $key = trim((string) $request->input('idempotency_key', ''));
-        $result = $this->automation->preview($article, $html, $mode, $key !== '' ? $key : null);
-        $status = ($result['success'] ?? false) === true ? 200 : 422;
 
-        return response()->json($result, $status);
+        // Retired: AI improve/regenerate. Use Article Editor CTA Detector (client-side scan/wrap/delete).
+        return response()->json([
+            'success' => false,
+            'status' => 'deprecated',
+            'message' => 'CTA Automation improve/regenerate is retired. Use CTA Detector in the Article Editor.',
+        ], 410);
     }
 
     public function apply(Request $request, SeoArticle $article): JsonResponse
     {
         abort_unless(SeoAccessControl::canAccessArticle($article), 403);
-        $user = $request->user();
-        if (! $user instanceof User) {
-            abort(401);
-        }
-        $html = (string) $request->input('editor_html', '');
-        $token = trim((string) ($request->input('run_id') ?: $request->input('preview_token', '')));
-        $approved = $request->input('approved_ids', []);
-        if (! is_array($approved)) {
-            $approved = [];
-        }
-        $approved = array_values(array_map(static fn (mixed $id): string => (string) $id, $approved));
-        $styles = $request->input('style_overrides', []);
-        if (! is_array($styles)) {
-            $styles = [];
-        }
-        $result = $this->automation->apply($article, $html, $token, $approved, $styles, $request->boolean('acknowledge_stale'));
-        if (($result['success'] ?? false) !== true) {
-            $code = ($result['status'] ?? '') === 'stale_preview' ? 409 : 422;
-
-            return response()->json($result, $code);
-        }
 
         return response()->json([
-            'success' => true,
-            'status' => 'pending_editor',
-            'run_id' => $result['run_id'] ?? $token,
-            'html' => $result['html'],
-            'document_version' => $request->input('document_version'),
-            'applied' => $result['applied'] ?? [],
-        ]);
+            'success' => false,
+            'status' => 'deprecated',
+            'message' => 'CTA Automation apply is retired. Use CTA Detector in the Article Editor.',
+        ], 410);
     }
 
     public function latest(Request $request, SeoArticle $article): JsonResponse
@@ -108,27 +76,22 @@ final class ArticleEditorCtaAutomationController extends Controller
     public function selections(Request $request, SeoArticle $article, string $run): JsonResponse
     {
         abort_unless(SeoAccessControl::canAccessArticle($article), 403);
-        $found = $this->automation->findRun($article, $run);
-        if ($found === null) {
-            return response()->json(['success' => false], 404);
-        }
-        $selected = $request->input('selected', []);
-        $styles = $request->input('styles', []);
-        $this->automation->saveRunSelections(
-            $found,
-            is_array($selected) ? $selected : [],
-            is_array($styles) ? $styles : [],
-        );
 
-        return response()->json(['success' => true]);
+        return response()->json([
+            'success' => false,
+            'status' => 'deprecated',
+            'message' => 'CTA Automation selections are retired.',
+        ], 410);
     }
 
     public function confirm(Request $request, SeoArticle $article, string $run): JsonResponse
     {
         abort_unless(SeoAccessControl::canAccessArticle($article), 403);
-        $result = $this->automation->confirmApplied($article, $run, (string) $request->input('editor_html', ''));
-        $status = ($result['success'] ?? false) === true ? 200 : 422;
 
-        return response()->json($result, $status);
+        return response()->json([
+            'success' => false,
+            'status' => 'deprecated',
+            'message' => 'CTA Automation confirm is retired.',
+        ], 410);
     }
 }

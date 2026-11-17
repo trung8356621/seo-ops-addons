@@ -21,9 +21,9 @@ const CORE_TOOLBAR = [
     { id: 'core.toolbar.align_center', group: 'align', order: 41, command: 'set_text_align', payload: { align: 'center' }, labelKey: 'toolbar_align_center', iconKey: 'alignCenter', activeAttrs: { textAlign: 'center' }, mutation: true, requiresWritable: true, isEnabled: mutationEnabled },
     { id: 'core.toolbar.align_right', group: 'align', order: 42, command: 'set_text_align', payload: { align: 'right' }, labelKey: 'toolbar_align_right', iconKey: 'alignRight', activeAttrs: { textAlign: 'right' }, mutation: true, requiresWritable: true, isEnabled: mutationEnabled },
     { id: 'core.toolbar.align_justify', group: 'align', order: 43, command: 'set_text_align', payload: { align: 'justify' }, labelKey: 'toolbar_align_justify', iconKey: 'alignJustify', activeAttrs: { textAlign: 'justify' }, mutation: true, requiresWritable: true, isEnabled: mutationEnabled },
-    { id: 'core.toolbar.quote', group: 'insert', order: 50, command: 'toggle_blockquote', labelKey: 'toolbar_insert_quote_short', iconKey: 'quote', activeMark: 'blockquote', insertStyle: true, mutation: true, requiresWritable: true, isEnabled: mutationEnabled },
-    { id: 'core.toolbar.hr', group: 'insert', order: 51, command: 'set_horizontal_rule', labelKey: 'toolbar_insert_divider_short', iconKey: 'hr', insertStyle: true, mutation: true, requiresWritable: true, isEnabled: mutationEnabled },
-    { id: 'core.toolbar.table', group: 'insert', order: 52, command: 'insert_table', labelKey: 'toolbar_insert_table_short', iconKey: 'table', insertStyle: true, mutation: true, requiresWritable: true, isEnabled: mutationEnabled },
+    { id: 'core.toolbar.quote', group: 'insert', order: 50, command: 'toggle_blockquote', labelKey: 'toolbar_insert_quote_short', iconKey: 'quote', activeMark: 'blockquote', mutation: true, requiresWritable: true, isEnabled: mutationEnabled },
+    { id: 'core.toolbar.hr', group: 'insert', order: 51, command: 'set_horizontal_rule', labelKey: 'toolbar_insert_divider_short', iconKey: 'hr', mutation: true, requiresWritable: true, isEnabled: mutationEnabled },
+    { id: 'core.toolbar.table', group: 'insert', order: 52, command: 'insert_table', labelKey: 'toolbar_insert_table', iconKey: 'table', mutation: true, requiresWritable: true, isEnabled: mutationEnabled },
 ];
 
 const CORE_SHORTCUTS = [

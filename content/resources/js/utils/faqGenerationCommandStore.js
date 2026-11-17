@@ -81,6 +81,19 @@ export function createFaqGenerationCommandStore({ observe = () => {} } = {}) {
             emit('apply failed');
             return true;
         },
+        /**
+         * After F5, rehydrate store so Apply works for a persisted AI preview draft.
+         */
+        adoptPersistedPreview(source = 'persisted-preview') {
+            if (state.phase === 'preview' || state.phase === 'applying' || state.phase === 'generating') {
+                return state.requestId;
+            }
+            const requestId = state.requestId + 1;
+            deliveredRequestId = requestId;
+            publish({ phase: 'preview', requestId, source });
+            emit('persisted preview adopted');
+            return requestId;
+        },
         note(event, detail = {}) {
             emit(event, detail);
         },

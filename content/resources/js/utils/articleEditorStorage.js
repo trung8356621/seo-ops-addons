@@ -956,26 +956,48 @@ export function saveOutline(articleId, markdown) {
     }
 }
 
-export function loadFaqDraft(articleId) {
-    if (!articleId) return null;
+/**
+ * @returns {{ faqs: array|null, aiPreviewPending: boolean, updatedAt: number|null }}
+ */
+export function loadFaqDraftState(articleId) {
+    if (!articleId) {
+        return { faqs: null, aiPreviewPending: false, updatedAt: null };
+    }
     try {
         const raw = localStorage.getItem(faqKey(articleId));
-        if (!raw) return null;
+        if (!raw) {
+            return { faqs: null, aiPreviewPending: false, updatedAt: null };
+        }
         const data = JSON.parse(raw);
-
-        return Array.isArray(data?.faqs) ? data.faqs : null;
+        return {
+            faqs: Array.isArray(data?.faqs) ? data.faqs : null,
+            aiPreviewPending: data?.aiPreviewPending === true,
+            updatedAt: Number.isFinite(Number(data?.updatedAt)) ? Number(data.updatedAt) : null,
+        };
     } catch {
-        return null;
+        return { faqs: null, aiPreviewPending: false, updatedAt: null };
     }
 }
 
-export function saveFaqDraft(articleId, faqs) {
+export function loadFaqDraft(articleId) {
+    return loadFaqDraftState(articleId).faqs;
+}
+
+/**
+ * @param {number|string} articleId
+ * @param {unknown} faqs
+ * @param {{ aiPreviewPending?: boolean }} [options]
+ */
+export function saveFaqDraft(articleId, faqs, options = {}) {
     if (!articleId) return;
     try {
+        const prev = loadFaqDraftState(articleId);
         setItemWithPrune(
             faqKey(articleId),
             JSON.stringify({
                 faqs: Array.isArray(faqs) ? faqs : [],
+                aiPreviewPending: options.aiPreviewPending === true
+                    || (options.aiPreviewPending === undefined && prev.aiPreviewPending),
                 updatedAt: Date.now(),
             }),
             'FAQ',

@@ -191,6 +191,34 @@ function BlockEditor({
         );
     }
 
+    // Plan B: multi-select (temp merge) is read-only — never mount TipTap with discarded updates.
+    if (isActive && suppressBlockUpdate) {
+        return (
+            <div
+                className="seo-block-preview seo-block-preview--temp-merge seo-wp-content p-3 -mx-1 rounded border border-amber-300 dark:border-amber-700 bg-amber-50/60 dark:bg-amber-950/30 cursor-pointer prose prose-slate max-w-none dark:prose-invert"
+                onClick={handlePreviewClick}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onActivate();
+                    }
+                }}
+                role="button"
+                tabIndex={0}
+                title={t('editor_temp_merge_readonly')}
+            >
+                <div className="seo-temp-merge-banner text-xs font-medium text-amber-900 dark:text-amber-100 mb-2 not-prose">
+                    {t('editor_temp_merge_readonly')}
+                </div>
+                <div
+                    dangerouslySetInnerHTML={{
+                        __html: displayContent || block.content || `<p class="text-gray-400 italic">${t('editor_click_to_edit')}</p>`,
+                    }}
+                />
+            </div>
+        );
+    }
+
     if (!isActive) {
         return (
             <div
@@ -222,11 +250,11 @@ function BlockEditor({
 
     return (
         <ActiveBlockEditor
-            key={`${block.id}-${block.editorEpoch ?? '0'}-${suppressBlockUpdate ? 'merge' : 'edit'}`}
+            key={`${block.id}-${block.editorEpoch ?? '0'}-edit`}
             block={block}
             sectionId={sectionId}
             displayContent={displayContent}
-            suppressBlockUpdate={suppressBlockUpdate}
+            suppressBlockUpdate={false}
             onUpdate={onUpdate}
             onRegisterFlush={onRegisterFlush}
             onRegisterEditor={onRegisterEditor}

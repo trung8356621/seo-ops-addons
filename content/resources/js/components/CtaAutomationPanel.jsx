@@ -107,8 +107,14 @@ export function CtaAutomationPanel({ articleId: _articleId }) {
                 setError(
                     result.code === 'already_wrapped'
                         ? t('cta_detect_already_wrapped')
-                        : t('cta_detect_wrap_failed'),
+                        : result.code === 'mixed_content'
+                            ? t('cta_detect_delete_mixed')
+                            : t('cta_detect_wrap_failed'),
                 );
+                return;
+            }
+            if (!result.html.includes('seo-managed-cta') || !/\[seo_ops_cta\b/i.test(result.html)) {
+                setError(t('cta_detect_wrap_failed'));
                 return;
             }
             const replaced = applyHtml(result.html, 'Wrap CTA shortcode');

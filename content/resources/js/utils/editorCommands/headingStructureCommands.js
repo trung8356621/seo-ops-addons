@@ -7,6 +7,7 @@ import { resolveTargetEditor } from './resolveTargetEditor';
 import { runEditorTransaction } from './runEditorTransaction';
 import { runHostStructure } from './structureCommands';
 import { planCanonicalArticleBlockSplit } from './canonicalArticleBlockSplit';
+import { planSentenceParagraphSplit } from './sentenceParagraphSplit';
 import {
     changeCurrentBlockType,
     changeHeadingLevelByIndex,
@@ -151,6 +152,83 @@ export function splitParagraphAtCursorCommand(context, payload = {}) {
     return runCanonicalBlockSplit(context, payload, 'split_paragraph_at_cursor', 'cursor');
 }
 
+export function splitParagraphBySentencesCommand(context, payload = {}) {
+    return withEditor(context, payload, 'split_paragraph_by_sentences', (editor, editorId) => {
+        const sourceBlockId = String(payload.blockId ?? payload.sourceBlockId ?? editorId ?? '').trim();
+        const plan = planSentenceParagraphSplit(editor.state, {
+            sentencesPerParagraph: payload.sentencesPerParagraph ?? 2,
+        });
+        const sourceHtml = typeof editor.getHTML === 'function' ? editor.getHTML() : '';
+        const debugBase = {
+            action: 'split_paragraph_by_sentences',
+            sourceBlock: sourceBlockId,
+            plan: {
+                ok: plan.ok,
+                reason: plan.reason,
+                contents: plan.contents,
+                focusIndex: plan.focusIndex,
+                meta: plan.meta,
+            },
+            sourceHtml,
+            host: 'replace_blocks_at',
+        };
+        if (!plan.ok) {
+            const code = plan.reason === 'no_change'
+                ? EDITOR_COMMAND_CODES.NO_CHANGE
+                : plan.reason === 'unsafe_content' || plan.reason === 'unsupported_block' || plan.reason === 'inside_list'
+                    ? EDITOR_COMMAND_CODES.UNSUPPORTED_SELECTION
+                    : EDITOR_COMMAND_CODES.SELECTION_INVALID;
+            publishSplitDebug({ ...debugBase, result: plan.reason || 'unsupported' });
+            return failCommand('split_paragraph_by_sentences', code, {
+                editor_id: sourceBlockId,
+                meta: plan.meta,
+            });
+        }
+
+        if (typeof context.onStructureMutation !== 'function') {
+            publishSplitDebug({ ...debugBase, result: 'host_command_missing' });
+            return failCommand('split_paragraph_by_sentences', EDITOR_COMMAND_CODES.HOST_COMMAND_MISSING, {
+                editor_id: sourceBlockId,
+            });
+        }
+
+        const result = runHostStructure(context, 'replace_blocks_at', {
+            sourceBlockId,
+            blockId: sourceBlockId,
+            replacements: plan.contents,
+            contents: plan.contents,
+            focusIndex: plan.focusIndex,
+            skipCommit: true,
+            skipAnalyze: true,
+        });
+        const hostOk = Boolean(result?.ok && result?.document_changed);
+        publishSplitDebug({
+            ...debugBase,
+            hostResult: {
+                ok: result?.ok,
+                code: result?.code,
+                reason: result?.meta?.reason,
+                createdIds: result?.meta?.createdIds,
+            },
+            result: hostOk ? 'changed' : (result?.code || 'no_change'),
+        });
+        if (!hostOk) {
+            return failCommand('split_paragraph_by_sentences', result?.code || EDITOR_COMMAND_CODES.NO_CHANGE, {
+                editor_id: sourceBlockId,
+                meta: result?.meta ?? {},
+            });
+        }
+
+        return okCommand('split_paragraph_by_sentences', EDITOR_COMMAND_CODES.UPDATED, {
+            editor_id: sourceBlockId,
+            transaction_applied: true,
+            document_changed: true,
+            history_step: true,
+            meta: result.meta ?? {},
+        });
+    });
+}
+
 export function changeCurrentBlockHeadingCommand(context, payload = {}) {
     const level = Math.min(6, Math.max(2, Number(payload.level) || 3));
 
@@ -251,6 +329,7 @@ export default {
     splitSelectionToHeadingCommand,
     splitSelectionToParagraphCommand,
     splitParagraphAtCursorCommand,
+    splitParagraphBySentencesCommand,
     changeCurrentBlockHeadingCommand,
     renameHeadingCommand,
     changeHeadingLevelCommand,

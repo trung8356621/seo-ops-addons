@@ -6,6 +6,7 @@ import {
     Strikethrough,
     List,
     ListOrdered,
+    ListTree,
     Quote,
     AlignLeft,
     AlignCenter,
@@ -22,7 +23,7 @@ import { getDefaultArticleEditorRuntime } from './defaultArticleEditorRuntime';
 import { isRegistryMutationEnabled } from './editorRuntimeSelectors';
 import { t } from '../../utils/i18n';
 
-const ICON_SIZE = 16;
+const ICON_SIZE = 18;
 
 const ICONS = {
     undo: Undo2,
@@ -36,6 +37,7 @@ const ICONS = {
     quote: Quote,
     hr: Minus,
     table: Table,
+    listTree: ListTree,
     alignLeft: AlignLeft,
     alignCenter: AlignCenter,
     alignRight: AlignRight,
@@ -50,6 +52,7 @@ function ToolbarButton({ onClick, isActive = false, disabled = false, children, 
             onMouseDown={(e) => e.preventDefault()}
             disabled={disabled}
             title={title}
+            aria-label={title}
             className={`seo-toolbar-btn${isActive ? ' is-active' : ''}${disabled ? ' is-disabled' : ''}`}
         >
             {children}
@@ -57,36 +60,26 @@ function ToolbarButton({ onClick, isActive = false, disabled = false, children, 
     );
 }
 
-function InsertActionButton({ onClick, title, children, label, disabled = false }) {
-    return (
-        <button
-            type="button"
-            onClick={onClick}
-            onMouseDown={(e) => e.preventDefault()}
-            disabled={disabled}
-            title={title}
-            className={`seo-insert-toolbar-btn${disabled ? ' is-disabled' : ''}`}
-        >
-            {children}
-            {label ? <span className="seo-insert-toolbar-btn__label">{label}</span> : null}
-        </button>
-    );
-}
-
 /**
- * Render toolbar groups from runtime registry (command layer only).
+ * Render toolbar groups from runtime registry.
+ * All groups use the same icon-only seo-toolbar-btn visual contract (no insert pills).
  */
 export function RuntimeToolbarCommandButtons({
     editor,
     groups = ['history', 'inline', 'lists', 'align'],
-    variant = 'format',
+    variant: _variant = 'format',
     runtime: runtimeProp = null,
 }) {
     const items = useMemo(() => {
         const runtime = runtimeProp || getDefaultArticleEditorRuntime();
         const all = runtime.getToolbarItems();
         const wanted = new Set(groups);
-        return all.filter((item) => wanted.has(String(item.group || '')));
+        return all.filter((item) => {
+            if (item?.hostOwned === true) {
+                return false;
+            }
+            return wanted.has(String(item.group || ''));
+        });
     }, [groups, runtimeProp]);
 
     if (!editor || !items.length) return null;
@@ -124,6 +117,9 @@ export function RuntimeToolbarCommandButtons({
                     <div key={group} className="seo-toolbar-group">
                         {groupItems.map((item) => {
                             const Icon = ICONS[item.iconKey] || null;
+                            if (!Icon) {
+                                return null;
+                            }
                             const baseTitle = t(item.labelKey || item.command);
                             let disabled = mutationLocked || !isRegistryMutationEnabled(item, runtimeContext);
                             if (!disabled && item.canKey === 'undo') disabled = !editor.can().undo();
@@ -136,20 +132,6 @@ export function RuntimeToolbarCommandButtons({
                                 isActive = editor.isActive(item.activeAttrs);
                             }
 
-                            if (variant === 'insert' || item.insertStyle) {
-                                return (
-                                    <InsertActionButton
-                                        key={item.id}
-                                        onClick={() => run(item)}
-                                        title={title}
-                                        disabled={disabled}
-                                        label={item.insertStyle ? baseTitle : null}
-                                    >
-                                        {Icon ? <Icon size={ICON_SIZE} /> : null}
-                                    </InsertActionButton>
-                                );
-                            }
-
                             return (
                                 <ToolbarButton
                                     key={item.id}
@@ -158,7 +140,7 @@ export function RuntimeToolbarCommandButtons({
                                     disabled={disabled}
                                     title={title}
                                 >
-                                    {Icon ? <Icon size={ICON_SIZE} /> : <span>{item.command}</span>}
+                                    <Icon size={ICON_SIZE} aria-hidden />
                                 </ToolbarButton>
                             );
                         })}

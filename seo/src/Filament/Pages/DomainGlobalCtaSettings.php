@@ -149,6 +149,7 @@ class DomainGlobalCtaSettings extends Page implements HasForms
 
     public static function canAccess(): bool
     {
-        return DomainResource::canViewAny();
+        // Entry point retired from Site list. Keep class/service for prompt/DB compatibility.
+        return false;
     }
 }

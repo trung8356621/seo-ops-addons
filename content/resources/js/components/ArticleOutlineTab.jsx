@@ -3,6 +3,8 @@ import { AlertTriangle, Check, ChevronRight, Copy, Loader2, MoreHorizontal, Penc
 import { csrfToken, seoArticleApiHeaders } from '@seo-addon/utils/seoArticleApi.js';
 import { isPersistedOutlineHeadingId } from '../utils/contentDocumentHelpers';
 import { findLocalDuplicateHeadingKeys, localDuplicateHeadingKey } from '../utils/articleEditorClientOutline';
+import { formatOutlineSubtreePlainText } from '../utils/outlinePlainTextCopy';
+import { writeTextToClipboard } from '../utils/sectionPlainTextCopy';
 import { t } from '../utils/i18n';
 import ContextHelpButton from './ContextHelpButton';
 
@@ -690,6 +692,42 @@ function HeadingBlock({
                             </button>
                             {menuOpen ? (
                                 <div className="seo-outline-block__menu" role="menu" onClick={(e) => e.stopPropagation()}>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setOpenKey(null);
+                                            const text = formatOutlineSubtreePlainText(node);
+                                            void (async () => {
+                                                try {
+                                                    if (text === '') {
+                                                        throw new Error('empty');
+                                                    }
+                                                    await writeTextToClipboard(text);
+                                                    window.dispatchEvent(
+                                                        new CustomEvent('seo-article-editor-notify', {
+                                                            detail: {
+                                                                title: t('outline_title'),
+                                                                body: t('outline_copy_outline_done'),
+                                                                status: 'success',
+                                                            },
+                                                        }),
+                                                    );
+                                                } catch {
+                                                    window.dispatchEvent(
+                                                        new CustomEvent('seo-article-editor-notify', {
+                                                            detail: {
+                                                                title: t('outline_title'),
+                                                                body: t('outline_copy_outline_failed'),
+                                                                status: 'warning',
+                                                            },
+                                                        }),
+                                                    );
+                                                }
+                                            })();
+                                        }}
+                                    >
+                                        {t('outline_copy_outline')}
+                                    </button>
                                     <OutlineConvertSubmenu
                                         onConvert={(kind) => {
                                             setOpenKey(null);

@@ -9,6 +9,7 @@ use Omnichannel\Addons\Seo\Enums\NotificationSeverity;
 use Omnichannel\Addons\Seo\Enums\OperationalNotificationEventCode;
 use App\Models\User;
 use Filament\Notifications\Actions\Action;
+use Filament\Notifications\DatabaseNotification as FilamentDatabaseNotification;
 use Filament\Notifications\Notification as FilamentNotification;
 use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Collection;
@@ -16,6 +17,7 @@ use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 /**
  * Canonical operational notification service — single write path for Notification Center incidents.
@@ -424,29 +426,17 @@ final class OperationalNotificationService
     ): void {
         $data = $this->filamentData($code, $severity, $title, $message, $context, $filamentActions, 1, $resolvable, $displaySurfaces);
 
-        $notification = FilamentNotification::make()
-            ->title($title)
-            ->body($this->formatBody($message, $code, 1))
-            ->icon($severity->filamentIcon())
-            ->iconColor($severity->filamentIconColor())
-            ->status($severity->filamentStatus())
-            ->persistent();
-
-        if ($filamentActions !== []) {
-            $notification->actions($filamentActions);
-        }
-
-        $notification->sendToDatabase($user);
-
-        /** @var DatabaseNotification|null $row */
-        $row = $user->notifications()->latest()->first();
-        if (! $row instanceof DatabaseNotification) {
-            return;
-        }
-
-        // Ensure operational payload + columns (Filament may overwrite data shape).
+        // Pre-allocate UUID and insert the exact row — never re-query latest()
+        // (race: another notification can become "latest" and steal dedup_key).
+        $id = (string) Str::uuid();
+        $row = new DatabaseNotification();
         $row->forceFill([
+            'id' => $id,
+            'type' => FilamentDatabaseNotification::class,
+            'notifiable_type' => $user->getMorphClass(),
+            'notifiable_id' => $user->getKey(),
             'data' => $data,
+            'read_at' => null,
             'event_code' => $code->value,
             'severity' => $severity->value,
             'dedup_key' => $dedupKey,
@@ -457,7 +447,7 @@ final class OperationalNotificationService
             'resolved_at' => null,
         ])->save();
 
-        $this->dispatchSmtpDelivery((string) $row->getKey());
+        $this->dispatchSmtpDelivery($id);
     }
 
     private function dispatchSmtpDelivery(string $notificationId): void
