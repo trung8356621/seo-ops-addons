@@ -2236,6 +2236,17 @@ PROMPT;
                 }
             }
         }
+        if ($hookKey === 'site.cta.templates.generate') {
+            $rows = $decoded['templates'] ?? null;
+            if (! is_array($rows) || $rows === []) {
+                throw new InvalidOutput('CTA_TEMPLATES_INVALID_JSON: expected a non-empty templates array.');
+            }
+            foreach ($rows as $row) {
+                if (! is_array($row) || trim((string) ($row['content'] ?? '')) === '') {
+                    throw new InvalidOutput('CTA_TEMPLATES_INVALID_JSON: every CTA template requires non-empty content.');
+                }
+            }
+        }
     }
 
     /**

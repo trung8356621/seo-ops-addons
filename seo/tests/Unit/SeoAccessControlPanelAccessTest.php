@@ -71,6 +71,37 @@ final class SeoAccessControlPanelAccessTest extends TestCase
         $this->assertFalse(SeoAccessControl::canAccessSeoPanel($user));
     }
 
+    public function test_owner_simulating_content_manager_keeps_global_bar_and_can_switch_back(): void
+    {
+        $owner = $this->makeUser(User::ROLE_OWNER);
+        // Even with stale seo.content_manager Spatie role, Owner actual role remains manager.
+        app(SeoRoleAssignment::class)->assign($owner, User::SEO_ROLE_CONTENT_MANAGER);
+        $this->be($owner->fresh());
+
+        $this->assertSame(SeoAccessControl::ROLE_MANAGER, SeoAccessControl::actualRole());
+        session(['seo_simulated_role' => SeoAccessControl::ROLE_CONTENT_MANAGER]);
+
+        $this->assertSame(SeoAccessControl::ROLE_CONTENT_MANAGER, SeoAccessControl::effectiveRole());
+        $this->assertTrue(SeoAccessControl::shouldShowGlobalSeoBar());
+        $this->assertContains(SeoAccessControl::ROLE_MANAGER, SeoAccessControl::allowedSimulationTargets());
+
+        session(['seo_simulated_role' => SeoAccessControl::ROLE_MANAGER]);
+        $this->assertSame(SeoAccessControl::ROLE_MANAGER, SeoAccessControl::effectiveRole());
+        $this->assertTrue(SeoAccessControl::canAccessManagerFeatures());
+    }
+
+    public function test_real_content_manager_cannot_access_manager_features_or_global_bar(): void
+    {
+        $staff = $this->makeUser(User::ROLE_STAFF, parentId: 1);
+        app(SeoRoleAssignment::class)->assign($staff, User::SEO_ROLE_CONTENT_MANAGER);
+        $this->be($staff->fresh());
+
+        $this->assertSame(SeoAccessControl::ROLE_CONTENT_MANAGER, SeoAccessControl::actualRole());
+        $this->assertFalse(SeoAccessControl::shouldShowGlobalSeoBar());
+        $this->assertFalse(SeoAccessControl::canAccessManagerFeatures());
+        $this->assertSame([SeoAccessControl::ROLE_CONTENT_MANAGER], SeoAccessControl::allowedSimulationTargets());
+    }
+
     private function makeUser(
         string $role,
         ?int $parentId = null,

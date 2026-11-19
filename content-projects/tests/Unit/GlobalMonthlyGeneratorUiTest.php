@@ -76,6 +76,9 @@ final class GlobalMonthlyGeneratorUiTest extends TestCase
         self::assertStringContainsString('nowPlaying', $src);
         self::assertStringContainsString("nowPlaying['owner_name']", $src);
         self::assertStringContainsString("row['owner_name']", $src);
+        self::assertStringContainsString("row['article_url']", $src);
+        self::assertStringContainsString('target="_blank"', $src);
+        self::assertStringContainsString('rel="noopener noreferrer"', $src);
         self::assertStringContainsString('gm-progress-bar-track', $src);
         self::assertStringContainsString('gm-progress-bar-fill', $src);
         self::assertStringContainsString('wire:poll.5s="refreshProgress"', $src);

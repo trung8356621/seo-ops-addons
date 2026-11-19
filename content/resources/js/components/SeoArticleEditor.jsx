@@ -369,6 +369,7 @@ import {
     dispatchActiveBlockContext,
     isSameTiptapBlockContent,
 } from '../utils/contentDocumentHelpers';
+import { evaluateMergeSelection } from '../utils/editorCommands/mergeSelectedParagraphs';
 import SectionHeaderTitle from './SectionHeaderTitle';
 import BlockEditor from './BlockEditor';
 import ArticleContentSyncRequiredBlocker from './ArticleContentSyncRequiredBlocker';
@@ -1422,7 +1423,7 @@ export default function SeoArticleEditor({
         const { applyCompletedMediaToPlaceholder, applyCompletedMediaToProductGallery, clearAwaitingClientImagePlaceholders, findImageBlockByMediaId, insertImageAfterBlock, placeProcessingImagePlaceholder, requestGenerateArticleImage, resolveAiRefBlockId, startMediaStatusPolling } = useArticleEditorImageGeneration({ activeBlockIdRef, articleId, blocks, blocksRef, clearMediaPolling, commitActiveBlock, connectionHashRef, dismissedEditorImageMediaIdsRef, generateImageInFlightRef, getExportHtml, isDismissedEditorImageMedia, isIntroBlockId, mediaPollTimersRef, notifyIntroNoImages, patchImageInBlocks, pendingAiMediaRef, requestGenerateArticleImageRef, resumedArticleAiJobsRef, scheduleAutosave, setActiveBlockId, setBlocks, setGlobalEditor, setImagesReloadKey, setSaveStatus, tempMergeRef, updateBlocksWithoutHistory });
 
     // �ang c�n placeholder spin � reconcile d?nh k? (poll miss / m?t pending map).
-        const { deleteSection, handleOutlineDeleteHeading, handleOutlineMoveHeading, insertVideoAfterBlock, moveBlockToSection, startTempMerge, toggleInsertMenu } = useArticleEditorInsertAndSections({ activeBlockId, activeBlockIdRef, applyCompletedMediaToPlaceholder, articleId, blockEditorsRef, blockFlushRef, blocks, blocksRef, commitActiveBlock, deleteBlock, dismissedEditorImageMediaIdsRef, editorSections, insertBlockRelative, notifyIntroNoImages, outlineAppendDoneRef, outlineAppendInflightRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, patchImageInBlocks, pendingAiMediaRef, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setGlobalEditor, setInsertMenu, setOutlineHeadingKeys, setOutlineTreeSync, setTempMerge, startMediaStatusPolling, structureMutationRef, tempMergeRef });
+        const { confirmMergeSelectedParagraphs, deleteSection, handleOutlineDeleteHeading, handleOutlineMoveHeading, insertVideoAfterBlock, moveBlockToSection, startTempMerge, toggleInsertMenu } = useArticleEditorInsertAndSections({ activeBlockId, activeBlockIdRef, applyCompletedMediaToPlaceholder, articleId, blockEditorsRef, blockFlushRef, blocks, blocksRef, clearTempMerge, commitActiveBlock, deleteBlock, dismissedEditorImageMediaIdsRef, editorSections, insertBlockRelative, notifyIntroNoImages, outlineAppendDoneRef, outlineAppendInflightRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, patchImageInBlocks, pendingAiMediaRef, scheduleAutosave, sectionByBlockId, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setGlobalEditor, setInsertMenu, setOutlineHeadingKeys, setOutlineTreeSync, setTempMerge, startMediaStatusPolling, structureMutationRef, tempMergeRef });
 
         const { mergedDisplay, saveLabel } = useArticleEditorExternalEventsBridge({ activeBlockId, activeBlockIdRef, analyzedBlocksRef, applyCompletedMediaToPlaceholder, applyCompletedMediaToProductGallery, applySeoAnalysisResult, articleId, articleTitle, assertNoLocalSlugFixBeforeWpSync, assertWritableDocumentNotWhitespaceCorrupted, blockEditorsRef, blockFlushRef, blockOutsideClickGuardUntilRef, blocks, blocksRef, clearAwaitingClientImagePlaceholders, clearMediaPolling, clearOutlineFocus, clearTempMerge, connectionHashRef, dismissedEditorImageMediaIdsRef, editorHostActionsRef, faqsCanonicalKnownRef, findImageBlockByMediaId, generateImageTargetRef, getExportHtml, globalEditor, initialPostImages, insertImageAfterBlock, insertVideoAfterBlock, isDismissedEditorImageMedia, lastSeoAnalysisRef, mediaPollTimersRef, networkRecovering, networkUnavailable, outlineHasSavedHeadings, panelFaqsRef, patchImageInBlocks, pendingAiMediaRef, placeProcessingImagePlaceholder, postImagesRef, publishEditorImagesCatalogRef, reconcileImagesTabWithBlocks, requestAnalyze, requestGenerateArticleImage, resolveAiRefBlockId, resolveArticleFaqsSnapshot, runLocalSeoAnalysis, saveStatus, scheduleAutosave, markSeoStale, sectionByBlockId, seoDomain, seoMetaRef, setActiveBlockId, setArticleType, setBlocks, setFaqCount, setGlobalEditor, setImagesReloadKey, setInsertMenu, setPanelFaqs, setSaveStatus, setSavedSeoScore, setSeoStale, setSupportsProductGallery, skipNextAutosave, startMediaStatusPolling, supplementalImagesRef, tempMerge, tempMergeRef, updateBlockContent });
 
@@ -1614,6 +1615,17 @@ export default function SeoArticleEditor({
         }, [blocks.length, contentLoading, editorSections, editorSettings?.faq_catch_keywords, extractLegacyFaqSection, faqCount]);
 
         const { handleEditorSearchAction } = useArticleEditorSearch({ blockById, clearTempMerge, commitActiveBlock, editorSections, featuredSnippetTargetRef, insertFeaturedSnippetAsNewSectionAfter, publishEditorImagesCatalogRef, quickReplaceFind, quickReplaceValue, setBlocks, setCollapsedSectionIds, setEditorSearchMatchCount, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setImagesReloadKey, tempMergeRef });
+
+        const mergeParagraphEligibility = useMemo(() => {
+            if (!tempMerge?.rangeIds?.length) {
+                return { ok: false, reasonKey: 'editor_merge_need_two' };
+            }
+            return evaluateMergeSelection({
+                blocks,
+                rangeIds: tempMerge.rangeIds,
+                sectionByBlockId,
+            });
+        }, [blocks, sectionByBlockId, tempMerge]);
 
     const editorHostApi = useMemo(() => ({
         contractVersion: 1,
@@ -2395,6 +2407,13 @@ export default function SeoArticleEditor({
                                                                 canShiftMerge={Boolean(activeBlockId && activeBlockId !== block.id)}
                                                                 onActivate={() => activateBlock(block.id)}
                                                                 onShiftMerge={startTempMerge}
+                                                                onConfirmParagraphMerge={confirmMergeSelectedParagraphs}
+                                                                mergeParagraphDisabled={!mergeParagraphEligibility.ok}
+                                                                mergeParagraphDisabledReason={
+                                                                    mergeParagraphEligibility.reasonKey
+                                                                        ? t(mergeParagraphEligibility.reasonKey)
+                                                                        : ''
+                                                                }
                                                                 displayContent={
                                                                     tempMerge &&
                                                                     activeBlockId === block.id &&

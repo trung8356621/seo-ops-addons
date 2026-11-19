@@ -76,6 +76,28 @@ function isManualElement(element) {
     return element?.getAttribute?.('data-cta-manual') === '1';
 }
 
+/**
+ * True when the element is a whole CTA container (safe to remove without collateral content).
+ * @param {Element} node
+ */
+function isDeletableShortcodeNode(node) {
+    if (!node || node.nodeType !== 1) {
+        return false;
+    }
+    if (isManagedElement(node) || isManualElement(node)) {
+        return true;
+    }
+    const html = String(node.innerHTML || '');
+    if (!/\[seo_ops_cta\b/i.test(html)) {
+        return false;
+    }
+    const withoutShortcode = html
+        .replace(/\[seo_ops_cta\b([^\]]*)\]([\s\S]*?)\[\/seo_ops_cta\]/gi, '')
+        .replace(/\[seo_ops_cta\b([^\]]*)\s*\/\]/gi, '')
+        .replace(/<[^>]+>/g, ' ');
+    return normalizeText(withoutShortcode) === '';
+}
+
 function stripNestedSeoOpsCta(html) {
     return String(html ?? '')
         .replace(CTA_SHORTCODE_OPEN, '')
@@ -189,6 +211,7 @@ export function detectCtas(html) {
                     && !/\[seo_ops_cta\b[^\]]*\][\s\S]*?\[\/seo_ops_cta\]/i.test(node.innerHTML || '')
                     ? 'self_closing'
                     : 'container';
+                const canDelete = isDeletableShortcodeNode(node);
                 shortcodes.push({
                     id: `shortcode_${shortcodeOrdinal}`,
                     kind: 'shortcode',
@@ -201,7 +224,8 @@ export function detectCtas(html) {
                     text: shortcodeBodyText(node.textContent || node.innerHTML),
                     outerHtml: node.outerHTML,
                     canWrap: false,
-                    canDelete: false,
+                    canDelete,
+                    deleteDisabledReason: canDelete ? '' : 'ambiguous_or_mixed',
                 });
                 continue;
             }
@@ -270,6 +294,7 @@ export function detectCtas(html) {
             outerHtml: snippet,
             canWrap: false,
             canDelete: false,
+            deleteDisabledReason: 'ambiguous_or_mixed',
         });
     }
     CTA_SHORTCODE_SELF.lastIndex = 0;
@@ -293,6 +318,7 @@ export function detectCtas(html) {
             outerHtml: snippet,
             canWrap: false,
             canDelete: false,
+            deleteDisabledReason: 'ambiguous_or_mixed',
         });
     }
 
@@ -303,17 +329,28 @@ export function detectCtas(html) {
  * Build managed CTA HTML using verified WP container shortcode syntax.
  * @param {{ placementId: string, sectionId: string, innerHtml: string, style?: string }} args
  */
-export function buildManagedCtaHtml({ placementId, sectionId, innerHtml, style = 'soft' }) {
+export function buildManagedCtaHtml({
+    placementId,
+    sectionId,
+    innerHtml,
+    style = 'soft',
+    intent = 'consultation',
+    origin = 'detector',
+    slotId = '',
+}) {
     const resolvedStyle = ['soft', 'consultation', 'conversion'].includes(style) ? style : 'soft';
     const safeInner = stripNestedSeoOpsCta(innerHtml);
     const placement = escapeAttr(placementId);
     const section = escapeAttr(sectionId);
     const styleAttr = escapeAttr(resolvedStyle);
+    const intentAttr = escapeAttr(String(intent || 'consultation').trim() || 'consultation');
+    const originAttr = escapeAttr(String(origin || 'detector').trim() || 'detector');
+    const slotAttr = slotId ? ` data-cta-slot-id="${escapeAttr(slotId)}"` : '';
     return (
         `<div class="seo-managed-cta" data-cta-placement="${placement}" data-cta-section="${section}"`
-        + ` data-cta-intent="consultation" data-cta-alias="" data-cta-origin="detector"`
+        + ` data-cta-intent="${intentAttr}" data-cta-alias="" data-cta-origin="${originAttr}"${slotAttr}`
         + ` data-cta-style="${styleAttr}" data-cta-manual="0">`
-        + `[seo_ops_cta style="${styleAttr}" placement="${placement}" intent="consultation"]`
+        + `[seo_ops_cta style="${styleAttr}" placement="${placement}" intent="${intentAttr}"]`
         + `${safeInner}[/seo_ops_cta]</div>`
     );
 }
@@ -402,6 +439,14 @@ export function wrapTextCtaInHtml(html, candidate) {
     return { ok: false, html, code: 'candidate_missing' };
 }
 
+function serializeRoot(root) {
+    const serializer = document.createElement('div');
+    for (const child of root.childNodes) {
+        serializer.appendChild(child.cloneNode(true));
+    }
+    return serializer.innerHTML;
+}
+
 /**
  * Delete a plain-text CTA node only when it is a whole paragraph/blockquote CTA.
  * @param {string} html
@@ -431,13 +476,96 @@ export function deleteTextCtaInHtml(html, candidate) {
             continue;
         }
         node.parentNode?.removeChild(node);
-        const serializer = document.createElement('div');
-        for (const child of root.childNodes) {
-            serializer.appendChild(child.cloneNode(true));
-        }
-        return { ok: true, html: serializer.innerHTML };
+        return { ok: true, html: serializeRoot(root) };
     }
     return { ok: false, html, code: 'candidate_missing' };
+}
+
+/**
+ * Delete one shortcode/managed CTA by stable placement id or section occurrence.
+ * Never string-replaces shortcode text globally (duplicate bodies stay intact).
+ *
+ * @param {string} html
+ * @param {object} candidate
+ * @returns {{ ok: boolean, html: string, code?: string }}
+ */
+export function deleteShortcodeCtaInHtml(html, candidate) {
+    if (!candidate || candidate.kind !== 'shortcode') {
+        return { ok: false, html, code: 'invalid_candidate' };
+    }
+    if (!candidate.canDelete) {
+        return { ok: false, html, code: candidate.deleteDisabledReason === 'ambiguous_or_mixed' ? 'ambiguous' : 'mixed_content' };
+    }
+
+    const root = parseRoot(html);
+    const placementId = String(candidate.placementId || '').trim();
+
+    if (placementId) {
+        const matches = [];
+        for (const child of root.children) {
+            if (child.getAttribute?.('data-cta-placement') === placementId) {
+                matches.push(child);
+            }
+        }
+        if (matches.length === 1) {
+            matches[0].parentNode?.removeChild(matches[0]);
+            return { ok: true, html: serializeRoot(root) };
+        }
+        if (matches.length > 1) {
+            return { ok: false, html, code: 'ambiguous' };
+        }
+    }
+
+    if (!candidate.sectionId) {
+        return { ok: false, html, code: 'ambiguous' };
+    }
+
+    const sections = bindSections(root);
+    const section = sections.find((row) => row.sectionId === candidate.sectionId);
+    if (!section) {
+        return { ok: false, html, code: 'section_missing' };
+    }
+
+    let seen = 0;
+    const matches = [];
+    for (const node of section.nodes) {
+        const isShortcodeNode = isManagedElement(node)
+            || isManualElement(node)
+            || /\[seo_ops_cta\b/i.test(node.innerHTML || '');
+        if (!isShortcodeNode || !isDeletableShortcodeNode(node)) {
+            continue;
+        }
+        seen += 1;
+        if (seen === Number(candidate.occurrence || 1)) {
+            matches.push(node);
+        }
+    }
+
+    if (matches.length !== 1) {
+        return { ok: false, html, code: matches.length === 0 ? 'candidate_missing' : 'ambiguous' };
+    }
+
+    matches[0].parentNode?.removeChild(matches[0]);
+    return { ok: true, html: serializeRoot(root) };
+}
+
+/**
+ * Delete a detected CTA (shortcode or plain-text) when uniquely identifiable.
+ * @param {string} html
+ * @param {object} candidate
+ * @returns {{ ok: boolean, html: string, code?: string }}
+ */
+export function deleteCtaInHtml(html, candidate) {
+    if (!candidate) {
+        return { ok: false, html, code: 'invalid_candidate' };
+    }
+    if (candidate.kind === 'text') {
+        return deleteTextCtaInHtml(html, candidate);
+    }
+    if (candidate.kind === 'shortcode') {
+        return deleteShortcodeCtaInHtml(html, candidate);
+    }
+    return { ok: false, html, code: 'invalid_candidate' };
 }
 
 /**

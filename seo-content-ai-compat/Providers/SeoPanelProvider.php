@@ -469,6 +469,9 @@ class SeoPanelProvider extends PanelProvider
                 Route::post('/{article}/editor/faq-snapshot/extract', [\Omnichannel\Addons\Content\Http\Controllers\ArticleEditorFaqSnapshotController::class, 'extract'])
                     ->whereNumber('article')
                     ->name('seo.articles.editor.faq-snapshot.extract');
+                Route::get('/{article}/editor/cta-automation/pool', [\Omnichannel\Addons\Content\Http\Controllers\ArticleEditorCtaAutomationController::class, 'pool'])
+                    ->whereNumber('article')
+                    ->name('seo.articles.editor.cta-automation.pool');
                 Route::post('/{article}/editor/cta-automation/preview', [\Omnichannel\Addons\Content\Http\Controllers\ArticleEditorCtaAutomationController::class, 'preview'])
                     ->whereNumber('article')
                     ->name('seo.articles.editor.cta-automation.preview');

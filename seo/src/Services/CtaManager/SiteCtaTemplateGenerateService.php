@@ -72,7 +72,10 @@ class SiteCtaTemplateGenerateService
                 'locale' => $context['language'],
                 'site_id' => (int) $site->id,
             ]);
-            $output = $result['value'] ?? $result['output'] ?? $result['text'] ?? null;
+            $output = $result['value'] ?? null;
+            if ($output === null || $output === '' || $output === []) {
+                $output = $result['output'] ?? $result['raw'] ?? $result['text'] ?? $output;
+            }
         } catch (Throwable $exception) {
             Log::warning('site_cta_templates.generate_failed', [
                 'site_id' => (int) $site->id,

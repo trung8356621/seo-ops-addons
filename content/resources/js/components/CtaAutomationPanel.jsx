@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
-import { Brackets, Loader2, MapPin, Trash2 } from 'lucide-react';
+import { Brackets, Check, Loader2, MapPin, Sparkles, Trash2, X } from 'lucide-react';
 import { t } from '../utils/i18n';
 import { executeEditorCommand, getEditorCommandHost } from '../utils/editorCommands';
 import { parseHtmlToBlocks } from '../utils/contentDocumentHelpers';
 import { requestCtaHeadingNavigation, scrollEditorTargetIntoView } from '../utils/ctaSectionNavigator';
+import { seoArticleApiFetch } from '@seo-addon/utils/seoArticleApi.js';
 import {
     detectCtas,
-    deleteTextCtaInHtml,
+    deleteCtaInHtml,
     locateCtaCandidateInDom,
     wrapTextCtaInHtml,
 } from '../utils/ctaDetector';
+import { applyCtaGenerationPlan, planCtaGeneration } from '../utils/ctaGenerator';
 
 function currentEditorHtml() {
     const host = getEditorCommandHost();
@@ -44,9 +46,11 @@ function truncate(text) {
 export function CtaAutomationPanel({ articleId: _articleId }) {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
+    const [statusNote, setStatusNote] = useState('');
     const [scanned, setScanned] = useState(false);
     const [shortcodes, setShortcodes] = useState([]);
     const [texts, setTexts] = useState([]);
+    const [genPlan, setGenPlan] = useState(null);
 
     function refreshFromHtml(html) {
         const next = detectCtas(html);
@@ -58,6 +62,7 @@ export function CtaAutomationPanel({ articleId: _articleId }) {
     function scan() {
         setBusy(true);
         setError('');
+        setStatusNote('');
         try {
             refreshFromHtml(currentEditorHtml());
         } catch (exception) {
@@ -65,6 +70,73 @@ export function CtaAutomationPanel({ articleId: _articleId }) {
         } finally {
             setBusy(false);
         }
+    }
+
+    async function previewGenerator() {
+        if (busy) {
+            return;
+        }
+        const articleId = Number(_articleId || 0);
+        if (articleId <= 0) {
+            setError(t('cta_gen_failed'));
+            return;
+        }
+        setBusy(true);
+        setError('');
+        setStatusNote('');
+        setGenPlan(null);
+        try {
+            const { response, data } = await seoArticleApiFetch(
+                `/api/seo/articles/${articleId}/editor/cta-automation/pool`,
+                { headers: { Accept: 'application/json' } },
+            );
+            if (!response.ok || data?.success === false) {
+                setError(String(data?.message || t('cta_gen_failed')));
+                return;
+            }
+            const poolTemplates = Array.isArray(data?.templates) ? data.templates : [];
+            const html = currentEditorHtml();
+            refreshFromHtml(html);
+            const plan = planCtaGeneration(html, poolTemplates);
+            setGenPlan(plan);
+        } catch (exception) {
+            setError(exception instanceof Error ? exception.message : t('cta_gen_failed'));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    function confirmGenerator() {
+        if (busy || !genPlan?.canInsert) {
+            return;
+        }
+        setBusy(true);
+        setError('');
+        try {
+            const html = currentEditorHtml();
+            const applied = applyCtaGenerationPlan(html, genPlan);
+            if (!applied.ok) {
+                setError(t('cta_gen_failed'));
+                return;
+            }
+            const replaced = applyHtml(applied.html, 'Generate CTA from pool');
+            if (!replaced?.ok) {
+                setError(String(replaced?.error || replaced?.code || t('cta_gen_failed')));
+                return;
+            }
+            setGenPlan(null);
+            setStatusNote(t('cta_gen_applied').replace('{count}', String(applied.inserted)));
+            refreshFromHtml(applied.html);
+        } catch (exception) {
+            setError(exception instanceof Error ? exception.message : t('cta_gen_failed'));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    function cancelGenerator() {
+        setGenPlan(null);
+        setError('');
     }
 
     function goTo(candidate) {
@@ -133,28 +205,38 @@ export function CtaAutomationPanel({ articleId: _articleId }) {
     function remove(candidate) {
         if (busy || !candidate?.canDelete) {
             if (candidate && !candidate.canDelete) {
-                setError(t('cta_detect_delete_mixed'));
+                setError(
+                    candidate.kind === 'shortcode'
+                        ? t('cta_detect_delete_ambiguous')
+                        : t('cta_detect_delete_mixed'),
+                );
             }
+            return;
+        }
+        if (!window.confirm(t('cta_detect_delete_confirm'))) {
             return;
         }
         setBusy(true);
         setError('');
         try {
             const html = currentEditorHtml();
-            const result = deleteTextCtaInHtml(html, candidate);
+            const result = deleteCtaInHtml(html, candidate);
             if (!result.ok) {
                 setError(
                     result.code === 'mixed_content'
                         ? t('cta_detect_delete_mixed')
-                        : t('cta_detect_delete_failed'),
+                        : result.code === 'ambiguous'
+                            ? t('cta_detect_delete_ambiguous')
+                            : t('cta_detect_delete_failed'),
                 );
                 return;
             }
-            const replaced = applyHtml(result.html, 'Delete CTA text');
+            const replaced = applyHtml(result.html, 'Delete CTA');
             if (!replaced?.ok) {
                 setError(String(replaced?.error || replaced?.code || t('cta_detect_delete_failed')));
                 return;
             }
+            setGenPlan(null);
             refreshFromHtml(result.html);
         } catch (exception) {
             setError(exception instanceof Error ? exception.message : t('cta_detect_delete_failed'));
@@ -176,8 +258,73 @@ export function CtaAutomationPanel({ articleId: _articleId }) {
                     {busy ? <Loader2 size={14} className="animate-spin" aria-hidden /> : null}
                     <span>{t('cta_detect_scan')}</span>
                 </button>
+                <button
+                    type="button"
+                    className="seo-cta-automation__btn"
+                    disabled={busy}
+                    onClick={previewGenerator}
+                >
+                    <Sparkles size={14} aria-hidden />
+                    <span>{t('cta_gen_button')}</span>
+                </button>
             </div>
             {error ? <p className="seo-cta-automation__error" role="alert">{error}</p> : null}
+            {statusNote ? <p className="seo-cta-automation__summary">{statusNote}</p> : null}
+            {genPlan ? (
+                <div className="seo-cta-automation__preview">
+                    <p className="seo-cta-automation__label">{t('cta_gen_preview_title')}</p>
+                    <p className="seo-cta-automation__summary">
+                        {t('cta_gen_density_summary')
+                            .replace('{headings}', String(genPlan.analysis?.eligibleHeadingCount ?? 0))
+                            .replace('{existing}', String(genPlan.analysis?.existingCount ?? 0))
+                            .replace('{max}', String(genPlan.analysis?.maxAllowed ?? 0))}
+                    </p>
+                    {!genPlan.canInsert ? (
+                        <p className="seo-cta-automation__hint">
+                            {genPlan.reason === 'empty_pool'
+                                ? t('cta_gen_empty_pool')
+                                : genPlan.reason === 'no_safe_position'
+                                    ? t('cta_gen_no_safe_position')
+                                    : t('cta_gen_no_need')}
+                        </p>
+                    ) : (
+                        <>
+                            <ul className="seo-cta-automation__changes">
+                                {genPlan.proposals.map((item) => (
+                                    <li key={item.id} className="seo-cta-automation__change seo-cta-automation__change--insert">
+                                        <p className="seo-cta-automation__meta">
+                                            {item.slotId}
+                                            {item.intent ? ` · ${item.intent}` : ''}
+                                            {item.heading ? ` · ${truncate(item.heading)}` : ''}
+                                        </p>
+                                        <p className="seo-cta-automation__text">{truncate(item.content)}</p>
+                                    </li>
+                                ))}
+                            </ul>
+                            <div className="seo-cta-automation__actions seo-cta-automation__actions--row">
+                                <button
+                                    type="button"
+                                    className="seo-cta-automation__btn seo-cta-automation__btn--primary"
+                                    disabled={busy}
+                                    onClick={confirmGenerator}
+                                >
+                                    <Check size={14} aria-hidden />
+                                    <span>{t('cta_gen_confirm').replace('{count}', String(genPlan.proposals.length))}</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    className="seo-cta-automation__btn"
+                                    disabled={busy}
+                                    onClick={cancelGenerator}
+                                >
+                                    <X size={14} aria-hidden />
+                                    <span>{t('cta_gen_cancel')}</span>
+                                </button>
+                            </div>
+                        </>
+                    )}
+                </div>
+            ) : null}
             {scanned ? (
                 <div className="seo-cta-automation__preview">
                     <p className="seo-cta-automation__summary">
@@ -205,7 +352,20 @@ export function CtaAutomationPanel({ articleId: _articleId }) {
                                                 <MapPin size={14} aria-hidden />
                                                 <span>{t('cta_detect_goto')}</span>
                                             </button>
+                                            <button
+                                                type="button"
+                                                className="seo-cta-automation__btn"
+                                                disabled={busy || !item.canDelete}
+                                                onClick={() => remove(item)}
+                                                title={!item.canDelete ? t('cta_detect_delete_ambiguous') : undefined}
+                                            >
+                                                <Trash2 size={14} aria-hidden />
+                                                <span>{t('cta_detect_delete')}</span>
+                                            </button>
                                         </div>
+                                        {!item.canDelete ? (
+                                            <p className="seo-cta-automation__warning">{t('cta_detect_delete_ambiguous')}</p>
+                                        ) : null}
                                     </li>
                                 ))}
                             </ul>

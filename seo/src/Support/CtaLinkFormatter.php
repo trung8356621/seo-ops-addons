@@ -21,6 +21,11 @@ final class CtaLinkFormatter
             return '';
         }
 
+        $type = mb_strtolower(trim($type));
+        if (preg_match('/^(phone|email)_\d+$/', $type, $matches) === 1) {
+            $type = $matches[1];
+        }
+
         return match ($type) {
             'phone', 'hotline' => self::formatPhone($value),
             'email' => self::formatEmail($value),
@@ -35,18 +40,27 @@ final class CtaLinkFormatter
 
     private static function formatPhone(string $value): string
     {
-        $digits = preg_replace('/[^\d+]/', '', $value) ?? '';
+        if (preg_match('/^(?:javascript|data|vbscript):/i', $value) === 1) {
+            return '';
+        }
 
-        return $digits !== '' ? 'tel:' . $digits : '';
+        $digits = preg_replace('/[^\d+]/', '', $value) ?? '';
+        if (preg_match('/^\+?\d{3,}$/', $digits) !== 1) {
+            return '';
+        }
+
+        return 'tel:' . $digits;
     }
 
     private static function formatEmail(string $value): string
     {
-        if (str_starts_with(strtolower($value), 'mailto:')) {
-            return $value;
+        $email = preg_replace('/^mailto:/i', '', $value) ?? $value;
+        $email = trim($email);
+        if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            return '';
         }
 
-        return 'mailto:' . $value;
+        return 'mailto:' . $email;
     }
 
     private static function formatZalo(string $value): string

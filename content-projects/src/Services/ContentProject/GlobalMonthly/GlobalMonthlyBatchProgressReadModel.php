@@ -74,9 +74,11 @@ final class GlobalMonthlyBatchProgressReadModel
             }
         }
 
-        $taskTitles = SeoProjectTask::query()
+        $taskRows = SeoProjectTask::query()
             ->whereIn('id', $items->pluck('task_id')->unique()->filter()->all())
-            ->get(['id', 'title', 'keyword'])
+            ->get(['id', 'title', 'keyword', 'article_id']);
+
+        $taskTitles = $taskRows
             ->mapWithKeys(static function (SeoProjectTask $task): array {
                 $title = trim((string) ($task->title ?? ''));
                 if ($title === '') {
@@ -85,6 +87,9 @@ final class GlobalMonthlyBatchProgressReadModel
 
                 return [(int) $task->id => $title !== '' ? $title : 'Task #'.$task->id];
             })
+            ->all();
+        $taskArticleIds = $taskRows
+            ->mapWithKeys(static fn (SeoProjectTask $task): array => [(int) $task->id => (int) ($task->article_id ?? 0)])
             ->all();
 
         // Join child run items without N+1 queries
@@ -99,11 +104,38 @@ final class GlobalMonthlyBatchProgressReadModel
             $runItems = SeoProjectRunItem::query()
                 ->whereIn('run_id', $runIds)
                 ->orderBy('id')
-                ->get(['id', 'run_id', 'task_id', 'status', 'started_at', 'finished_at', 'error_message']);
+                ->get(['id', 'run_id', 'task_id', 'article_id', 'status', 'started_at', 'finished_at', 'error_message']);
 
             foreach ($runItems as $ri) {
                 $key = ((int) $ri->run_id).':'.((int) $ri->task_id);
                 $runItemsByKey[$key] = $ri;
+            }
+        }
+
+        // Batch-load articles for edit URLs + permission check without N+1 queries.
+        $candidateArticleIds = [];
+        foreach ($items as $item) {
+            $runId = (int) ($item->project_run_id ?? 0);
+            $ri = $runId > 0 ? ($runItemsByKey[$runId.':'.((int) $item->task_id)] ?? null) : null;
+            $aid = (int) ($ri?->article_id ?? 0);
+            if ($aid <= 0) {
+                $aid = (int) ($taskArticleIds[(int) $item->task_id] ?? 0);
+            }
+            if ($aid > 0) {
+                $candidateArticleIds[] = $aid;
+            }
+        }
+        $candidateArticleIds = array_values(array_unique($candidateArticleIds));
+        $articlesById = [];
+        if ($candidateArticleIds !== [] && class_exists(\Omnichannel\Addons\Content\Models\SeoArticle::class)) {
+            try {
+                $articlesById = \Omnichannel\Addons\Content\Models\SeoArticle::query()
+                    ->whereIn('id', $candidateArticleIds)
+                    ->get()
+                    ->keyBy('id')
+                    ->all();
+            } catch (\Throwable) {
+                $articlesById = [];
             }
         }
 
@@ -204,12 +236,36 @@ final class GlobalMonthlyBatchProgressReadModel
                 $durationLabel = $this->formatDuration($elapsed);
             }
 
+            $articleId = (int) ($childRunItem?->article_id ?? 0);
+            if ($articleId <= 0) {
+                $articleId = (int) ($taskArticleIds[(int) $item->task_id] ?? 0);
+            }
+            $articleRecord = $articleId > 0 ? ($articlesById[$articleId] ?? null) : null;
+            $articleSiteId = $articleRecord ? (int) ($articleRecord->site_id ?? 0) : 0;
+            $articleUrl = null;
+            if ($articleRecord !== null) {
+                try {
+                    if (\Omnichannel\Addons\Content\Filament\Resources\ArticleResource::canEdit($articleRecord)) {
+                        $params = ['record' => (int) $articleRecord->id];
+                        if ($articleSiteId > 0) {
+                            $params['site_id'] = $articleSiteId;
+                        }
+                        $articleUrl = \Omnichannel\Addons\Content\Filament\Resources\ArticleResource::getUrl('edit', $params);
+                    }
+                } catch (\Throwable) {
+                    $articleUrl = null;
+                }
+            }
+
             $row = [
                 'position' => (int) $item->position,
                 'project_id' => (int) $item->project_id,
                 'project_name' => (string) ($projectNames[(int) $item->project_id] ?? ('Project #'.$item->project_id)),
                 'owner_name' => $projectOwners[(int) $item->project_id] ?? null,
                 'task_id' => (int) $item->task_id,
+                'article_id' => $articleId > 0 ? $articleId : null,
+                'site_id' => $articleSiteId > 0 ? $articleSiteId : null,
+                'article_url' => $articleUrl,
                 'title' => (string) ($taskTitles[(int) $item->task_id] ?? ('Task #'.$item->task_id)),
                 'status' => $status,
                 'status_bucket' => $bucket,

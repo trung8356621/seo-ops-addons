@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Services\CtaAutomation\CtaAutomationService;
+use Omnichannel\Addons\Seo\Services\CtaManager\SiteCtaTemplatePoolService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 
 /**
@@ -18,7 +19,50 @@ final class ArticleEditorCtaAutomationController extends Controller
 {
     public function __construct(
         private readonly CtaAutomationService $automation,
+        private readonly SiteCtaTemplatePoolService $pool,
     ) {}
+
+    public function pool(Request $request, SeoArticle $article): JsonResponse
+    {
+        abort_unless(SeoAccessControl::canAccessArticle($article), 403);
+
+        $siteId = (int) ($article->site_id ?? 0);
+        if ($siteId <= 0) {
+            return response()->json([
+                'success' => true,
+                'site_id' => 0,
+                'templates' => [],
+                'pool_count' => 0,
+            ]);
+        }
+
+        $pool = $this->pool->getPool($siteId);
+        $templates = [];
+        foreach (is_array($pool['templates'] ?? null) ? $pool['templates'] : [] as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $content = trim((string) ($row['content'] ?? ''));
+            if ($content === '') {
+                continue;
+            }
+            $templates[] = [
+                'slot' => (int) ($row['slot'] ?? 0),
+                'slot_id' => (string) ($row['slot_id'] ?? ('CTA_'.(int) ($row['slot'] ?? 0))),
+                'intent' => trim((string) ($row['intent'] ?? '')),
+                'content' => $content,
+                'status' => (string) ($row['status'] ?? ''),
+                'source' => (string) ($row['source'] ?? ''),
+            ];
+        }
+
+        return response()->json([
+            'success' => true,
+            'site_id' => $siteId,
+            'templates' => $templates,
+            'pool_count' => count($templates),
+        ]);
+    }
 
     public function preview(Request $request, SeoArticle $article): JsonResponse
     {

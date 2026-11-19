@@ -204,9 +204,32 @@ describe('ctaDetector', () => {
         const result = detector.detectCtas(html);
         assert.equal(result.shortcodes.length, 1);
         assert.equal(result.shortcodes[0].form, 'container');
+        assert.equal(result.shortcodes[0].canDelete, true);
         assert.equal(result.texts.length, 1);
         assert.equal(result.texts[0].canWrap, true);
         assert.equal(result.texts[0].canDelete, true);
+    });
+
+    it('deletes only the selected managed shortcode when two identical CTAs exist', () => {
+        const block = (id) => (
+            `<div class="seo-managed-cta" data-cta-placement="${id}">`
+            + '[seo_ops_cta style="soft"]Liên hệ Zalo ngay[/seo_ops_cta]</div>'
+        );
+        const html = [
+            '<h2>One</h2><p>Keep one.</p>',
+            block('cta_a'),
+            '<h2>Two</h2><p>Keep two.</p>',
+            block('cta_b'),
+        ].join('');
+        const found = detector.detectCtas(html);
+        assert.equal(found.shortcodes.length, 2);
+        const deleted = detector.deleteCtaInHtml(html, found.shortcodes[0]);
+        assert.equal(deleted.ok, true);
+        assert.match(deleted.html, /Keep one\./);
+        assert.match(deleted.html, /Keep two\./);
+        assert.match(deleted.html, /data-cta-placement="cta_b"/);
+        assert.doesNotMatch(deleted.html, /data-cta-placement="cta_a"/);
+        assert.equal(detector.detectCtas(deleted.html).shortcodes.length, 1);
     });
 
     it('ignores lone email or phone without CTA verbs', () => {

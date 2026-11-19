@@ -58,6 +58,8 @@ final class PromptSplitStrategyRegistry
             // Atomic seeding utility — unsplittable short JSON text batch.
             'seeding.comment_generate' => 1024,
             'seeding.comment.generate' => 1024,
+            // 10 Vietnamese CTA templates in JSON need >512 tokens to avoid OUTPUT_TRUNCATED.
+            'site.cta.templates.generate' => 2048,
         ] as $hook => $reserve) {
             $this->register(new DirectFitStrategy($hook, PromptSplitClass::DirectFit, $reserve));
         }

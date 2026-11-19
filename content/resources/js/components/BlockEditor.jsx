@@ -2,7 +2,7 @@
 import ImageBlockEditor from '@media-addon/components/ImageBlockEditor.jsx';
 import { isCanonicalLockedHeadingHtml, isFaqPlaceholderHtml } from '../utils/editorHtmlUtils';
 import OutlineLockedHeadingBlock from './OutlineLockedHeadingBlock';
-import { Trash2 } from 'lucide-react';
+import { Merge, Trash2 } from 'lucide-react';
 import { t } from '../utils/i18n';
 import FaqAccordionPreview from './FaqAccordionPreview';
 import ActiveBlockEditor from './ActiveBlockEditor';
@@ -41,6 +41,9 @@ function BlockEditor({
     canShiftMerge,
     onActivate,
     onShiftMerge,
+    onConfirmParagraphMerge = null,
+    mergeParagraphDisabled = false,
+    mergeParagraphDisabledReason = '',
     displayContent,
     suppressBlockUpdate,
     onUpdate,
@@ -193,6 +196,10 @@ function BlockEditor({
 
     // Plan B: multi-select (temp merge) is read-only — never mount TipTap with discarded updates.
     if (isActive && suppressBlockUpdate) {
+        const mergeTitle = mergeParagraphDisabled
+            ? (mergeParagraphDisabledReason || t('editor_merge_special_blocks'))
+            : t('editor_merge_paragraphs');
+
         return (
             <div
                 className="seo-block-preview seo-block-preview--temp-merge seo-wp-content p-3 -mx-1 rounded border border-amber-300 dark:border-amber-700 bg-amber-50/60 dark:bg-amber-950/30 cursor-pointer prose prose-slate max-w-none dark:prose-invert"
@@ -207,8 +214,31 @@ function BlockEditor({
                 tabIndex={0}
                 title={t('editor_temp_merge_readonly')}
             >
-                <div className="seo-temp-merge-banner text-xs font-medium text-amber-900 dark:text-amber-100 mb-2 not-prose">
-                    {t('editor_temp_merge_readonly')}
+                <div className="seo-temp-merge-banner not-prose mb-2 flex items-start justify-between gap-2">
+                    <div className="text-xs font-medium text-amber-900 dark:text-amber-100">
+                        {t('editor_temp_merge_readonly')}
+                    </div>
+                    <button
+                        type="button"
+                        className={`seo-toolbar-btn seo-temp-merge-action${mergeParagraphDisabled ? ' is-disabled' : ''}`}
+                        disabled={mergeParagraphDisabled || typeof onConfirmParagraphMerge !== 'function'}
+                        title={mergeTitle}
+                        aria-label={mergeTitle}
+                        onMouseDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                        }}
+                        onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (!mergeParagraphDisabled) {
+                                onConfirmParagraphMerge?.();
+                            }
+                        }}
+                    >
+                        <Merge size={16} aria-hidden="true" />
+                        <span className="seo-toolbar-btn__label">{t('editor_merge_paragraphs')}</span>
+                    </button>
                 </div>
                 <div
                     dangerouslySetInnerHTML={{

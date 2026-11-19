@@ -815,7 +815,18 @@
                                         @endif
                                     </td>
                                     <td class="truncate font-medium text-gray-900 dark:text-white" title="{{ $title }}">
-                                        {{ $title !== '' ? $title : '—' }}
+                                        @if (! empty($row['article_url']))
+                                            <a
+                                                href="{{ $row['article_url'] }}"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                class="text-primary-600 hover:text-primary-500 hover:underline dark:text-primary-400"
+                                            >
+                                                {{ $title !== '' ? $title : '—' }}
+                                            </a>
+                                        @else
+                                            {{ $title !== '' ? $title : '—' }}
+                                        @endif
                                     </td>
                                     <td>
                                         <span @class([

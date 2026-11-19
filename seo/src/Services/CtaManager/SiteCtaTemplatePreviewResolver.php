@@ -57,6 +57,24 @@ final class SiteCtaTemplatePreviewResolver
             }
         }
 
+        if (! isset($byType['website'])) {
+            $siteModel = $site instanceof Site ? $site : Site::query()->find((int) $site);
+            $domain = trim((string) ($siteModel?->domain ?? ''));
+            if ($domain !== '') {
+                $scheme = ($siteModel?->ssl ?? true) === false ? 'http://' : 'https://';
+                $websiteUrl = preg_match('#^https?://#i', $domain) === 1
+                    ? $domain
+                    : $scheme.ltrim($domain, '/').'/';
+                if ($this->renderer->isSafeUrl($websiteUrl)) {
+                    $byType['website'] = [
+                        'value' => $websiteUrl,
+                        'href' => $websiteUrl,
+                        'plain_text' => false,
+                    ];
+                }
+            }
+        }
+
         $rendered = $this->renderer->render($content, $byType);
 
         return [

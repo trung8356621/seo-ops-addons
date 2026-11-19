@@ -104,17 +104,26 @@ final class SiteCtaTokenHtmlRenderer
         if ($this->isPlainTextType($base)) {
             return '';
         }
-
-        $href = trim($preferredHref);
-        if ($href === '') {
-            $href = CtaLinkFormatter::format($base, $value);
-        }
         // Address formatter historically builds Maps URLs — never use for CTA token render.
         if ($base === 'address' || $base === 'working_hours') {
             return '';
         }
-        if ($this->isSafeUrl($href)) {
-            return $href;
+
+        $preferredHref = trim($preferredHref);
+        if ($preferredHref !== '' && preg_match('/\s|javascript:|data:|vbscript:/i', $preferredHref) === 1) {
+            return '';
+        }
+        if (preg_match('/^(?:javascript|data|vbscript):/i', trim($value)) === 1) {
+            return '';
+        }
+
+        if ($preferredHref !== '' && $this->isSafeUrl($preferredHref)) {
+            return $preferredHref;
+        }
+
+        $formatted = CtaLinkFormatter::format($base, $value);
+        if ($this->isSafeUrl($formatted)) {
+            return $formatted;
         }
 
         return '';
@@ -123,11 +132,21 @@ final class SiteCtaTokenHtmlRenderer
     public function isSafeUrl(string $url): bool
     {
         $url = trim($url);
-        if ($url === '' || preg_match('/\s|javascript:|data:/i', $url) === 1) {
+        if ($url === '' || preg_match('/\s|javascript:|data:|vbscript:/i', $url) === 1) {
             return false;
         }
 
-        return preg_match('#^(https?://|mailto:|tel:)#i', $url) === 1;
+        if (preg_match('/^mailto:(.+)$/i', $url, $m) === 1) {
+            $address = explode('?', $m[1], 2)[0];
+
+            return filter_var($address, FILTER_VALIDATE_EMAIL) !== false;
+        }
+
+        if (preg_match('/^tel:(.+)$/i', $url, $m) === 1) {
+            return preg_match('/^\+?\d{3,}$/', $m[1]) === 1;
+        }
+
+        return preg_match('#^https?://#i', $url) === 1;
     }
 
     public function baseType(string $type): string

@@ -11561,6 +11561,23 @@ section[data-seo-section-id].is-outline-jump-highlight {
     white-space: nowrap;
 }
 
+.seo-temp-merge-banner {
+    pointer-events: auto;
+}
+
+.seo-temp-merge-action {
+    flex-shrink: 0;
+    color: #92400e !important;
+}
+
+.dark .seo-temp-merge-action {
+    color: #fbbf24 !important;
+}
+
+.seo-temp-merge-action .seo-toolbar-btn__label {
+    font-size: 12px;
+}
+
 .seo-html-inspector-overlay {
     position: fixed;
     inset: 0;

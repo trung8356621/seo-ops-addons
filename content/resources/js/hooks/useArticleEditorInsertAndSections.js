@@ -14,6 +14,7 @@ import {
     sectionMovableBlockIds,
 } from '../utils/contentDocumentHelpers';
 import { applyReplaceBlocksAt } from '../utils/editorCommands/replaceBlocksAt';
+import { applyMergeParagraphBlocks } from '../utils/editorCommands/mergeSelectedParagraphs';
 import { extractOutlineHeadingFromBlock, normalizeOutlineHeadingText } from '../utils/articleEditorClientOutline';
 import { normalizeBlocks } from '@media-addon/utils/blockImageUtils.js';
 import { persistBlockHtmlFromEditor } from '../utils/editorHtmlUtils';
@@ -25,7 +26,7 @@ import { useCallback, useEffect } from 'react';
  * useArticleEditorInsertAndSections - extracted from SeoArticleEditor.jsx (Task 7 mechanical
  * extraction). Mechanical move - no behavior change.
  */
-export default function useArticleEditorInsertAndSections({ activeBlockId, activeBlockIdRef, applyCompletedMediaToPlaceholder, articleId, blockEditorsRef, blockFlushRef, blocks, blocksRef, commitActiveBlock, deleteBlock, dismissedEditorImageMediaIdsRef, editorSections, insertBlockRelative = null, notifyIntroNoImages, outlineAppendDoneRef, outlineAppendInflightRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, patchImageInBlocks, pendingAiMediaRef, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setGlobalEditor, setInsertMenu, setOutlineHeadingKeys, setOutlineTreeSync, setTempMerge, startMediaStatusPolling, structureMutationRef, tempMergeRef }) {
+export default function useArticleEditorInsertAndSections({ activeBlockId, activeBlockIdRef, applyCompletedMediaToPlaceholder, articleId, blockEditorsRef, blockFlushRef, blocks, blocksRef, clearTempMerge = null, commitActiveBlock, deleteBlock, dismissedEditorImageMediaIdsRef, editorSections, insertBlockRelative = null, notifyIntroNoImages, outlineAppendDoneRef, outlineAppendInflightRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, patchImageInBlocks, pendingAiMediaRef, scheduleAutosave = null, sectionByBlockId = null, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setGlobalEditor, setInsertMenu, setOutlineHeadingKeys, setOutlineTreeSync, setTempMerge, startMediaStatusPolling, structureMutationRef, tempMergeRef }) {
     useEffect(() => {
         if (!articleId) {
             return undefined;
@@ -876,5 +877,66 @@ export default function useArticleEditorInsertAndSections({ activeBlockId, activ
         [activeBlockId],
     );
 
-    return { deleteSection, handleOutlineDeleteHeading, handleOutlineMoveHeading, insertVideoAfterBlock, moveBlockToSection, startTempMerge, toggleInsertMenu };
+    const confirmMergeSelectedParagraphs = useCallback(() => {
+        const mergeState = tempMergeRef.current;
+        if (!mergeState?.rangeIds?.length) {
+            return false;
+        }
+
+        const applied = applyMergeParagraphBlocks(blocksRef.current, mergeState.rangeIds, {
+            sectionByBlockId,
+        });
+        if (!applied.ok) {
+            return false;
+        }
+
+        blockFlushRef.current = null;
+        applied.removedIds.forEach((id) => {
+            blockEditorsRef.current.delete(id);
+        });
+        blockEditorsRef.current.delete(applied.keepBlockId);
+
+        if (typeof clearTempMerge === 'function') {
+            clearTempMerge();
+        } else {
+            setTempMerge(null);
+        }
+
+        setGlobalEditor(null);
+        setInsertMenu(null);
+        setBlocks(applied.blocks);
+        blocksRef.current = applied.blocks;
+        activeBlockIdRef.current = applied.keepBlockId;
+        setActiveBlockId(applied.keepBlockId);
+
+        if (typeof scheduleAutosave === 'function') {
+            scheduleAutosave();
+        }
+
+        if (typeof window !== 'undefined') {
+            window.requestAnimationFrame(() => {
+                window.requestAnimationFrame(() => {
+                    const editor = blockEditorsRef.current.get(applied.keepBlockId);
+                    try {
+                        editor?.commands?.focus?.('end');
+                    } catch {
+                        // remount may still be pending
+                    }
+                });
+            });
+        }
+
+        return true;
+    }, [clearTempMerge, scheduleAutosave, sectionByBlockId, setActiveBlockId, setBlocks, setGlobalEditor, setInsertMenu, setTempMerge]);
+
+    return {
+        confirmMergeSelectedParagraphs,
+        deleteSection,
+        handleOutlineDeleteHeading,
+        handleOutlineMoveHeading,
+        insertVideoAfterBlock,
+        moveBlockToSection,
+        startTempMerge,
+        toggleInsertMenu,
+    };
 }

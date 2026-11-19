@@ -42,6 +42,11 @@ final class SeoAccessControl
      */
     public static function roleForUser(User $user): string
     {
+        // Owner: full SEO capability regardless of any stale Spatie seo.* assignment.
+        if ($user->isOwner()) {
+            return self::ROLE_MANAGER;
+        }
+
         $rank = null;
         try {
             $rank = app(\App\Core\Permissions\SeoRoleAssignment::class)->resolveShortRank($user);
@@ -51,11 +56,6 @@ final class SeoAccessControl
 
         if ($rank !== null) {
             return self::normalizeRole($rank);
-        }
-
-        // Owner: full SEO capability without requiring Spatie seo.manager assignment.
-        if ($user->isOwner()) {
-            return self::ROLE_MANAGER;
         }
 
         return self::ROLE_CONTENT_MANAGER;
@@ -228,6 +228,10 @@ final class SeoAccessControl
 
     public static function shouldShowGlobalSeoBar(): bool
     {
+        if (count(self::allowedSimulationTargets(self::actualRole())) > 1) {
+            return true;
+        }
+
         return ! self::isContentManager();
     }
 
