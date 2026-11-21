@@ -8,6 +8,49 @@
  * @param {Map<string, { id?: string, content?: string, type?: string }>|Record<string, { id?: string, content?: string, type?: string }>|Array<{ id?: string, content?: string, type?: string }>} blocksSource
  * @returns {string}
  */
+/**
+ * @param {Map<string, { id?: string, content?: string, type?: string }>|Record<string, { id?: string, content?: string, type?: string }>|Array<{ id?: string, content?: string, type?: string }>} blocksSource
+ * @param {string} id
+ * @returns {{ id?: string, content?: string, type?: string }|null}
+ */
+function resolveBlockFromSource(blocksSource, id) {
+    if (blocksSource instanceof Map) {
+        return blocksSource.get(id) ?? null;
+    }
+    if (Array.isArray(blocksSource)) {
+        return blocksSource.find((b) => String(b?.id ?? '') === id) ?? null;
+    }
+    if (blocksSource && typeof blocksSource === 'object') {
+        return blocksSource[id] ?? null;
+    }
+    return null;
+}
+
+/**
+ * Prefer live TipTap HTML for a block; fall back to stored content.
+ * Read-only — does not flush React state, focus, or selection.
+ *
+ * @param {{ id?: string, content?: string, type?: string }|null|undefined} block
+ * @param {Map<string, { isDestroyed?: boolean, getHTML?: () => string }>|null|undefined} blockEditors
+ * @returns {string}
+ */
+function resolveBlockHtmlForCopy(block, blockEditors) {
+    if (!block) {
+        return '';
+    }
+    const id = String(block.id ?? '').trim();
+    const type = String(block.type ?? 'text');
+    if (type === 'image') {
+        // Captions (if any) live in HTML content / figcaption; skip binary image metadata.
+        return String(block.content ?? '');
+    }
+    const editor = id && blockEditors?.get?.(id) ? blockEditors.get(id) : null;
+    if (editor && !editor.isDestroyed && typeof editor.getHTML === 'function') {
+        return String(editor.getHTML() ?? '');
+    }
+    return String(block.content ?? '');
+}
+
 export function extractSectionPlainText(section, blocksSource) {
     const blockIds = Array.isArray(section?.blockIds)
         ? section.blockIds.map((id) => String(id ?? '').trim()).filter(Boolean)
@@ -16,22 +59,9 @@ export function extractSectionPlainText(section, blocksSource) {
         return '';
     }
 
-    const resolveBlock = (id) => {
-        if (blocksSource instanceof Map) {
-            return blocksSource.get(id) ?? null;
-        }
-        if (Array.isArray(blocksSource)) {
-            return blocksSource.find((b) => String(b?.id ?? '') === id) ?? null;
-        }
-        if (blocksSource && typeof blocksSource === 'object') {
-            return blocksSource[id] ?? null;
-        }
-        return null;
-    };
-
     const parts = [];
     for (const id of blockIds) {
-        const block = resolveBlock(id);
+        const block = resolveBlockFromSource(blocksSource, id);
         if (!block) {
             continue;
         }
@@ -45,6 +75,70 @@ export function extractSectionPlainText(section, blocksSource) {
         .join('\n\n')
         .replace(/\n{3,}/g, '\n\n')
         .trim();
+}
+
+/**
+ * Extract readable plain text for Shift-selected blocks only (temp-merge range).
+ * Preserves selection order when provided; otherwise document order.
+ * Does not mutate selection, focus, or block state.
+ *
+ * @param {string[]|null|undefined} blockIds
+ * @param {Array<{ id?: string, content?: string, type?: string }>|Map<string, { id?: string, content?: string, type?: string }>|null|undefined} blocksSource
+ * @param {Map<string, { isDestroyed?: boolean, getHTML?: () => string }>|null|undefined} blockEditors
+ * @returns {string}
+ */
+export function extractSelectedBlocksPlainText(blockIds, blocksSource, blockEditors = null) {
+    const ids = (Array.isArray(blockIds) ? blockIds : [])
+        .map((id) => String(id ?? '').trim())
+        .filter(Boolean);
+    if (ids.length === 0) {
+        return '';
+    }
+
+    // Keep caller order, but drop duplicates / missing ids.
+    const seen = new Set();
+    const parts = [];
+    for (const id of ids) {
+        if (seen.has(id)) {
+            continue;
+        }
+        seen.add(id);
+        const block = resolveBlockFromSource(blocksSource, id);
+        if (!block) {
+            continue;
+        }
+        const plain = htmlToSectionPlainText(resolveBlockHtmlForCopy(block, blockEditors));
+        if (plain !== '') {
+            parts.push(plain);
+        }
+    }
+
+    return parts
+        .join('\n\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
+/**
+ * Extract readable plain text for the full article from current editor/block state.
+ * Preserves document order. Does not mutate selection, focus, or block state.
+ *
+ * @param {Array<{ id?: string, content?: string, type?: string }>|Map<string, { id?: string, content?: string, type?: string }>|null|undefined} blocksSource
+ * @param {Map<string, { isDestroyed?: boolean, getHTML?: () => string }>|null|undefined} blockEditors
+ * @returns {string}
+ */
+export function extractArticlePlainText(blocksSource, blockEditors = null) {
+    const list = Array.isArray(blocksSource)
+        ? blocksSource
+        : blocksSource instanceof Map
+            ? [...blocksSource.values()]
+            : [];
+
+    return extractSelectedBlocksPlainText(
+        list.map((block) => String(block?.id ?? '').trim()).filter(Boolean),
+        blocksSource,
+        blockEditors,
+    );
 }
 
 /**

@@ -28,6 +28,7 @@ final class SectionPlainTextCopyContractTest extends TestCase
     {
         $src = $this->helperSource();
         self::assertStringContainsString('export function extractSectionPlainText', $src);
+        self::assertStringContainsString('export function extractSelectedBlocksPlainText', $src);
         self::assertStringContainsString('export function htmlToSectionPlainText', $src);
         self::assertStringContainsString('export async function writeTextToClipboard', $src);
         self::assertStringContainsString("tag === 'img'", $src);
@@ -40,10 +41,40 @@ final class SectionPlainTextCopyContractTest extends TestCase
     {
         $src = $this->editorSource();
         self::assertStringContainsString('extractSectionPlainText', $src);
+        self::assertStringContainsString('extractSelectedBlocksPlainText', $src);
         self::assertStringContainsString('writeTextToClipboard', $src);
         self::assertStringContainsString('copySectionText', $src);
+        self::assertStringContainsString('copySelectedBlocksText', $src);
         self::assertStringContainsString('editor_copy_section', $src);
+        self::assertStringContainsString('editor_copy_all', $src);
         self::assertStringContainsString('extractSectionPlainText(section, blockById)', $src);
+        self::assertStringContainsString('extractSelectedBlocksPlainText', $src);
+        self::assertStringContainsString('tempMergeRef.current?.rangeIds', $src);
+    }
+
+    public function test_copy_all_preserves_temp_merge_and_avoids_dom_select_all(): void
+    {
+        $src = $this->editorSource();
+        self::assertStringContainsString('copySelectedBlocksText', $src);
+        self::assertStringContainsString('onCopyAllArticle={copySelectedBlocksText}', $src);
+        self::assertStringContainsString('Clipboard-only', $src);
+        self::assertStringNotContainsString('selectAll()', $src);
+        // Handler must not clear multi-select / merge before copying.
+        self::assertDoesNotMatchRegularExpression(
+            '/copySelectedBlocksText[\s\S]{0,400}clearTempMerge\s*\(/',
+            $src,
+        );
+
+        $blockEditor = (string) file_get_contents(
+            dirname(__DIR__, 2).'/resources/js/components/BlockEditor.jsx',
+        );
+        self::assertStringContainsString('onCopyAllArticle', $blockEditor);
+        self::assertStringContainsString('editor_copy_all', $blockEditor);
+        self::assertStringContainsString('editor_merge_paragraphs', $blockEditor);
+
+        $helper = $this->helperSource();
+        self::assertStringContainsString('export function extractSelectedBlocksPlainText', $helper);
+        self::assertStringContainsString('resolveBlockHtmlForCopy', $helper);
     }
 
     public function test_helper_keeps_list_and_heading_structure_hints(): void

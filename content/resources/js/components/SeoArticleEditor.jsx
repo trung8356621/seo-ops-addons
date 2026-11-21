@@ -281,7 +281,7 @@ import {
 } from '../utils/articleEditorTransientMarkup';
 import FaqAccordionPreview from './FaqAccordionPreview';
 import { Undo2, Redo2, Plus, ChevronDown, ChevronRight, ImageIcon, Table, Link2, AlertTriangle, Search, ListPlus, ListCollapse, Trash2, BarChart3, Star, Copy, Check, ImagePlus, Loader2 } from 'lucide-react';
-import { extractSectionPlainText, writeTextToClipboard } from '../utils/sectionPlainTextCopy';
+import { extractSelectedBlocksPlainText, extractSectionPlainText, writeTextToClipboard } from '../utils/sectionPlainTextCopy';
 import { detectFaqPairsFromSection, findLegacyFaqSection, sectionHtml } from '../utils/legacyFaqDetection';
 import {
     beginLegacyFaqCommit,
@@ -995,6 +995,52 @@ export default function SeoArticleEditor({
         },
         [blockById],
     );
+
+    // Clipboard-only: copy Shift-selected blocks. Do not clearTempMerge, commit, focus, or save.
+    const copySelectedBlocksText = useCallback(async () => {
+        const rangeIds = Array.isArray(tempMergeRef.current?.rangeIds)
+            ? tempMergeRef.current.rangeIds
+            : [];
+        const text = extractSelectedBlocksPlainText(
+            rangeIds,
+            blocksRef.current,
+            blockEditorsRef.current,
+        );
+        if (text === '') {
+            window.dispatchEvent(
+                new CustomEvent('seo-article-editor-notify', {
+                    detail: {
+                        title: t('editor_copy_all_empty_title'),
+                        body: t('editor_copy_all_empty_body'),
+                        status: 'warning',
+                    },
+                }),
+            );
+            return;
+        }
+
+        try {
+            await writeTextToClipboard(text);
+            window.dispatchEvent(
+                new CustomEvent('seo-article-editor-notify', {
+                    detail: {
+                        title: t('editor_copy_all_done'),
+                        status: 'success',
+                    },
+                }),
+            );
+        } catch {
+            window.dispatchEvent(
+                new CustomEvent('seo-article-editor-notify', {
+                    detail: {
+                        title: t('editor_copy_all_failed_title'),
+                        body: t('editor_copy_all_failed_body'),
+                        status: 'warning',
+                    },
+                }),
+            );
+        }
+    }, []);
 
     const blockIndexMap = useMemo(() => {
         const map = new Map();
@@ -2414,6 +2460,7 @@ export default function SeoArticleEditor({
                                                                         ? t(mergeParagraphEligibility.reasonKey)
                                                                         : ''
                                                                 }
+                                                                onCopyAllArticle={copySelectedBlocksText}
                                                                 displayContent={
                                                                     tempMerge &&
                                                                     activeBlockId === block.id &&

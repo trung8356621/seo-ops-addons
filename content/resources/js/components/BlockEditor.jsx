@@ -2,7 +2,7 @@
 import ImageBlockEditor from '@media-addon/components/ImageBlockEditor.jsx';
 import { isCanonicalLockedHeadingHtml, isFaqPlaceholderHtml } from '../utils/editorHtmlUtils';
 import OutlineLockedHeadingBlock from './OutlineLockedHeadingBlock';
-import { Merge, Trash2 } from 'lucide-react';
+import { Copy, Merge, Trash2 } from 'lucide-react';
 import { t } from '../utils/i18n';
 import FaqAccordionPreview from './FaqAccordionPreview';
 import ActiveBlockEditor from './ActiveBlockEditor';
@@ -44,6 +44,7 @@ function BlockEditor({
     onConfirmParagraphMerge = null,
     mergeParagraphDisabled = false,
     mergeParagraphDisabledReason = '',
+    onCopyAllArticle = null,
     displayContent,
     suppressBlockUpdate,
     onUpdate,
@@ -218,27 +219,47 @@ function BlockEditor({
                     <div className="text-xs font-medium text-amber-900 dark:text-amber-100">
                         {t('editor_temp_merge_readonly')}
                     </div>
-                    <button
-                        type="button"
-                        className={`seo-toolbar-btn seo-temp-merge-action${mergeParagraphDisabled ? ' is-disabled' : ''}`}
-                        disabled={mergeParagraphDisabled || typeof onConfirmParagraphMerge !== 'function'}
-                        title={mergeTitle}
-                        aria-label={mergeTitle}
-                        onMouseDown={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                        }}
-                        onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            if (!mergeParagraphDisabled) {
-                                onConfirmParagraphMerge?.();
-                            }
-                        }}
-                    >
-                        <Merge size={16} aria-hidden="true" />
-                        <span className="seo-toolbar-btn__label">{t('editor_merge_paragraphs')}</span>
-                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                            type="button"
+                            className="seo-toolbar-btn seo-temp-merge-action"
+                            title={t('editor_copy_all')}
+                            aria-label={t('editor_copy_all')}
+                            onMouseDown={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                            }}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                onCopyAllArticle?.();
+                            }}
+                        >
+                            <Copy size={16} aria-hidden="true" />
+                            <span className="seo-toolbar-btn__label">{t('editor_copy_all_action')}</span>
+                        </button>
+                        <button
+                            type="button"
+                            className={`seo-toolbar-btn seo-temp-merge-action${mergeParagraphDisabled ? ' is-disabled' : ''}`}
+                            disabled={mergeParagraphDisabled || typeof onConfirmParagraphMerge !== 'function'}
+                            title={mergeTitle}
+                            aria-label={mergeTitle}
+                            onMouseDown={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                            }}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (!mergeParagraphDisabled) {
+                                    onConfirmParagraphMerge?.();
+                                }
+                            }}
+                        >
+                            <Merge size={16} aria-hidden="true" />
+                            <span className="seo-toolbar-btn__label">{t('editor_merge_paragraphs')}</span>
+                        </button>
+                    </div>
                 </div>
                 <div
                     dangerouslySetInnerHTML={{
