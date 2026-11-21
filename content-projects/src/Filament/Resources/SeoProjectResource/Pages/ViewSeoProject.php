@@ -34,6 +34,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\StartReviewCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\UnblockProjectItemGenerationCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SelectExistingArticleForProjectItemCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\UpdateContentProjectItemCommand;
 use Omnichannel\Addons\ContentProjects\Services\ArchiveContentProjectService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionResultNotifier;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
@@ -51,6 +52,7 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectRece
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectOpsCounterTransitionMap;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemActionCatalog;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemActionsPresenter;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectTaskStatusNormalizer;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Support\RuntimeLogger;
 use Carbon\Carbon;
@@ -2154,6 +2156,82 @@ final class ViewSeoProject extends Page
             [(int) $taskId],
             SeoProjectRun::MODE_FULL,
         ));
+    }
+
+    /**
+     * Admin manual override — update seo_project_tasks.status only.
+     * No generation job, article rewrite, audit reset, or Publish Queue side effects.
+     */
+    public function changeItemStatus(int $taskId, string $status): void
+    {
+        $project = $this->requireProject();
+        if (! SeoAccessControl::canManageContentProjectWorkflow()) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.item_change_status_failed'))
+                ->body(__('Forbidden'))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $normalized = ContentProjectTaskStatusNormalizer::tryNormalize($status);
+        if ($normalized === null
+            || ! in_array($normalized->value, ContentProjectTaskStatusNormalizer::manualOverrideValues(), true)
+        ) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.item_change_status_failed'))
+                ->body(__('seo-content-ai::filament.projects.item_change_status_invalid'))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $task = SeoProjectTask::query()
+            ->where('project_id', (int) $project->getKey())
+            ->whereKey((int) $taskId)
+            ->first();
+        if (! $task instanceof SeoProjectTask) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.item_change_status_failed'))
+                ->body(__('Item not found.'))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $result = app(ContentProjectCommandBus::class)->dispatch(
+            new UpdateContentProjectItemCommand((int) $taskId, [
+                'status' => $normalized->value,
+            ]),
+            ActorContext::user(
+                auth()->id() !== null ? (int) auth()->id() : null,
+                (int) ($project->site_id ?? 0) ?: null,
+            ),
+        );
+
+        if (! $result->success) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.item_change_status_failed'))
+                ->body((string) $result->message)
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        Notification::make()
+            ->title(__('seo-content-ai::filament.projects.item_change_status_success'))
+            ->body(__('seo-content-ai::filament.projects.item_change_status_success_body', [
+                'status' => $normalized->value,
+            ]))
+            ->success()
+            ->send();
+
+        $this->invalidateOpsCache();
+        $this->resetPage();
     }
 
     /**

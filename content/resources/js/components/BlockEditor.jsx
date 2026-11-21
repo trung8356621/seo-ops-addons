@@ -211,11 +211,49 @@ function BlockEditor({
                         onActivate();
                     }
                 }}
+                onCopy={(e) => {
+                    // Native selection can drag across the chrome banner ("Sao chép hết" / hint).
+                    // Rewrite clipboard with selected-blocks plain text — never UI labels.
+                    if (typeof onCopyAllArticle !== 'function') {
+                        return;
+                    }
+                    const selection = typeof window.getSelection === 'function' ? window.getSelection() : null;
+                    const selectedText = String(selection?.toString() ?? '');
+                    const nodeInBanner = (node) => {
+                        if (!(node instanceof Node)) {
+                            return false;
+                        }
+                        const el = node.nodeType === Node.ELEMENT_NODE
+                            ? /** @type {Element} */ (node)
+                            : node.parentElement;
+                        return Boolean(el?.closest?.('.seo-temp-merge-banner'));
+                    };
+                    const chromeInClipboard = [
+                        t('editor_temp_merge_readonly'),
+                        t('editor_copy_all_action'),
+                        t('editor_merge_paragraphs'),
+                    ].some((label) => label && selectedText.includes(label));
+                    if (
+                        !nodeInBanner(selection?.anchorNode)
+                        && !nodeInBanner(selection?.focusNode)
+                        && !chromeInClipboard
+                    ) {
+                        // Selection stayed inside content — keep native partial copy.
+                        return;
+                    }
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onCopyAllArticle();
+                }}
                 role="button"
                 tabIndex={0}
                 title={t('editor_temp_merge_readonly')}
             >
-                <div className="seo-temp-merge-banner not-prose mb-2 flex items-start justify-between gap-2">
+                <div
+                    className="seo-temp-merge-banner not-prose mb-2 flex items-start justify-between gap-2 select-none"
+                    contentEditable={false}
+                    aria-hidden="false"
+                >
                     <div className="text-xs font-medium text-amber-900 dark:text-amber-100">
                         {t('editor_temp_merge_readonly')}
                     </div>
@@ -262,6 +300,7 @@ function BlockEditor({
                     </div>
                 </div>
                 <div
+                    className="seo-temp-merge-content"
                     dangerouslySetInnerHTML={{
                         __html: displayContent || block.content || `<p class="text-gray-400 italic">${t('editor_click_to_edit')}</p>`,
                     }}

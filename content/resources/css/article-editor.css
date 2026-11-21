@@ -11562,6 +11562,9 @@ section[data-seo-section-id].is-outline-jump-highlight {
 }
 
 .seo-temp-merge-banner {
+    /* Keep Shift+Click chrome out of native text selection / Ctrl+C. */
+    user-select: none;
+    -webkit-user-select: none;
     pointer-events: auto;
 }
 

@@ -81,6 +81,13 @@
             debugNeedsAt: false,
             debugAt: '',
             debugCount: 0,
+            changeStatusOpen: false,
+            changeStatusBusy: false,
+            changeStatusTaskId: 0,
+            changeStatusTitle: '',
+            changeStatusFrom: '',
+            changeStatusTo: '',
+            changeStatusOptions: @js(\Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectTaskStatusNormalizer::manualOverrideOptions()),
             selectArticleOpen: false,
             selectArticleLocalLoading: false,
             selectArticleSearchTimer: null,
@@ -251,6 +258,34 @@
                         this.selectArticleLocalLoading = false;
                     });
                 }, 280);
+            },
+            openChangeStatus(detail) {
+                const id = Number(detail.taskId || 0);
+                if (id <= 0) return;
+                this.changeStatusTaskId = id;
+                this.changeStatusTitle = String(detail.title || '');
+                const from = String(detail.from || '').toLowerCase().trim();
+                this.changeStatusFrom = from;
+                const options = this.changeStatusOptions || {};
+                this.changeStatusTo = Object.prototype.hasOwnProperty.call(options, from)
+                    ? from
+                    : 'completed';
+                this.changeStatusBusy = false;
+                this.changeStatusOpen = true;
+            },
+            async confirmChangeStatus() {
+                if (!this.changeStatusOpen || this.changeStatusBusy) return;
+                const id = Number(this.changeStatusTaskId || 0);
+                const to = String(this.changeStatusTo || '').trim();
+                if (id <= 0 || !to) return;
+                this.changeStatusBusy = true;
+                try {
+                    await $wire.changeItemStatus(id, to);
+                    this.changeStatusOpen = false;
+                } catch (e) {
+                } finally {
+                    this.changeStatusBusy = false;
+                }
             },
             openDebugLifecycle(detail) {
                 this.debugBulk = false;
@@ -847,6 +882,7 @@
         x-on:cp-ops-item-transition.window="handleItemTransition($event.detail || {})"
         x-on:cp-ops-debug-lifecycle.window="openDebugLifecycle($event.detail || {})"
         x-on:cp-ops-debug-lifecycle-bulk.window="openDebugBulk($event.detail || {})"
+        x-on:cp-ops-change-status.window="openChangeStatus($event.detail || {})"
         x-on:open-select-existing-article.window="openSelectExistingArticleModal($event.detail?.taskId)"
         x-on:close-select-existing-article.window="selectArticleOpen = false"
         x-on:open-missing-article-confirm.window="openMissingArticleConfirmModal($event.detail || {})"
@@ -1060,6 +1096,76 @@
                 :bulk-menu-groups="$this->itemActionBulkMenu"
             />
         </div>
+
+        {{-- Manual status switch — teleport to body (escape sticky table header stacking) --}}
+        <template x-teleport="body">
+            <div
+                x-show="changeStatusOpen"
+                x-cloak
+                x-transition.opacity.duration.150ms
+                class="cp-ops-dialog-overlay"
+                @keydown.escape.window="if (changeStatusOpen && !changeStatusBusy) { changeStatusOpen = false }"
+                @click.self="if (!changeStatusBusy) { changeStatusOpen = false }"
+            >
+                <div
+                    x-show="changeStatusOpen"
+                    x-transition:enter="ease-out duration-150"
+                    x-transition:enter-start="opacity-0 translate-y-1 scale-[0.98]"
+                    x-transition:enter-end="opacity-100 translate-y-0 scale-100"
+                    class="cp-ops-dialog cp-ops-dialog--sm"
+                    @click.outside="if (!changeStatusBusy) { changeStatusOpen = false }"
+                >
+                    <div class="cp-ops-dialog__header">
+                        <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">
+                            {{ __('seo-content-ai::filament.projects.item_action_change_status') }}
+                        </h3>
+                        <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">
+                            {{ __('seo-content-ai::filament.projects.item_change_status_hint') }}
+                        </p>
+                    </div>
+                    <div class="cp-ops-dialog__body space-y-3 text-sm">
+                        <p>
+                            <span class="text-gray-500">Item:</span>
+                            <span class="font-medium text-gray-900 dark:text-gray-100" x-text="changeStatusTitle"></span>
+                        </p>
+                        <p>
+                            <span class="text-gray-500">{{ __('seo-content-ai::filament.projects.item_change_status_current') }}:</span>
+                            <code class="rounded bg-gray-100 px-1.5 py-0.5 text-xs dark:bg-gray-800" x-text="changeStatusFrom || '—'"></code>
+                        </p>
+                        <label class="block">
+                            <span class="text-xs font-medium text-gray-500">{{ __('seo-content-ai::filament.projects.item_change_status_target') }}</span>
+                            <select
+                                x-model="changeStatusTo"
+                                class="fi-input mt-1.5 block w-full rounded-lg border-gray-300 text-sm dark:border-gray-600 dark:bg-gray-800"
+                                :disabled="changeStatusBusy"
+                            >
+                                <template x-for="(label, value) in changeStatusOptions" :key="value">
+                                    <option :value="value" x-text="label + ' (' + value + ')'"></option>
+                                </template>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="cp-ops-dialog__footer flex justify-end gap-2">
+                        <button
+                            type="button"
+                            @click="changeStatusOpen = false"
+                            class="fi-btn fi-btn-color-gray fi-size-sm"
+                            :disabled="changeStatusBusy"
+                        >
+                            {{ __('seo-content-ai::filament.projects.archive_cancel') }}
+                        </button>
+                        <button
+                            type="button"
+                            @click="confirmChangeStatus()"
+                            class="fi-btn fi-btn-color-primary fi-size-sm"
+                            :disabled="changeStatusBusy || !changeStatusTo"
+                        >
+                            {{ __('seo-content-ai::filament.projects.item_change_status_confirm') }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </template>
 
         {{-- Debug lifecycle modal — Alpine first; no WordPress --}}
         <div

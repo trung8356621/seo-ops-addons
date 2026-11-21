@@ -394,6 +394,18 @@
                 <div class="cp-ops-menu__divider"></div>
                 <p class="cp-ops-menu__heading">Lifecycle</p>
                 {{-- schedule/publish actions live on Publishing Queue page --}}
+                @if (! empty($a['change_status']))
+                    <button
+                        role="menuitem"
+                        type="button"
+                        @click="open = false; $dispatch('cp-ops-change-status', { taskId: {{ $tid }}, from: @js((string) ($row['task_status'] ?? $row['generation_status'] ?? '')), title: @js($title) })"
+                        class="{{ $itemClass }}"
+                        title="{{ __('seo-content-ai::filament.projects.item_action_change_status') }}"
+                    >
+                        <x-filament::icon icon="heroicon-o-arrows-right-left" class="cp-ops-menu__icon" />
+                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_change_status') }}</span>
+                    </button>
+                @endif
                 @if ($a['cancel'])
                     <button role="menuitem" type="button" wire:click="cancelPublishOne({{ $tid }})" wire:confirm="Cancel publishing?" @click="open = false" class="{{ $dangerClass }}" title="Cancel">
                         <x-filament::icon icon="heroicon-o-x-mark" class="cp-ops-menu__icon" />

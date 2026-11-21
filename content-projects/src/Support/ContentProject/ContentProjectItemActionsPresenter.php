@@ -47,6 +47,7 @@ use Omnichannel\Addons\Publishing\Support\PublishingQueue\PublishingQueueHandoff
  *     skip: bool,
  *     cancel: bool,
  *     send_to_publishing_queue: bool,
+ *     change_status: bool,
  *     archive_item: bool,
  *     view_details: bool,
  *     debug_to_approved: bool,
@@ -258,6 +259,9 @@ final class ContentProjectItemActionsPresenter
             && ! $isGenuineRunning
             && $queue !== 'processing';
 
+        // Admin manual override — update seo_project_tasks.status only (no AI / queue side effects).
+        $changeStatus = $lifecycle !== 'archived' && ! $isGenuineRunning;
+
         $debugEnabled = false;
         try {
             $debugEnabled = \Omnichannel\Addons\Seo\Support\SeoAccessControl::canDebugContentProjectLifecycle();
@@ -300,7 +304,7 @@ final class ContentProjectItemActionsPresenter
         $hasReview = $startReview || $approve;
         $hasPublishing = $sendToPublishingQueue;
         $skipSeoAudit = (bool) ($row['can_skip_seo_audit'] ?? false);
-        $hasLifecycle = $archiveItem || $skipSeoAudit;
+        $hasLifecycle = $archiveItem || $skipSeoAudit || $changeStatus;
         $hasDebug = $debugToApproved || $debugToScheduled || $debugToPublished;
 
         $confirmRecreateMissingArticle = $createOrRerun
@@ -339,6 +343,7 @@ final class ContentProjectItemActionsPresenter
             'cancel' => false,
             'send_to_publishing_queue' => $sendToPublishingQueue,
             'send_to_publishing_queue_warn_cm' => PublishingQueueHandoffEligibility::needsContentManagerWarning($row),
+            'change_status' => $changeStatus,
             'archive_item' => $archiveItem,
             'remove_from_draft' => $archiveItem && (($row['project_is_draft'] ?? false) === true),
             'skip_seo_audit' => (bool) ($row['can_skip_seo_audit'] ?? false),
@@ -401,6 +406,7 @@ final class ContentProjectItemActionsPresenter
         $flags['skip'] = false;
         $flags['cancel'] = false;
         $flags['send_to_publishing_queue'] = false;
+        $flags['change_status'] = false;
         $flags['archive_item'] = false;
         $flags['debug_to_approved'] = false;
         $flags['debug_to_scheduled'] = false;

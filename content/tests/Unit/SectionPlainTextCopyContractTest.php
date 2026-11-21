@@ -71,6 +71,18 @@ final class SectionPlainTextCopyContractTest extends TestCase
         self::assertStringContainsString('onCopyAllArticle', $blockEditor);
         self::assertStringContainsString('editor_copy_all', $blockEditor);
         self::assertStringContainsString('editor_merge_paragraphs', $blockEditor);
+        self::assertStringContainsString('seo-temp-merge-banner', $blockEditor);
+        self::assertStringContainsString('onCopy=', $blockEditor);
+        self::assertStringContainsString('seo-temp-merge-content', $blockEditor);
+        self::assertStringContainsString('select-none', $blockEditor);
+
+        $css = (string) file_get_contents(
+            dirname(__DIR__, 2).'/resources/css/article-editor.css',
+        );
+        self::assertMatchesRegularExpression(
+            '/\.seo-temp-merge-banner\s*\{[\s\S]*?user-select:\s*none/',
+            $css,
+        );
 
         $helper = $this->helperSource();
         self::assertStringContainsString('export function extractSelectedBlocksPlainText', $helper);

@@ -13,6 +13,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RerunProjectItemStepCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SendToPublishingQueueCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\StartReviewCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\UpdateContentProjectItemCommand;
 
 /**
  * Canonical item-action metadata for row menu + bulk Actions menu.
@@ -228,6 +229,17 @@ final class ContentProjectItemActionCatalog
                 bulkMethod: 'bulkSendToPublishingQueue',
                 commandFamily: [SendToPublishingQueueCommand::class],
                 processingKind: 'other',
+            ),
+            self::def(
+                key: 'change_status',
+                labelKey: 'seo-content-ai::filament.projects.item_action_change_status',
+                group: self::GROUP_LIFECYCLE,
+                icon: 'heroicon-o-arrows-right-left',
+                single: true,
+                bulk: false,
+                presenterFlag: 'change_status',
+                singleMethod: 'openChangeItemStatus',
+                commandFamily: [UpdateContentProjectItemCommand::class],
             ),
             self::def(
                 key: 'archive',
