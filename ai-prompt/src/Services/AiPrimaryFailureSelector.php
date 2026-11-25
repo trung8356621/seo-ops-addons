@@ -287,7 +287,15 @@ final class AiPrimaryFailureSelector
             ? (int) $lastFailed['http_status']
             : null;
 
-        [$code, $user] = $this->mapProviderCode($failureClass, $http, $exception);
+        $errorBlob = strtolower(implode(' ', array_filter([
+            (string) ($lastFailed['error'] ?? ''),
+            (string) ($lastFailed['message'] ?? ''),
+            (string) ($lastFailed['fallback_reason'] ?? ''),
+            (string) ($lastFailed['provider_error_code'] ?? ''),
+            (string) ($exception?->getMessage() ?? ''),
+            (string) ($exception?->getPrevious()?->getMessage() ?? ''),
+        ])));
+        [$code, $user] = $this->mapProviderCode($failureClass, $http, $exception, $errorBlob);
 
         return new AiNormalizedFailure(
             category: AiFailureCategory::Provider,
@@ -315,8 +323,22 @@ final class AiPrimaryFailureSelector
     /**
      * @return array{0: AiNormalizedFailureCode, 1: string}
      */
-    private function mapProviderCode(string $failureClass, ?int $http, ?Throwable $exception): array
-    {
+    private function mapProviderCode(
+        string $failureClass,
+        ?int $http,
+        ?Throwable $exception,
+        string $errorBlob = '',
+    ): array {
+        if (str_contains($errorBlob, 'cannot be relayed')
+            || str_contains($errorBlob, 'path cannot be relayed')
+            || str_contains($errorBlob, 'relay path unavailable')
+            || str_contains($errorBlob, 'relay_path_blocked')) {
+            return [
+                AiNormalizedFailureCode::ProviderRelayBlocked,
+                'Provider: relay/gateway path bị chặn'
+                    .($http !== null ? ' · HTTP '.$http : '').'.',
+            ];
+        }
         if ($exception instanceof ProviderRefused || $failureClass === AiFailureClass::ProviderRefusal->value) {
             return [AiNormalizedFailureCode::ProviderRefused, 'Provider: model từ chối tạo nội dung.'];
         }
@@ -336,6 +358,14 @@ final class AiPrimaryFailureSelector
         if ($http === 401 || $http === 403 || $failureClass === AiFailureClass::CredentialInvalid->value) {
             return [AiNormalizedFailureCode::ProviderAuthFailed, 'Provider: lỗi xác thực / quyền truy cập'
                 .($http !== null ? ' · HTTP '.$http : '').'.'];
+        }
+        // Generic 400 is NOT automatically request_invalid — only when classifier said so.
+        if ($failureClass === AiFailureClass::RequestInvalid->value) {
+            return [
+                AiNormalizedFailureCode::ProviderInvalidResponse,
+                'Provider: request payload không hợp lệ'
+                    .($http !== null ? ' · HTTP '.$http : '').'.',
+            ];
         }
         if ($http === 408 || $failureClass === AiFailureClass::TransientProvider->value) {
             return [AiNormalizedFailureCode::ProviderTimeout, 'Provider: hết thời gian chờ / tạm thời không khả dụng.'];

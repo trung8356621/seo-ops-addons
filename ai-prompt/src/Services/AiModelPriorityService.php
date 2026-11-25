@@ -228,6 +228,11 @@ final class AiModelPriorityService
         if (Schema::hasColumn($connection->getTable(), 'routing_priority')) {
             $connection->setAttribute('routing_priority', $priority);
         }
+        // Inventory may stamp connection_type in-memory; only persist when the column exists.
+        if (! Schema::hasColumn($connection->getTable(), 'connection_type')
+            && array_key_exists('connection_type', $connection->getAttributes())) {
+            $connection->offsetUnset('connection_type');
+        }
         $connection->save();
     }
 
@@ -406,8 +411,12 @@ final class AiModelPriorityService
     /**
      * @param  list<int>  $orderedModelIds
      */
-    public function reorderCapabilityModels(int $userId, AiModelArea $area, array $orderedModelIds): void
-    {
+    public function reorderCapabilityModels(
+        int $userId,
+        AiModelArea $area,
+        array $orderedModelIds,
+        ?int $connectionId = null,
+    ): void {
         $ids = [];
         foreach ($orderedModelIds as $id) {
             $id = (int) $id;
@@ -423,6 +432,9 @@ final class AiModelPriorityService
 
         $allowed = [];
         foreach ($this->areaEnabledModels($userId, $area) as $model) {
+            if ($connectionId !== null && (int) $model->api_connection_id !== $connectionId) {
+                continue;
+            }
             $allowed[(int) $model->id] = true;
         }
         foreach ($ordered as $id) {
@@ -430,9 +442,17 @@ final class AiModelPriorityService
                 throw new \InvalidArgumentException('Model is not in this capability area.');
             }
         }
+        if ($connectionId !== null) {
+            foreach ($ordered as $id) {
+                $model = SeoAiModel::query()->find($id);
+                if (! $model instanceof SeoAiModel || (int) $model->api_connection_id !== $connectionId) {
+                    throw new \InvalidArgumentException('Model does not belong to the selected connection.');
+                }
+            }
+        }
 
-        DB::transaction(function () use ($userId, $area, $ordered): void {
-            $this->reorderArea($userId, $area, $ordered);
+        DB::transaction(function () use ($userId, $area, $ordered, $connectionId): void {
+            $this->reorderArea($userId, $area, $ordered, $connectionId);
         });
         $this->forgetMemo();
     }
@@ -440,16 +460,26 @@ final class AiModelPriorityService
     /**
      * @param  list<int>  $orderedModelIds
      */
-    public function reorderArea(int $userId, AiModelArea $area, array $orderedModelIds): void
-    {
+    public function reorderArea(
+        int $userId,
+        AiModelArea $area,
+        array $orderedModelIds,
+        ?int $connectionId = null,
+    ): void {
         $pivots = $this->ownedModels($userId, $orderedModelIds);
         $all = collect();
         foreach ($this->aiConnections($userId) as $connection) {
+            if ($connectionId !== null && (int) $connection->id !== $connectionId) {
+                continue;
+            }
             foreach (SeoAiModel::query()->where('api_connection_id', $connection->id)->get() as $model) {
                 $all->put((int) $model->id, $model);
             }
         }
         foreach ($pivots as $id => $model) {
+            if ($connectionId !== null && (int) $model->api_connection_id !== $connectionId) {
+                continue;
+            }
             $all->put((int) $id, $model);
         }
         $rank = 1;
@@ -458,6 +488,9 @@ final class AiModelPriorityService
             $model = $all->get((int) $id) ?? $pivots->get((int) $id);
             if (! $model instanceof SeoAiModel) {
                 throw new \InvalidArgumentException('AI model not found.');
+            }
+            if ($connectionId !== null && (int) $model->api_connection_id !== $connectionId) {
+                throw new \InvalidArgumentException('Model does not belong to the selected connection.');
             }
             foreach ($this->familyMemberIds($all->all(), $model) as $memberId) {
                 if (isset($seen[$memberId])) {
@@ -483,16 +516,22 @@ final class AiModelPriorityService
         }
         $models = $this->ownedModels($userId, $ids);
         $freeTextIds = [];
-        $max = 0;
+        $maxByConnection = [];
         foreach ($this->areaEnabledModels($userId, $area) as $existing) {
-            $max = max($max, $this->areaPriority($existing, $area, $existing->apiConnection));
+            $cid = (int) $existing->api_connection_id;
+            $maxByConnection[$cid] = max(
+                $maxByConnection[$cid] ?? 0,
+                $this->physicalAreaPriority($existing, $area, $existing->apiConnection),
+            );
         }
-        $rank = max($max, 0) + 1;
         foreach ($ids as $id) {
             $model = $models->get((int) $id);
             if (! $model instanceof SeoAiModel) {
                 continue;
             }
+            $cid = (int) $model->api_connection_id;
+            $rank = max($maxByConnection[$cid] ?? 0, 0) + 1;
+            $maxByConnection[$cid] = $rank;
             if (! $this->modelAllowedInArea($model, $area)) {
                 if ($area->isPaidText() && $this->modelAllowedInArea($model, AiModelArea::FreeModels)) {
                     $freeTextIds[] = (int) $model->id;
@@ -501,7 +540,6 @@ final class AiModelPriorityService
                 continue;
             }
             $this->writeAreaState($model, $area, true, $rank, AiModelArea::SOURCE_MANUAL);
-            $rank++;
         }
         $this->forgetMemo();
         if ($freeTextIds !== [] && ! $area->isFreeModels()) {
@@ -559,15 +597,7 @@ final class AiModelPriorityService
                 $out[] = $model;
             }
         }
-        usort($out, function (SeoAiModel $a, SeoAiModel $b) use ($area): int {
-            $cmp = $this->areaPriority($a, $area, $a->apiConnection)
-                <=> $this->areaPriority($b, $area, $b->apiConnection);
-            if ($cmp !== 0) {
-                return $cmp;
-            }
-
-            return (int) $a->id <=> (int) $b->id;
-        });
+        usort($out, fn (SeoAiModel $a, SeoAiModel $b): int => $this->compareConnectionThenModel($a, $b, $area));
 
         return $this->areaEnabledMemo[$memoKey] = array_values($out);
     }
@@ -660,25 +690,62 @@ final class AiModelPriorityService
             if ($connection instanceof ApiConnection) {
                 $model->setRelation('apiConnection', $connection);
             }
-            $model->setAttribute('effective_area_priority', $membership[(int) $model->id]);
+            // Keep membership for enablement projection; runtime order is connection then
+            // per-connection physical area priority (not min logical priority across connections).
+            $model->setAttribute(
+                'effective_area_priority',
+                $this->physicalAreaPriority($model, $area, $model->apiConnection),
+            );
         }
-        usort($models, function (SeoAiModel $a, SeoAiModel $b) use ($membership): int {
-            $cmp = $membership[(int) $a->id] <=> $membership[(int) $b->id];
-            if ($cmp !== 0) {
-                return $cmp;
+        usort($models, fn (SeoAiModel $a, SeoAiModel $b): int => $this->compareConnectionThenModel($a, $b, $area));
+
+        return array_values($models);
+    }
+
+    /**
+     * Per-connection area rank (ignores effective_area_priority attribute).
+     */
+    public function physicalAreaPriority(SeoAiModel $model, AiModelArea $area, ?ApiConnection $connection = null): int
+    {
+        $explicit = $this->explicitAreaPriority($model, $area);
+        if ($explicit !== null) {
+            return $explicit;
+        }
+        if ($area->isTextPrimary()) {
+            $legacy = $this->explicitAreaPriority($model, AiModelArea::Text);
+            if ($legacy !== null) {
+                return $legacy;
             }
-            $aConnection = $a->apiConnection;
-            $bConnection = $b->apiConnection;
+        }
+
+        return $this->modelPriority($model);
+    }
+
+    /**
+     * Runtime / inventory authority: connection priority, then model priority within connection.
+     */
+    public function compareConnectionThenModel(SeoAiModel $a, SeoAiModel $b, AiModelArea $area): int
+    {
+        $aConnection = $a->apiConnection;
+        $bConnection = $b->apiConnection;
+        if ($aConnection instanceof ApiConnection && $bConnection instanceof ApiConnection) {
             $cmp = $this->connectionPriority($aConnection) <=> $this->connectionPriority($bConnection);
             if ($cmp !== 0) {
                 return $cmp;
             }
             $cmp = (int) $aConnection->id <=> (int) $bConnection->id;
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+        }
 
-            return $cmp !== 0 ? $cmp : ((int) $a->id <=> (int) $b->id);
-        });
+        $cmp = $this->physicalAreaPriority($a, $area, $aConnection instanceof ApiConnection ? $aConnection : null)
+            <=> $this->physicalAreaPriority($b, $area, $bConnection instanceof ApiConnection ? $bConnection : null);
+        if ($cmp !== 0) {
+            return $cmp;
+        }
 
-        return array_values($models);
+        return (int) $a->id <=> (int) $b->id;
     }
 
     public function forgetMemo(): void

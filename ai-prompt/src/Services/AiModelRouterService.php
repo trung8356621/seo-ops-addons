@@ -2058,8 +2058,9 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             'gemini' => $this->syncGeminiModels($connectionId),
             'claude' => $this->syncClaudeModels($connectionId),
             ApiConnectionProviders::DEEPSEEK => $this->syncDeepSeekModels($connectionId),
-            ApiConnectionProviders::OPENROUTER => $this->syncOpenAiCompatibleModels($connectionId),
-            default => false,
+            ApiConnectionProviders::OPENROUTER,
+            ApiConnectionProviders::NVIDIA => $this->syncOpenAiCompatibleModels($connectionId),
+            default => $this->syncOpenAiCompatibleModels($connectionId),
         };
     }
 
@@ -2685,12 +2686,24 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             return false;
         }
         $provider = (string) $connection->provider;
-        if (! in_array($provider, [ApiConnectionProviders::OPENROUTER, ApiConnectionProviders::DEEPSEEK], true)
-            && $provider !== 'openai_compatible') {
+        $resolver = function_exists('app')
+            ? app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\ProviderConnectionResolver::class)
+            : new \Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\ProviderConnectionResolver();
+        $isKnownOpenAi = in_array($provider, [
+            ApiConnectionProviders::OPENROUTER,
+            ApiConnectionProviders::DEEPSEEK,
+            ApiConnectionProviders::NVIDIA,
+            'openai_compatible',
+        ], true);
+        if (! $isKnownOpenAi && ! $resolver->isOpenAiCompatibleProtocol($connection)) {
             return false;
         }
         if (blank($connection->api_key)) {
             return false;
+        }
+        if (! $resolver->supportsOpenAiCompatibleDiscovery($connection)) {
+            // Discovery disabled: keep manual/existing catalog; do not treat as sync failure.
+            return true;
         }
 
         try {

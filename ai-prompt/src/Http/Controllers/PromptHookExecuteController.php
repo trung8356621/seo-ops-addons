@@ -7,7 +7,9 @@ namespace Omnichannel\Addons\AiPrompt\Http\Controllers;
 use Omnichannel\Addons\AiPrompt\Http\Requests\PromptHookExecuteRequest;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\PromptHookException;
 use Omnichannel\Addons\AiPrompt\PromptHooks\PromptHookExecutionService;
+use Omnichannel\Addons\AiPrompt\PromptHooks\Support\PromptHookErrorCode;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Support\PromptHookHttpStatus;
+use Omnichannel\Addons\AiPrompt\Services\AiErrorPresenter;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
@@ -22,6 +24,7 @@ final class PromptHookExecuteController extends Controller
 {
     public function __construct(
         private readonly PromptHookExecutionService $execution,
+        private readonly AiErrorPresenter $errorPresenter = new AiErrorPresenter(),
     ) {}
 
     public function __invoke(PromptHookExecuteRequest $request, string $hookKey): JsonResponse
@@ -42,10 +45,19 @@ final class PromptHookExecuteController extends Controller
     {
         $hookKey = trim(rawurldecode($hookKey));
         if ($hookKey === '') {
+            $presentation = $this->errorPresenter->presentFromThrowable(
+                new PromptHookException(
+                    PromptHookErrorCode::HookNotFound,
+                    'Hook key is required.',
+                ),
+                ['hook_key' => null, 'step' => 'Thực thi AI'],
+            );
+
             return response()->json([
                 'success' => false,
                 'error' => 'HOOK_NOT_FOUND',
-                'message' => 'Hook key is required.',
+                'message' => $presentation->message,
+                'error_details' => $presentation->toArray(),
             ], 404);
         }
 
@@ -56,16 +68,26 @@ final class PromptHookExecuteController extends Controller
                 runtimeInput: $runtimeInput,
             );
         } catch (PromptHookException $exception) {
+            $presentation = $this->errorPresenter->presentFromThrowable($exception, [
+                'hook_key' => $hookKey,
+            ]);
+
             return response()->json([
                 'success' => false,
                 'error' => $exception->errorCodeValue(),
-                'message' => $exception->getMessage(),
+                'message' => $presentation->message,
+                'error_details' => $presentation->toArray(),
             ], PromptHookHttpStatus::for($exception->errorCode));
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
+            $presentation = $this->errorPresenter->presentFromThrowable($exception, [
+                'hook_key' => $hookKey,
+            ]);
+
             return response()->json([
                 'success' => false,
                 'error' => 'HOOK_EXECUTION_FAILED',
-                'message' => 'Prompt hook execution failed.',
+                'message' => $presentation->message,
+                'error_details' => $presentation->toArray(),
             ], 502);
         }
 

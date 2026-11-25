@@ -61,6 +61,9 @@ final class AssignToContentProjectDrawerRoutingTest extends TestCase
         self::assertStringContainsString('$result->placeholderHref', $pendingMethod);
         self::assertStringContainsString("'placeholderHref' => \$placeholderHref", $pendingMethod);
         self::assertStringContainsString("'placeholder_href' => \$placeholderHref", $pendingMethod);
+        self::assertStringContainsString('$result->searchUrl', $pendingMethod);
+        self::assertStringContainsString("'search_url' => \$searchUrl", $pendingMethod);
+        self::assertStringContainsString("str_starts_with(\$placeholderHref, '#')", $pendingMethod);
         self::assertStringContainsString('$this->errorMessage = $result->message', $pendingMethod);
         self::assertStringNotContainsString("placeholderHref: ''", $pendingMethod);
         self::assertStringNotContainsString('assignArticlesFromFormData', $pendingMethod);

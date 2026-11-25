@@ -3,6 +3,7 @@
  */
 import {
     executePromptHookViaApi,
+    formatAiErrorToastBody,
     readArticleMetaFromDom,
     showArticleEditorFilamentToast,
 } from '@content-addon/utils/articleEditorApi.js';
@@ -191,7 +192,7 @@ export function mountArticleTitlePromptHook() {
             }
             notify(
                 t('prompt_hook_title_failed'),
-                error?.message ?? t('prompt_hook_try_again'),
+                formatAiErrorToastBody(error, t('prompt_hook_try_again')),
             );
         } finally {
             if (seq === requestSeq) {

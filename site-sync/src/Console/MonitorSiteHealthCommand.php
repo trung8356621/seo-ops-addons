@@ -14,7 +14,7 @@ final class MonitorSiteHealthCommand extends Command
 {
     protected $signature = 'seo:site-health:monitor {--site= : Active managed Site ID} {--domain= : Exact active managed domain} {--limit=100}';
 
-    protected $description = 'Run lightweight managed WordPress site health checks.';
+    protected $description = 'Monitor managed site domain/hosting availability (DNS + HTTP connectivity).';
 
     public function handle(SiteHealthMonitor $monitor, ManagedWordPressSiteSelector $sites): int
     {

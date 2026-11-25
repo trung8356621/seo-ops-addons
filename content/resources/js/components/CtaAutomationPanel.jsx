@@ -275,9 +275,12 @@ export function CtaAutomationPanel({ articleId: _articleId }) {
                     <p className="seo-cta-automation__label">{t('cta_gen_preview_title')}</p>
                     <p className="seo-cta-automation__summary">
                         {t('cta_gen_density_summary')
-                            .replace('{headings}', String(genPlan.analysis?.eligibleHeadingCount ?? 0))
+                            .replace('{words}', String(genPlan.analysis?.wordCount ?? 0))
                             .replace('{existing}', String(genPlan.analysis?.existingCount ?? 0))
-                            .replace('{max}', String(genPlan.analysis?.maxAllowed ?? 0))}
+                            .replace('{max}', String(genPlan.analysis?.maxAllowed ?? genPlan.analysis?.targetCtas ?? 0))
+                            .replace('{safeH2}', String(genPlan.analysis?.safeH2Count ?? 0))
+                            .replace('{safeH3}', String(genPlan.analysis?.safeH3Count ?? 0))
+                            .replace('{remaining}', String(genPlan.analysis?.remainingQuota ?? 0))}
                     </p>
                     {!genPlan.canInsert ? (
                         <p className="seo-cta-automation__hint">

@@ -52,6 +52,7 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
     const [semanticTried, setSemanticTried] = useState(false);
     const [assignNotice, setAssignNotice] = useState('');
     const [assigning, setAssigning] = useState(false);
+    const [searchUrlFallback, setSearchUrlFallback] = useState('');
     const [position, setPosition] = useState({ top: 0, left: 0 });
     const inputRef = useRef(null);
     const articleInputRef = useRef(null);
@@ -129,6 +130,7 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
         setSemanticLoading(false);
         setSemanticTried(false);
         setAssignNotice('');
+        setSearchUrlFallback('');
         setArticleLoading(false);
         searchSeqRef.current += 1;
         positionLockedRef.current = false;
@@ -179,11 +181,25 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
         const onPendingLinkReady = (event) => {
             const detail = event?.detail ?? {};
             const href = String(detail.placeholderHref ?? detail.placeholder_href ?? '').trim();
+            const searchUrl = String(detail.searchUrl ?? detail.search_url ?? '').trim();
             const message = String(detail.message ?? '').trim();
             if (message !== '') {
                 setAssignNotice(message);
             }
 
+            // Never auto-insert #hash placeholders (legacy pending links).
+            if (href.startsWith('#')) {
+                if (searchUrl !== '') {
+                    setSearchUrlFallback(searchUrl);
+                }
+                return;
+            }
+
+            if (searchUrl !== '') {
+                setSearchUrlFallback(searchUrl);
+            }
+
+            // Auto-apply only real permalinks; Search URL requires explicit user click.
             if (href === '') {
                 return;
             }
@@ -250,6 +266,20 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
             const rows = Array.isArray(results) ? results : [];
             setArticleResults(rows);
             setOrdinarySearchEmpty(rows.length === 0);
+            if (rows.length === 0) {
+                try {
+                    const searchUrl = await callEditArticleLivewire('resolveInternalLinkSearchUrl', trimmed);
+                    if (seq === searchSeqRef.current) {
+                        setSearchUrlFallback(String(searchUrl ?? '').trim());
+                    }
+                } catch {
+                    if (seq === searchSeqRef.current) {
+                        setSearchUrlFallback('');
+                    }
+                }
+            } else if (seq === searchSeqRef.current) {
+                setSearchUrlFallback('');
+            }
         } catch {
             if (seq !== searchSeqRef.current) {
                 return;
@@ -374,6 +404,20 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
         inputRef.current?.focus();
     };
 
+    const handleUseSearchUrl = useCallback(() => {
+        const trimmed = searchUrlFallback.trim();
+        if (trimmed === '') {
+            return;
+        }
+
+        setUrl(trimmed);
+        setArticleSearchError('');
+        if (applyPlaceholderLink(trimmed)) {
+            setSearchUrlFallback('');
+        }
+        inputRef.current?.focus();
+    }, [applyPlaceholderLink, searchUrlFallback]);
+
     const handleAssignToContentProject = async () => {
         const phrase = (readEditorSelectionText(editor) || anchorPhrase).trim();
         if (!canSearchArticles || phrase === '') {
@@ -385,6 +429,7 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
         setAssigning(true);
         setArticleSearchError('');
         setAssignNotice('');
+        setSearchUrlFallback('');
 
         try {
             openAssignToContentProject({
@@ -450,6 +495,21 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
                         </button>
                     </div>
                     {assignNotice ? <p className="seo-link-bubble-assign-notice">{assignNotice}</p> : null}
+                    {searchUrlFallback ? (
+                        <div className="seo-link-bubble-search-fallback">
+                            <p className="seo-link-bubble-search-fallback__url" title={searchUrlFallback}>
+                                {searchUrlFallback}
+                            </p>
+                            <button
+                                type="button"
+                                className="seo-link-bubble-search-fallback-btn"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={handleUseSearchUrl}
+                            >
+                                {t('link_bubble_use_search_url')}
+                            </button>
+                        </div>
+                    ) : null}
                     <div className="seo-link-bubble-results" role="listbox" aria-label={t('link_bubble_article_search_label')}>
                         {articleLoading || semanticLoading ? (
                             <p className="seo-link-bubble-results-empty is-loading">

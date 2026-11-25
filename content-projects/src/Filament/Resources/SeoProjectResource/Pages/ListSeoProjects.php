@@ -603,10 +603,28 @@ class ListSeoProjects extends ListRecords
             'count' => (int) ($preview['move_count'] ?? 0),
         ])).'</p>';
 
+        $capacityBlocked = (int) ($preview['capacity_blocked'] ?? 0);
+        if ($capacityBlocked > 0) {
+            $html .= '<p class="m-0 text-sm text-gray-500 dark:text-gray-400">'.e((string) __('seo-content-ai::filament.projects.balance_months_stat_capacity_left', [
+                'count' => $capacityBlocked,
+            ])).'</p>';
+        }
+
         $fixedTotal = (int) ($preview['fixed_total'] ?? 0);
         if ($fixedTotal > 0) {
             $html .= '<p class="m-0 text-sm text-gray-500 dark:text-gray-400">'.e((string) __('seo-content-ai::filament.projects.balance_months_stat_fixed_stay', [
                 'count' => $fixedTotal,
+            ])).'</p>';
+        }
+
+        $fixedReasons = is_array($preview['fixed_reasons'] ?? null) ? $preview['fixed_reasons'] : [];
+        if ($fixedReasons !== []) {
+            $parts = [];
+            foreach ($fixedReasons as $reason => $count) {
+                $parts[] = (string) $reason.': '.(int) $count;
+            }
+            $html .= '<p class="m-0 text-xs text-gray-400 dark:text-gray-500">'.e((string) __('seo-content-ai::filament.projects.balance_months_stat_fixed_reasons', [
+                'reasons' => implode(', ', $parts),
             ])).'</p>';
         }
         $html .= '</div>';

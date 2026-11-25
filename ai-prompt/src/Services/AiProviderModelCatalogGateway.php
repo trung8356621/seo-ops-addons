@@ -27,8 +27,10 @@ final class AiProviderModelCatalogGateway
             ApiConnectionProviders::DEEPSEEK,
             ApiConnectionProviders::GEMINI,
             ApiConnectionProviders::CLAUDE,
+            ApiConnectionProviders::NVIDIA,
             'openai_compatible' => true,
-            default => false,
+            default => app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\ProviderConnectionResolver::class)
+                ->supportsOpenAiCompatibleDiscovery($connection),
         };
     }
 
@@ -38,10 +40,14 @@ final class AiProviderModelCatalogGateway
             ApiConnectionProviders::OPENROUTER,
             ApiConnectionProviders::DEEPSEEK,
             ApiConnectionProviders::CLAUDE,
+            ApiConnectionProviders::NVIDIA,
             'openai_compatible' => AiModelCatalogAuthorityMode::Provider,
             // Gemini: /models omits some image models → curated image layer + provider text.
             ApiConnectionProviders::GEMINI => AiModelCatalogAuthorityMode::Hybrid,
-            default => AiModelCatalogAuthorityMode::Curated,
+            default => app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\ProviderConnectionResolver::class)
+                ->isOpenAiCompatibleProtocol($connection)
+                ? AiModelCatalogAuthorityMode::Provider
+                : AiModelCatalogAuthorityMode::Curated,
         };
     }
 

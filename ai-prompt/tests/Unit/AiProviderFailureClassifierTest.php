@@ -264,6 +264,19 @@ final class AiProviderFailureClassifierTest extends TestCase
         $this->assertFalse($decision->fallbackAllowed());
     }
 
+    public function test_http_400_relay_path_allows_connection_fallback(): void
+    {
+        $decision = $this->classifier->classify(new PromptRunException(
+            'Provider API error (400): Request path cannot be relayed',
+            400,
+        ));
+        $this->assertSame(AiFailureClass::TransientProvider, $decision->category);
+        $this->assertSame(AiFailureScope::Connection, $decision->scope);
+        $this->assertTrue($decision->fallbackAllowed());
+        $this->assertTrue($decision->applyCooldown);
+        $this->assertSame('Provider relay path unavailable.', $decision->safeMessage);
+    }
+
     public function test_retryable_flag_alone_does_not_allow_fallback(): void
     {
         $decision = $this->classifier->classify(new PromptRunException(

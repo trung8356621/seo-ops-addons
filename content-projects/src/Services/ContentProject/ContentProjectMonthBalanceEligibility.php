@@ -150,9 +150,20 @@ final class ContentProjectMonthBalanceEligibility
             return $this->fixed(self::REASON_ACTIVE_RUNNING);
         }
 
+        // Balance owns draft-planning redistribution (planning_month only).
+        // Compact's safety gate blocks project_draft / project-wide bulk freeze —
+        // those rules must not freeze eligible pre-generation Balance load.
+        if ($project instanceof SeoProject && $project->isDraftPlanning()) {
+            return ['in_domain' => true, 'movable' => true, 'fixed' => false, 'reason' => null];
+        }
+
         $itemGate = $this->safety->assessItem($task, $project);
         if (! $itemGate['movable']) {
             $reason = (string) ($itemGate['reason'] ?? self::REASON_ACTIVE_RUNNING);
+            // Defensive: Compact may still tag draft via assessItem.
+            if ($reason === 'project_draft') {
+                return ['in_domain' => true, 'movable' => true, 'fixed' => false, 'reason' => null];
+            }
             if ($reason === 'scheduled_published_unsafe') {
                 return $this->fixed(self::REASON_ACTIVE_QUEUE);
             }
@@ -160,15 +171,9 @@ final class ContentProjectMonthBalanceEligibility
             return $this->fixed($reason !== '' ? $reason : self::REASON_ACTIVE_RUNNING);
         }
 
-        if ($project instanceof SeoProject) {
-            $projectGate = $this->safety->assessProject($project);
-            if (! $projectGate['ok']) {
-                $reason = (string) ($projectGate['reason'] ?? self::REASON_ACTIVE_RUNNING);
-
-                return $this->fixed($reason !== '' ? $reason : self::REASON_ACTIVE_RUNNING);
-            }
-        }
-
+        // Per-task gates above already cover running / publish / queue.
+        // Do not reuse Compact assessProject bulk-run freeze (would lock every
+        // sibling planned item when one task in the project is generating).
         return ['in_domain' => true, 'movable' => true, 'fixed' => false, 'reason' => null];
     }
 
@@ -262,10 +267,17 @@ final class ContentProjectMonthBalanceEligibility
             return $this->fixed(self::REASON_ACTIVE_RUNNING);
         }
         if (array_key_exists('safety_movable', $facts) && $facts['safety_movable'] === false) {
-            return $this->fixed((string) ($facts['safety_reason'] ?? self::REASON_ACTIVE_RUNNING));
+            $safetyReason = (string) ($facts['safety_reason'] ?? self::REASON_ACTIVE_RUNNING);
+            // Compact tags draft planning as non-movable; Balance allows it.
+            if ($safetyReason === 'project_draft' || ! empty($facts['project_is_draft'])) {
+                return ['in_domain' => true, 'movable' => true, 'fixed' => false, 'reason' => null];
+            }
+
+            return $this->fixed($safetyReason !== '' ? $safetyReason : self::REASON_ACTIVE_RUNNING);
         }
-        if (array_key_exists('project_ok', $facts) && $facts['project_ok'] === false) {
-            return $this->fixed((string) ($facts['project_reason'] ?? self::REASON_ACTIVE_RUNNING));
+        // project_ok / Compact assessProject bulk freeze intentionally ignored for Balance.
+        if (! empty($facts['project_is_draft'])) {
+            return ['in_domain' => true, 'movable' => true, 'fixed' => false, 'reason' => null];
         }
 
         return ['in_domain' => true, 'movable' => true, 'fixed' => false, 'reason' => null];

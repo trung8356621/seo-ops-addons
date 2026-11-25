@@ -19,6 +19,7 @@ final class AiConnectionShortCode
             ApiConnectionProviders::GEMINI => 'GG',
             ApiConnectionProviders::DEEPSEEK => 'DS',
             ApiConnectionProviders::OPENROUTER => 'OR',
+            ApiConnectionProviders::NVIDIA => 'NV',
             ApiConnectionProviders::CLAUDE, 'anthropic' => 'AN',
             'openai' => 'OA',
             default => null,

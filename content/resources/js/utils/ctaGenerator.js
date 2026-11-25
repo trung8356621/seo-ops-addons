@@ -1,8 +1,8 @@
 /**
- * CTA Generator — manual, deterministic insertion from Site CTA Pool.
+ * CTA Generator — manual insertion from Site CTA Pool.
  *
- * Density & placement use top-level H2 sections only (not H1/H3/H4).
- * Existing CTAs are preserved and counted; never moved or deleted by the generator.
+ * Density = floor(wordCount / 650). Prefer end of H2 sections; fill with H3 ends.
+ * Existing CTAs are preserved and counted toward quota. Templates are chosen at random.
  */
 
 import { buildManagedCtaHtml, detectCtas, normalizeText } from './ctaDetector.js';
@@ -24,7 +24,14 @@ const NON_MAIN_CONTAINER_TAGS = new Set([
 ]);
 const FAQ_SELECTOR = '.omi-faq-accordion, .seo-faq-shortcode-block, [data-omi-faq], .omi-faq-placeholder, .rank-math-faq-block, .schema-faq';
 const CTA_SHORTCODE_RE = /\[seo_ops_cta\b/i;
-const H2_GROUP_SIZE = 3;
+const SHORTCODE_RE = /\[[^\]]+\]/g;
+const WORDS_PER_CTA = 650;
+/** Soft preference so nearby H2 beats a slightly closer H3. */
+const H2_DISTANCE_BONUS_RATIO = 0.08;
+/** Minimum cumulative-word gap between selected insert points. */
+const MIN_WORD_GAP = 120;
+
+export { WORDS_PER_CTA };
 
 function escapeHtmlText(value) {
     return String(value ?? '')
@@ -89,23 +96,75 @@ function nextMeaningfulElement(children, startIndex) {
     return null;
 }
 
-function createH2Section(headingEntry) {
+/**
+ * Count words in content text: Unicode letters (VN-safe), ignore HTML/shortcodes.
+ * @param {string} text
+ * @returns {number}
+ */
+export function countCtaContentWords(text) {
+    const cleaned = String(text ?? '')
+        .replace(SHORTCODE_RE, ' ')
+        .replace(/\s+/gu, ' ')
+        .trim();
+    if (!cleaned) {
+        return 0;
+    }
+    const matches = cleaned.match(/[\p{L}][\p{L}\p{N}\-]*/gu);
+    return matches ? matches.length : 0;
+}
+
+function elementPlainText(element) {
+    if (!element || element.nodeType !== 1) {
+        return '';
+    }
+    // Prefer innerHTML→strip so inline tags do not glue words (e.g. <em>a</em>b → "a b").
+    const html = typeof element.innerHTML === 'string' ? element.innerHTML : '';
+    if (html !== '' && /<[a-z!/]/i.test(html)) {
+        return html
+            .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+            .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/&nbsp;/gi, ' ')
+            .replace(/&amp;/gi, '&')
+            .replace(/&lt;/gi, '<')
+            .replace(/&gt;/gi, '>')
+            .replace(/&quot;/gi, '"');
+    }
+    return element.textContent || '';
+}
+
+function nodeContentWords(element, detectedTextSet) {
+    if (!element || element.nodeType !== 1) {
+        return 0;
+    }
+    if (isFaqElement(element) || isCtaNode(element, detectedTextSet)) {
+        return 0;
+    }
+    return countCtaContentWords(elementPlainText(element));
+}
+
+function createSection(headingEntry) {
     return {
         sectionId: headingEntry.sectionId,
         heading: headingEntry.text,
-        headingTag: 'h2',
+        headingTag: headingEntry.tag,
         headingChildIndex: headingEntry.childIndex,
-        h2Index: headingEntry.h2Index,
+        h2Index: headingEntry.h2Index ?? null,
+        h3Index: headingEntry.h3Index ?? null,
+        parentH2SectionId: headingEntry.parentH2SectionId ?? null,
         special: headingEntry.special,
         hasContent: false,
         hasCta: false,
         lastContentIndex: -1,
         lastNonCtaContentIndex: -1,
         text: headingEntry.text,
+        startWord: headingEntry.startWord ?? 0,
+        endWord: headingEntry.startWord ?? 0,
+        wordCount: 0,
     };
 }
 
-function finalizeH2Section(section, children, detectedTextSet, safePoints) {
+function finalizeSection(section, children, detectedTextSet, safePoints) {
     if (!section || section.special) {
         return;
     }
@@ -123,19 +182,28 @@ function finalizeH2Section(section, children, detectedTextSet, safePoints) {
     if (isFaqElement(anchorNode) || (nextNode && isFaqElement(nextNode))) {
         return;
     }
+    const tag = anchorNode.tagName.toLowerCase();
+    if (NON_MAIN_CONTAINER_TAGS.has(tag) && ['table', 'ul', 'ol', 'pre', 'form'].includes(tag)) {
+        // Anchor is the container itself (top-level) — OK to insert after it, not inside.
+    }
     safePoints.push({
         sectionId: section.sectionId,
         heading: section.heading,
-        headingTag: 'h2',
+        headingTag: section.headingTag,
         h2Index: section.h2Index,
+        h3Index: section.h3Index,
+        parentH2SectionId: section.parentH2SectionId,
         anchorChildIndex: section.lastNonCtaContentIndex,
         sectionText: section.text,
         hasCta: section.hasCta,
+        endWord: section.endWord,
+        startWord: section.startWord,
+        wordCount: section.wordCount,
     });
 }
 
 /**
- * Analyze article HTML using top-level H2 sections only.
+ * Analyze article HTML for word-based CTA density and H2/H3 end insert points.
  *
  * @param {string} html
  * @param {{ shortcodes?: object[], texts?: object[] }} [detected]
@@ -149,23 +217,51 @@ export function analyzeArticleForCta(html, detected = null) {
 
     const children = Array.from(root.children);
     const h2Sections = [];
+    const h3Sections = [];
     const eligibleHeadings = [];
     const safePoints = [];
 
     let inFaqSection = false;
-    let currentSection = null;
+    let currentH2 = null;
+    let currentH3 = null;
     let sectionCounter = 0;
     let h2Counter = 0;
+    let h3Counter = 0;
+    let cumulativeWords = 0;
+
+    const closeH3 = () => {
+        if (currentH3) {
+            finalizeSection(currentH3, children, detectedTextSet, safePoints);
+            currentH3 = null;
+        }
+    };
+
+    const closeH2 = () => {
+        closeH3();
+        if (currentH2) {
+            finalizeSection(currentH2, children, detectedTextSet, safePoints);
+            currentH2 = null;
+        }
+    };
+
+    const absorbContent = (section, index, words) => {
+        if (!section) {
+            return;
+        }
+        section.hasContent = true;
+        section.lastContentIndex = index;
+        section.lastNonCtaContentIndex = index;
+        section.wordCount += words;
+        section.endWord = cumulativeWords;
+        section.text = `${section.text} ${normalizeText(children[index].textContent || '')}`.trim();
+    };
 
     for (let i = 0; i < children.length; i += 1) {
         const node = children[i];
         const tag = node.tagName.toLowerCase();
 
         if (isFaqElement(node)) {
-            if (currentSection) {
-                finalizeH2Section(currentSection, children, detectedTextSet, safePoints);
-                currentSection = null;
-            }
+            closeH2();
             inFaqSection = true;
             continue;
         }
@@ -173,18 +269,13 @@ export function analyzeArticleForCta(html, detected = null) {
         if (tag === 'h2') {
             const headingText = normalizeText(node.textContent || '');
             if (FAQ_HEADING_RE.test(headingText)) {
-                if (currentSection) {
-                    finalizeH2Section(currentSection, children, detectedTextSet, safePoints);
-                    currentSection = null;
-                }
+                closeH2();
                 inFaqSection = true;
                 continue;
             }
 
             inFaqSection = false;
-            if (currentSection) {
-                finalizeH2Section(currentSection, children, detectedTextSet, safePoints);
-            }
+            closeH2();
 
             sectionCounter += 1;
             h2Counter += 1;
@@ -195,10 +286,11 @@ export function analyzeArticleForCta(html, detected = null) {
                 sectionId: `h2_${sectionCounter}`,
                 h2Index: h2Counter - 1,
                 special: SPECIAL_H2_RE.test(headingText),
+                startWord: cumulativeWords,
             };
             eligibleHeadings.push(headingEntry);
-            currentSection = createH2Section(headingEntry);
-            h2Sections.push(currentSection);
+            currentH2 = createSection(headingEntry);
+            h2Sections.push(currentH2);
             continue;
         }
 
@@ -206,17 +298,50 @@ export function analyzeArticleForCta(html, detected = null) {
             continue;
         }
 
-        // H1 / H3+ never open sections and never count toward density.
-        if (tag === 'h1' || /^h[3-6]$/i.test(tag)) {
-            if (currentSection && hasMeaningfulContent(node) && !isCtaNode(node, detectedTextSet)) {
-                currentSection.text = `${currentSection.text} ${normalizeText(node.textContent || '')}`.trim();
-                // Nested headings alone do not qualify the H2 as having insertable body content.
+        if (tag === 'h3') {
+            if (!currentH2 || currentH2.special) {
+                continue;
+            }
+            closeH3();
+            sectionCounter += 1;
+            h3Counter += 1;
+            const headingText = normalizeText(node.textContent || '');
+            const headingEntry = {
+                tag: 'h3',
+                text: headingText,
+                childIndex: i,
+                sectionId: `h3_${sectionCounter}`,
+                h2Index: currentH2.h2Index,
+                h3Index: h3Counter - 1,
+                parentH2SectionId: currentH2.sectionId,
+                special: false,
+                startWord: cumulativeWords,
+            };
+            eligibleHeadings.push(headingEntry);
+            currentH3 = createSection(headingEntry);
+            h3Sections.push(currentH3);
+            // Nested heading text contributes lightly to parent H2 text for context only.
+            currentH2.text = `${currentH2.text} ${headingText}`.trim();
+            continue;
+        }
+
+        if (tag === 'h1' || /^h[4-6]$/i.test(tag)) {
+            if (currentH2 && hasMeaningfulContent(node) && !isCtaNode(node, detectedTextSet)) {
+                const words = nodeContentWords(node, detectedTextSet);
+                cumulativeWords += words;
+                currentH2.text = `${currentH2.text} ${normalizeText(node.textContent || '')}`.trim();
+                if (currentH3) {
+                    currentH3.text = `${currentH3.text} ${normalizeText(node.textContent || '')}`.trim();
+                }
             }
             continue;
         }
 
-        if (!currentSection) {
-            // Introduction / pre-H2 content — never insert here.
+        if (!currentH2) {
+            // Pre-H2 content — count toward article words for density, never insert here.
+            if (hasMeaningfulContent(node) && !isCtaNode(node, detectedTextSet) && !isFaqElement(node)) {
+                cumulativeWords += nodeContentWords(node, detectedTextSet);
+            }
             continue;
         }
 
@@ -225,106 +350,150 @@ export function analyzeArticleForCta(html, detected = null) {
         }
 
         if (isCtaNode(node, detectedTextSet)) {
-            currentSection.hasCta = true;
-            currentSection.lastContentIndex = i;
+            if (currentH3) {
+                currentH3.hasCta = true;
+                currentH3.lastContentIndex = i;
+            }
+            currentH2.hasCta = true;
+            currentH2.lastContentIndex = i;
             continue;
         }
 
         if (NON_MAIN_CONTAINER_TAGS.has(tag) || ['p', 'div', 'section', 'article'].includes(tag)) {
-            currentSection.hasContent = true;
-            currentSection.lastContentIndex = i;
-            currentSection.lastNonCtaContentIndex = i;
-            currentSection.text = `${currentSection.text} ${normalizeText(node.textContent || '')}`.trim();
+            const words = nodeContentWords(node, detectedTextSet);
+            cumulativeWords += words;
+            if (currentH3) {
+                absorbContent(currentH3, i, words);
+                // H2 end tracks last content including nested H3 body.
+                currentH2.hasContent = true;
+                currentH2.lastContentIndex = i;
+                currentH2.lastNonCtaContentIndex = i;
+                currentH2.wordCount += words;
+                currentH2.endWord = cumulativeWords;
+                currentH2.text = `${currentH2.text} ${normalizeText(node.textContent || '')}`.trim();
+            } else {
+                absorbContent(currentH2, i, words);
+            }
         }
     }
 
-    if (currentSection) {
-        finalizeH2Section(currentSection, children, detectedTextSet, safePoints);
-    }
+    closeH2();
 
     const existingCount = (ctaScan.shortcodes?.length || 0) + (ctaScan.texts?.length || 0);
-    const maxAllowed = Math.floor(eligibleHeadings.length / H2_GROUP_SIZE);
-    const remainingQuota = Math.max(0, maxAllowed - existingCount);
+    const wordCount = cumulativeWords;
+    const targetCtas = Math.floor(wordCount / WORDS_PER_CTA);
+    const maxAllowed = targetCtas;
+    const remainingQuota = Math.max(0, targetCtas - existingCount);
+
+    const safeH2Points = safePoints.filter((p) => p.headingTag === 'h2');
+    const safeH3Points = safePoints.filter((p) => p.headingTag === 'h3');
 
     return {
         eligibleHeadings,
-        eligibleHeadingCount: eligibleHeadings.length,
+        eligibleHeadingCount: eligibleHeadings.filter((h) => h.tag === 'h2').length,
+        eligibleH2Count: h2Sections.length,
+        eligibleH3Count: h3Sections.length,
         h2Sections,
+        h3Sections,
         existingCtas: ctaScan,
         existingCount,
+        wordCount,
+        targetCtas,
         maxAllowed,
         remainingQuota,
+        wordsPerCta: WORDS_PER_CTA,
         safePoints,
+        safeH2Points,
+        safeH3Points,
+        safeH2Count: safeH2Points.length,
+        safeH3Count: safeH3Points.length,
     };
 }
 
 /**
- * Pick at most one safe H2 end per consecutive group of ~3 H2s.
- * Skip groups that already contain a CTA. Prefer the last safe H2 in the group.
+ * Evenly pick insert points by cumulative-word milestones.
+ * Prefers H2 ends when comparable; falls back to H3. Never requires filling quota.
  *
  * @param {ReturnType<typeof analyzeArticleForCta>} analysis
  * @param {number} count
  */
-function selectGroupedSafePoints(analysis, count) {
+export function selectEvenSafePoints(analysis, count) {
     if (count <= 0) {
         return [];
     }
-    const sections = analysis.h2Sections || [];
-    const safeBySectionId = new Map((analysis.safePoints || []).map((point) => [point.sectionId, point]));
+
+    const totalWords = Math.max(1, analysis.wordCount || 1);
+    const h2Bonus = Math.max(40, Math.round(totalWords * H2_DISTANCE_BONUS_RATIO));
+    const available = [...(analysis.safePoints || [])].sort((a, b) => a.endWord - b.endWord);
+    if (available.length === 0) {
+        return [];
+    }
+
+    const n = Math.min(count, available.length);
+    const milestones = [];
+    for (let i = 0; i < n; i += 1) {
+        milestones.push(((i + 1) / (n + 1)) * totalWords);
+    }
+
     const selected = [];
+    const usedSectionIds = new Set();
+    const usedAnchors = new Set();
 
-    for (let start = 0; start < sections.length && selected.length < count; start += H2_GROUP_SIZE) {
-        const group = sections.slice(start, start + H2_GROUP_SIZE);
-        if (group.length === 0) {
-            continue;
-        }
-        if (group.some((section) => section.hasCta)) {
-            continue;
-        }
-        let picked = null;
-        for (let i = group.length - 1; i >= 0; i -= 1) {
-            const candidate = safeBySectionId.get(group[i].sectionId);
-            if (candidate) {
-                picked = candidate;
-                break;
+    for (const milestone of milestones) {
+        let best = null;
+        let bestScore = Number.POSITIVE_INFINITY;
+
+        for (const point of available) {
+            if (usedSectionIds.has(point.sectionId) || usedAnchors.has(point.anchorChildIndex)) {
+                continue;
+            }
+            const tooClose = selected.some(
+                (picked) => Math.abs(picked.endWord - point.endWord) < MIN_WORD_GAP
+                    || Math.abs(picked.anchorChildIndex - point.anchorChildIndex) <= 1,
+            );
+            if (tooClose) {
+                continue;
+            }
+
+            const dist = Math.abs(point.endWord - milestone);
+            const score = dist - (point.headingTag === 'h2' ? h2Bonus : 0);
+            if (score < bestScore) {
+                bestScore = score;
+                best = point;
             }
         }
-        if (picked) {
-            selected.push(picked);
-        }
-    }
 
-    return selected;
-}
-
-const INTENT_KEYWORDS = {
-    quotation: ['báo giá', 'giá', 'chi phí', 'bảng giá', 'ngân sách', 'số lượng'],
-    consultation: ['tư vấn', 'chọn', 'hướng dẫn', 'kinh nghiệm', 'lưu ý', 'cách'],
-    product: ['mẫu', 'chất liệu', 'vải', 'thiết kế', 'sản phẩm', 'loại', 'kích thước'],
-    service: ['xưởng', 'quy trình', 'sản xuất', 'gia công', 'in ấn', 'thêu', 'đặt may'],
-    contact: ['liên hệ', 'đặt hàng', 'kết nối', 'hỗ trợ'],
-};
-
-function scoreTemplateForPoint(template, point) {
-    const intent = normalizeText(template.intent || '').toLowerCase();
-    const sectionText = normalizeText(`${point.heading} ${point.sectionText}`).toLowerCase();
-    let score = 0;
-    for (const [group, keywords] of Object.entries(INTENT_KEYWORDS)) {
-        if (!intent.includes(group)) {
+        if (!best) {
             continue;
         }
-        for (const kw of keywords) {
-            if (sectionText.includes(kw)) {
-                score += 2;
-            }
-        }
+        selected.push(best);
+        usedSectionIds.add(best.sectionId);
+        usedAnchors.add(best.anchorChildIndex);
     }
-    return score;
+
+    return selected.sort((a, b) => a.anchorChildIndex - b.anchorChildIndex);
 }
 
-function selectPoolTemplatesForPoints(poolTemplates, points, existingCtas) {
+function pickRandomIndex(length, rng) {
+    if (length <= 0) {
+        return -1;
+    }
+    const r = typeof rng === 'function' ? rng() : Math.random();
+    const unit = Math.min(Math.max(Number.isFinite(r) ? r : 0, 0), 0.999999999);
+    return Math.floor(unit * length);
+}
+
+/**
+ * Random pool assignment: cycle without replacement first; avoid consecutive repeats.
+ *
+ * @param {Array<{ slot?: number, slot_id?: string, content: string, intent?: string }>} poolTemplates
+ * @param {object[]} points
+ * @param {{ shortcodes?: object[], texts?: object[] }} existingCtas
+ * @param {() => number} [rng]
+ */
+export function selectPoolTemplatesForPoints(poolTemplates, points, existingCtas, rng = Math.random) {
     const existingBodies = new Set(
-        [...(existingCtas.shortcodes || []), ...(existingCtas.texts || [])]
+        [...(existingCtas?.shortcodes || []), ...(existingCtas?.texts || [])]
             .map((item) => normalizeText(item.text || '').toLowerCase())
             .filter(Boolean),
     );
@@ -342,30 +511,47 @@ function selectPoolTemplatesForPoints(poolTemplates, points, existingCtas) {
         ? eligible
         : (Array.isArray(poolTemplates) ? poolTemplates.filter((t) => String(t?.content ?? '').trim() !== '') : []);
 
-    const usedSlotIds = new Set();
+    if (pool.length === 0) {
+        return [];
+    }
+
     const assignments = [];
+    let bag = [];
+    let lastKey = null;
+
+    const refillBag = () => {
+        bag = pool.map((_, index) => index);
+    };
+
+    refillBag();
 
     for (const point of points) {
-        const available = pool.filter((tpl) => !usedSlotIds.has(String(tpl.slot_id || tpl.slot)));
-        if (available.length === 0) {
-            break;
+        if (bag.length === 0) {
+            refillBag();
         }
-        let best = available[0];
-        let bestScore = scoreTemplateForPoint(best, point);
-        for (let i = 1; i < available.length; i += 1) {
-            const candidate = available[i];
-            const candidateScore = scoreTemplateForPoint(candidate, point);
-            if (candidateScore > bestScore) {
-                best = candidate;
-                bestScore = candidateScore;
+
+        let chosenBagIndex = -1;
+        if (bag.length === 1) {
+            chosenBagIndex = 0;
+        } else {
+            // Prefer non-consecutive when possible.
+            const candidates = [];
+            for (let i = 0; i < bag.length; i += 1) {
+                const key = String(pool[bag[i]].slot_id || pool[bag[i]].slot);
+                if (key !== lastKey) {
+                    candidates.push(i);
+                }
             }
+            const pickFrom = candidates.length > 0 ? candidates : bag.map((_, i) => i);
+            const pick = pickRandomIndex(pickFrom.length, rng);
+            chosenBagIndex = pickFrom[pick];
         }
-        const key = String(best.slot_id || best.slot);
-        usedSlotIds.add(key);
-        assignments.push({
-            point,
-            template: best,
-        });
+
+        const poolIndex = bag.splice(chosenBagIndex, 1)[0];
+        const template = pool[poolIndex];
+        const key = String(template.slot_id || template.slot);
+        lastKey = key;
+        assignments.push({ point, template });
     }
 
     return assignments;
@@ -376,7 +562,7 @@ function selectPoolTemplatesForPoints(poolTemplates, points, existingCtas) {
  *
  * @param {string} html
  * @param {Array<{ slot: number, slot_id?: string, intent?: string, content: string }>} poolTemplates
- * @param {{ style?: string }} [options]
+ * @param {{ style?: string, rng?: () => number }} [options]
  */
 export function planCtaGeneration(html, poolTemplates, options = {}) {
     const analysis = analyzeArticleForCta(html);
@@ -404,7 +590,7 @@ export function planCtaGeneration(html, poolTemplates, options = {}) {
         };
     }
 
-    const selectedPoints = selectGroupedSafePoints(analysis, analysis.remainingQuota);
+    const selectedPoints = selectEvenSafePoints(analysis, analysis.remainingQuota);
     if (selectedPoints.length === 0) {
         return {
             ok: true,
@@ -415,7 +601,8 @@ export function planCtaGeneration(html, poolTemplates, options = {}) {
         };
     }
 
-    const assignments = selectPoolTemplatesForPoints(validPool, selectedPoints, analysis.existingCtas);
+    const rng = typeof options.rng === 'function' ? options.rng : Math.random;
+    const assignments = selectPoolTemplatesForPoints(validPool, selectedPoints, analysis.existingCtas, rng);
     const style = ['soft', 'consultation', 'conversion'].includes(options.style) ? options.style : 'soft';
     const stamp = Date.now().toString(36);
 
@@ -441,6 +628,7 @@ export function planCtaGeneration(html, poolTemplates, options = {}) {
             content,
             sectionId: point.sectionId,
             heading: point.heading,
+            headingTag: point.headingTag,
             anchorChildIndex: point.anchorChildIndex,
             managedHtml,
         };

@@ -15,6 +15,12 @@ use Throwable;
 
 final class SiteHealthStateService
 {
+    /** Independent failed checks required before confirming an incident. */
+    public const CONFIRM_FAILURES = 3;
+
+    /** Consecutive healthy checks required to close an open incident. */
+    public const RECOVERY_SUCCESSES = 2;
+
     public function __construct(private readonly CapabilityRegistry $capabilities) {}
 
     public function record(Site $site, SiteHealthResult $result): SiteHealthState
@@ -24,55 +30,10 @@ final class SiteHealthStateService
             $state = SiteHealthState::query()->lockForUpdate()->firstOrNew(['site_id' => (int) $site->id]);
 
             if ($result->healthy) {
-                $notification = null;
-                $incident = $state->active_incident_id ? SiteHealthIncident::query()->find($state->active_incident_id) : null;
-                if ($incident instanceof SiteHealthIncident && $incident->resolved_at === null) {
-                    $incident->forceFill(['status' => 'resolved', 'resolved_at' => $now, 'last_occurred_at' => $now])->save();
-                    $notification = 'resolved';
-                }
-
-                $state->forceFill([
-                    'active_incident_id' => null, 'status' => 'healthy', 'severity' => null,
-                    'error_code' => null, 'reason' => null, 'technical_error' => null,
-                    'diagnostic_stages' => $result->stages, 'consecutive_failures' => 0,
-                    'first_failure_at' => null, 'last_checked_at' => $now, 'last_success_at' => $now,
-                ])->save();
-
-                return [$state, $notification, $incident];
+                return $this->recordSuccess($site, $state, $result, $now);
             }
 
-            $failures = (int) $state->consecutive_failures + 1;
-            $state->forceFill([
-                'status' => $failures >= 2 ? $result->status : 'suspected',
-                'severity' => $result->severity, 'error_code' => $result->errorCode,
-                'reason' => $result->reason, 'technical_error' => SiteHealthSanitizer::clean($result->technicalError),
-                'diagnostic_stages' => $result->stages, 'consecutive_failures' => $failures,
-                'first_failure_at' => $state->first_failure_at ?? $now, 'last_checked_at' => $now,
-            ])->save();
-
-            if ($failures < 2) {
-                return [$state, null, null];
-            }
-
-            $incident = $state->active_incident_id ? SiteHealthIncident::query()->find($state->active_incident_id) : null;
-            if (! $incident instanceof SiteHealthIncident || $incident->resolved_at !== null) {
-                $incident = SiteHealthIncident::query()->create([
-                    'site_id' => (int) $site->id, 'status' => $result->status, 'severity' => $result->severity,
-                    'error_code' => $result->errorCode, 'reason' => $result->reason,
-                    'technical_error' => SiteHealthSanitizer::clean($result->technicalError),
-                    'diagnostic_stages' => $result->stages, 'detected_at' => $state->first_failure_at ?? $now,
-                    'last_occurred_at' => $now,
-                ]);
-                $state->forceFill(['active_incident_id' => $incident->id])->save();
-            } else {
-                $incident->forceFill([
-                    'status' => $result->status, 'severity' => $result->severity, 'error_code' => $result->errorCode,
-                    'reason' => $result->reason, 'technical_error' => SiteHealthSanitizer::clean($result->technicalError),
-                    'diagnostic_stages' => $result->stages, 'last_occurred_at' => $now,
-                ])->save();
-            }
-
-            return [$state, 'active', $incident];
+            return $this->recordFailure($site, $state, $result, $now);
         });
 
         if (is_string($notification) && $incident instanceof SiteHealthIncident) {
@@ -94,6 +55,98 @@ final class SiteHealthStateService
         }
 
         return $state;
+    }
+
+    /**
+     * @return array{0: SiteHealthState, 1: ?string, 2: ?SiteHealthIncident}
+     */
+    private function recordSuccess(Site $site, SiteHealthState $state, SiteHealthResult $result, mixed $now): array
+    {
+        $incident = $state->active_incident_id ? SiteHealthIncident::query()->find($state->active_incident_id) : null;
+        $openIncident = $incident instanceof SiteHealthIncident && $incident->resolved_at === null;
+
+        if (! $openIncident) {
+            $state->forceFill([
+                'active_incident_id' => null, 'status' => 'healthy', 'severity' => null,
+                'error_code' => null, 'reason' => null, 'technical_error' => null,
+                'diagnostic_stages' => $result->stages, 'consecutive_failures' => 0,
+                'first_failure_at' => null, 'last_checked_at' => $now, 'last_success_at' => $now,
+            ])->save();
+
+            return [$state, null, null];
+        }
+
+        // First healthy check while incident is open → recovering (no email).
+        if ($state->status !== 'recovering') {
+            $state->forceFill([
+                'status' => 'recovering',
+                'severity' => null,
+                'error_code' => null,
+                'reason' => null,
+                'technical_error' => null,
+                'diagnostic_stages' => $result->stages,
+                'consecutive_failures' => 0,
+                'last_checked_at' => $now,
+                'last_success_at' => $now,
+            ])->save();
+
+            return [$state, null, null];
+        }
+
+        // Second consecutive healthy check → close incident and emit recovery once.
+        $incident->forceFill(['status' => 'resolved', 'resolved_at' => $now, 'last_occurred_at' => $now])->save();
+        $state->forceFill([
+            'active_incident_id' => null, 'status' => 'healthy', 'severity' => null,
+            'error_code' => null, 'reason' => null, 'technical_error' => null,
+            'diagnostic_stages' => $result->stages, 'consecutive_failures' => 0,
+            'first_failure_at' => null, 'last_checked_at' => $now, 'last_success_at' => $now,
+        ])->save();
+
+        return [$state, 'resolved', $incident];
+    }
+
+    /**
+     * @return array{0: SiteHealthState, 1: ?string, 2: ?SiteHealthIncident}
+     */
+    private function recordFailure(Site $site, SiteHealthState $state, SiteHealthResult $result, mixed $now): array
+    {
+        $failures = (int) $state->consecutive_failures + 1;
+        $state->forceFill([
+            'status' => $failures >= self::CONFIRM_FAILURES ? $result->status : 'suspected',
+            'severity' => $result->severity, 'error_code' => $result->errorCode,
+            'reason' => $result->reason, 'technical_error' => SiteHealthSanitizer::clean($result->technicalError),
+            'diagnostic_stages' => $result->stages, 'consecutive_failures' => $failures,
+            'first_failure_at' => $state->first_failure_at ?? $now, 'last_checked_at' => $now,
+        ])->save();
+
+        if ($failures < self::CONFIRM_FAILURES) {
+            return [$state, null, null];
+        }
+
+        $incident = $state->active_incident_id ? SiteHealthIncident::query()->find($state->active_incident_id) : null;
+        $needsNewIncident = ! $incident instanceof SiteHealthIncident || $incident->resolved_at !== null;
+
+        if ($needsNewIncident) {
+            $incident = SiteHealthIncident::query()->create([
+                'site_id' => (int) $site->id, 'status' => $result->status, 'severity' => $result->severity,
+                'error_code' => $result->errorCode, 'reason' => $result->reason,
+                'technical_error' => SiteHealthSanitizer::clean($result->technicalError),
+                'diagnostic_stages' => $result->stages, 'detected_at' => $state->first_failure_at ?? $now,
+                'last_occurred_at' => $now,
+            ]);
+            $state->forceFill(['active_incident_id' => $incident->id])->save();
+
+            // Notify only when a new incident is confirmed — never on subsequent cron failures.
+            return [$state, 'active', $incident];
+        }
+
+        $incident->forceFill([
+            'status' => $result->status, 'severity' => $result->severity, 'error_code' => $result->errorCode,
+            'reason' => $result->reason, 'technical_error' => SiteHealthSanitizer::clean($result->technicalError),
+            'diagnostic_stages' => $result->stages, 'last_occurred_at' => $now,
+        ])->save();
+
+        return [$state, null, $incident];
     }
 
     private function notifier(): ?SiteHealthNotificationCapability

@@ -22,6 +22,7 @@ enum AiNormalizedFailureCode: string
     case ProviderRateLimited = 'AI_PROVIDER_RATE_LIMITED';
     case ProviderTimeout = 'AI_PROVIDER_TIMEOUT';
     case ProviderUnavailable = 'AI_PROVIDER_UNAVAILABLE';
+    case ProviderRelayBlocked = 'AI_PROVIDER_RELAY_BLOCKED';
     case ProviderEmptyResponse = 'AI_PROVIDER_EMPTY_RESPONSE';
     case ProviderRefused = 'AI_PROVIDER_REFUSED';
     case ProviderInvalidResponse = 'AI_PROVIDER_INVALID_RESPONSE';

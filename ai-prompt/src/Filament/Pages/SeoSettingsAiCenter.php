@@ -69,6 +69,9 @@ class SeoSettingsAiCenter extends Page
 
     public string $modelArea = 'fast_text';
 
+    /** Selected API connection for Models tab lists (api_connection_id). */
+    public ?int $modelsConnectionId = null;
+
     public string $modelSearch = '';
 
     public string $modelProvider = 'all';
@@ -170,6 +173,10 @@ class SeoSettingsAiCenter extends Page
             $this->modelArea = AiModelArea::TextFast->value;
         }
         $this->routingGroup = AiModelArea::tryFromMixed($this->modelArea)->routingGroup();
+        $requestedConnection = (int) request()->query('connectionId', 0);
+        $this->modelsConnectionId = $this->resolveModelsConnectionId(
+            $requestedConnection > 0 ? $requestedConnection : null,
+        );
         if ($this->tab === 'prompts') {
             $this->redirect(PromptResource::getUrl(), navigate: true);
 
@@ -333,6 +340,11 @@ class SeoSettingsAiCenter extends Page
      */
     public function areaModelRowsFor(string $area): array
     {
+        $connectionId = $this->resolveModelsConnectionId($this->modelsConnectionId);
+        if ($connectionId === null) {
+            return [];
+        }
+
         return app(AiModelInventory::class)->enabledRows(
             (int) auth()->id(),
             AiModelArea::tryFromMixed($area),
@@ -342,8 +354,59 @@ class SeoSettingsAiCenter extends Page
                 'status' => $this->modelStatus,
                 'technical' => $this->modelTechnical,
                 'cost' => $this->modelCost,
+                'connection_id' => $connectionId,
             ],
         );
+    }
+
+    /**
+     * @return list<array{id: int, label: string, status: string, enabled: bool}>
+     */
+    public function modelsConnectionOptions(): array
+    {
+        $options = [];
+        foreach ($this->providerRows() as $row) {
+            $provider = (string) ($row['name'] ?? '');
+            $name = trim((string) ($row['connection_name'] ?? ''));
+            $label = $name !== '' ? $provider.' — '.$name : $provider;
+            $options[] = [
+                'id' => (int) ($row['id'] ?? 0),
+                'label' => $label,
+                'status' => (string) ($row['status'] ?? ''),
+                'enabled' => (bool) ($row['enabled'] ?? false),
+            ];
+        }
+
+        return array_values(array_filter(
+            $options,
+            static fn (array $row): bool => (int) ($row['id'] ?? 0) > 0,
+        ));
+    }
+
+    public function updatedModelsConnectionId(mixed $value): void
+    {
+        $this->modelsConnectionId = $this->resolveModelsConnectionId(
+            is_numeric($value) ? (int) $value : null,
+        );
+        $this->bustInventoryCache();
+        $this->dispatch('ai-center-models-connection-changed');
+    }
+
+    private function resolveModelsConnectionId(?int $preferred): ?int
+    {
+        $options = $this->modelsConnectionOptions();
+        if ($options === []) {
+            return null;
+        }
+        if ($preferred !== null && $preferred > 0) {
+            foreach ($options as $row) {
+                if ((int) $row['id'] === $preferred) {
+                    return $preferred;
+                }
+            }
+        }
+
+        return (int) $options[0]['id'];
     }
 
     /**
@@ -371,7 +434,25 @@ class SeoSettingsAiCenter extends Page
      */
     public function areaCounts(): array
     {
-        return app(AiModelInventory::class)->areaCounts((int) auth()->id());
+        $connectionId = $this->resolveModelsConnectionId($this->modelsConnectionId);
+        if ($connectionId === null) {
+            return app(AiModelInventory::class)->areaCounts((int) auth()->id());
+        }
+
+        $out = [];
+        foreach (AiModelArea::uiCases() as $area) {
+            $enabled = count(app(AiModelInventory::class)->enabledRows(
+                (int) auth()->id(),
+                $area,
+                ['connection_id' => $connectionId],
+            ));
+            $out[$area->value] = [
+                'enabled' => $enabled,
+                'available' => $enabled,
+            ];
+        }
+
+        return $out;
     }
 
     /**
@@ -823,15 +904,30 @@ class SeoSettingsAiCenter extends Page
     /**
      * @param  list<int|string>  $orderedTargetIds
      */
-    public function reorderCapabilityModels(string $capabilityArea, array $orderedTargetIds): bool
-    {
+    public function reorderCapabilityModels(
+        string $capabilityArea,
+        array $orderedTargetIds,
+        ?int $connectionId = null,
+    ): bool {
         $this->assertManager();
         $ids = array_values(array_map(static fn (mixed $id): int => (int) $id, $orderedTargetIds));
+        $connectionId = $this->resolveModelsConnectionId(
+            $connectionId ?? $this->modelsConnectionId,
+        );
+        if ($connectionId === null) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.ai_center.reorder_failed'))
+                ->danger()
+                ->send();
+
+            return false;
+        }
         try {
             app(AiModelPriorityService::class)->reorderCapabilityModels(
                 (int) auth()->id(),
                 AiModelArea::tryFromMixed($capabilityArea),
                 $ids,
+                $connectionId,
             );
             $this->bustInventoryCache();
 
@@ -872,7 +968,8 @@ class SeoSettingsAiCenter extends Page
 
     public function canReorderModels(): bool
     {
-        return trim($this->modelSearch) === ''
+        return $this->resolveModelsConnectionId($this->modelsConnectionId) !== null
+            && trim($this->modelSearch) === ''
             && ($this->modelProvider === '' || $this->modelProvider === 'all')
             && ($this->modelStatus === '' || $this->modelStatus === 'all')
             && ($this->modelCost === '' || $this->modelCost === 'all')
@@ -882,14 +979,14 @@ class SeoSettingsAiCenter extends Page
     public function openModelPickerForArea(string $area): void
     {
         $this->setModelArea($area);
-        $this->openModelPicker();
+        $this->openModelPicker($this->resolveModelsConnectionId($this->modelsConnectionId));
     }
 
     public function openModelPicker(?int $connectionId = null): void
     {
         $this->assertManager();
         $this->pickerOpen = true;
-        $this->pickerConnectionId = $connectionId;
+        $this->pickerConnectionId = $connectionId ?? $this->resolveModelsConnectionId($this->modelsConnectionId);
         $this->pickerSearch = '';
         $this->pickerProvider = 'all';
         $this->pickerType = 'all';

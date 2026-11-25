@@ -17,6 +17,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\SplitDraftContentProjectService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\McpPlanning\McpPlanningMetaStore;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\PlanningMonthBackfill;
+use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectArticleOwnerSyncService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemStateResolver;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
@@ -48,6 +49,7 @@ final class ContentProjectMonthBalanceService
         private readonly ?SplitDraftContentProjectService $splitNaming = null,
         private readonly ?SeoProjectArticleOwnerSyncService $articleOwnerSync = null,
         private readonly ?McpPlanningMetaStore $mcpMeta = null,
+        private readonly ?ContentProjectWriterMonthlyCapacityService $writerCapacity = null,
     ) {}
 
     public function lockKey(int $siteId, array $months): string
@@ -123,6 +125,7 @@ final class ContentProjectMonthBalanceService
             $snapshot['movable'],
             $mode,
         );
+        $plan = $this->constrainPlanByCapacity($snapshot, $plan);
 
         return $this->presentPreview($siteId, $snapshot, $plan);
     }
@@ -192,6 +195,7 @@ final class ContentProjectMonthBalanceService
                 $snapshot['movable'],
                 $mode,
             );
+            $plan = $this->constrainPlanByCapacity($snapshot, $plan);
 
             if ($expectedFingerprint !== null && $expectedFingerprint !== ''
                 && ! hash_equals($expectedFingerprint, (string) $plan['fingerprint'])
@@ -621,6 +625,207 @@ final class ContentProjectMonthBalanceService
     }
 
     /**
+     * Cap execution relocates by real writer monthly capacity; draft planning stamps stay uncapped.
+     * Overflow keeps its source month (left in place).
+     *
+     * @param  array<string, mixed>  $snapshot
+     * @param  array<string, mixed>  $plan
+     * @return array<string, mixed>
+     */
+    private function constrainPlanByCapacity(array $snapshot, array $plan): array
+    {
+        $allocation = is_array($plan['allocation'] ?? null) ? $plan['allocation'] : [];
+        $tasksById = is_array($snapshot['tasks_by_id'] ?? null) ? $snapshot['tasks_by_id'] : [];
+        $months = is_array($plan['months'] ?? null) ? $plan['months'] : [];
+        if ($allocation === [] || $months === []) {
+            $plan['capacity_blocked'] = 0;
+            $plan['capacity_blocked_reasons'] = [];
+
+            return $plan;
+        }
+
+        /** @var array<string, list<int>> $incomingByDest */
+        $incomingByDest = [];
+        foreach ($allocation as $taskId => $destMonth) {
+            $taskId = (int) $taskId;
+            $destMonth = ContentProjectMonthContext::normalize((string) $destMonth);
+            $meta = $tasksById[$taskId] ?? null;
+            if (! is_array($meta) || ! ($meta['movable'] ?? false)) {
+                continue;
+            }
+            $fromMonth = ContentProjectMonthContext::normalize((string) ($meta['planning_month'] ?? ''));
+            if ($fromMonth === null || $destMonth === null || $fromMonth === $destMonth) {
+                continue;
+            }
+
+            $project = ($meta['project'] ?? null) instanceof SeoProject ? $meta['project'] : null;
+            if ($project instanceof SeoProject && $project->isDraftPlanning()) {
+                continue; // draft: planning_month only, no writer capacity
+            }
+
+            $projectMonth = $project instanceof SeoProject
+                ? ContentProjectMonthContext::parseOrNull($project->month)
+                : null;
+            $needsRelocate = $project instanceof SeoProject
+                && ! $project->isDraftPlanning()
+                && $projectMonth !== null
+                && $projectMonth !== $destMonth;
+            if (! $needsRelocate) {
+                continue;
+            }
+
+            $incomingByDest[$destMonth] ??= [];
+            $incomingByDest[$destMonth][] = $taskId;
+        }
+
+        $blocked = 0;
+        $blockedReasons = [];
+        $packing = $this->packing ?? app(ContentProjectExecutionPackingService::class);
+
+        foreach ($incomingByDest as $destMonth => $taskIds) {
+            sort($taskIds);
+            $capacity = $this->destinationIntakeSlots($destMonth, $taskIds, $tasksById, $packing);
+            if ($capacity >= count($taskIds)) {
+                continue;
+            }
+            $overflow = array_slice($taskIds, max(0, $capacity));
+            foreach ($overflow as $taskId) {
+                $from = ContentProjectMonthContext::normalize((string) ($tasksById[$taskId]['planning_month'] ?? ''));
+                if ($from === null) {
+                    continue;
+                }
+                $allocation[$taskId] = $from;
+                $blocked++;
+                $blockedReasons['writer_capacity'] = ($blockedReasons['writer_capacity'] ?? 0) + 1;
+            }
+        }
+
+        $fixed = is_array($plan['fixed_by_month'] ?? null) ? $plan['fixed_by_month'] : [];
+        $target = [];
+        $targetMovable = [];
+        $currentMovable = [];
+        foreach ($months as $month) {
+            $month = (string) $month;
+            $fixed[$month] = max(0, (int) ($fixed[$month] ?? 0));
+            $currentMovable[$month] = 0;
+            $targetMovable[$month] = 0;
+        }
+        foreach ($tasksById as $taskId => $meta) {
+            if (! is_array($meta) || ! ($meta['movable'] ?? false)) {
+                continue;
+            }
+            $from = ContentProjectMonthContext::normalize((string) ($meta['planning_month'] ?? ''));
+            if ($from !== null && isset($currentMovable[$from])) {
+                $currentMovable[$from]++;
+            }
+            $to = ContentProjectMonthContext::normalize((string) ($allocation[$taskId] ?? $from ?? ''));
+            if ($to !== null && isset($targetMovable[$to])) {
+                $targetMovable[$to]++;
+            }
+        }
+        foreach ($months as $month) {
+            $month = (string) $month;
+            $target[$month] = $fixed[$month] + $targetMovable[$month];
+        }
+
+        $moves = [];
+        foreach ($allocation as $taskId => $destMonth) {
+            $taskId = (int) $taskId;
+            $meta = $tasksById[$taskId] ?? null;
+            if (! is_array($meta)) {
+                continue;
+            }
+            $from = ContentProjectMonthContext::normalize((string) ($meta['planning_month'] ?? ''));
+            $to = ContentProjectMonthContext::normalize((string) $destMonth);
+            if ($from !== null && $to !== null && $from !== $to) {
+                $moves[] = ['task_id' => $taskId, 'from' => $from, 'to' => $to];
+            }
+        }
+
+        $fingerprintPayload = [
+            'mode' => (string) ($plan['mode'] ?? ContentProjectMonthBalancePlanner::DEFAULT_MODE),
+            'months' => $months,
+            'fixed' => $fixed,
+            'movable' => array_map(
+                static function (array $row): array {
+                    return ['id' => (int) $row['id'], 'month' => (string) $row['month']];
+                },
+                is_array($snapshot['movable'] ?? null) ? $snapshot['movable'] : [],
+            ),
+            'allocation' => $allocation,
+            'capacity_blocked' => $blocked,
+        ];
+
+        $plan['allocation'] = $allocation;
+        $plan['moves'] = $moves;
+        $plan['move_count'] = count($moves);
+        $plan['target_by_month'] = $target;
+        $plan['target_movable_by_month'] = $targetMovable;
+        $plan['movable_by_month'] = $currentMovable;
+        $plan['imbalance_after'] = $target === [] ? 0 : (max($target) - min($target));
+        $plan['fingerprint'] = hash('sha256', json_encode($fingerprintPayload, JSON_THROW_ON_ERROR));
+        $plan['capacity_blocked'] = $blocked;
+        $plan['capacity_blocked_reasons'] = $blockedReasons;
+
+        return $plan;
+    }
+
+    /**
+     * How many execution relocates the destination month can absorb under writer capacity.
+     *
+     * @param  list<int>  $taskIds
+     * @param  array<int, array<string, mixed>>  $tasksById
+     */
+    private function destinationIntakeSlots(
+        string $destMonth,
+        array $taskIds,
+        array $tasksById,
+        ContentProjectExecutionPackingService $packing,
+    ): int {
+        $destCarbon = Carbon::parse(ContentProjectMonthContext::toDateString($destMonth));
+        $preferWriter = $this->preferWriterForNewBalanceProject($taskIds, $tasksById, $destCarbon);
+
+        $projects = $packing->listAppendableProjectsForMonth($destCarbon);
+        $writerIds = [];
+        foreach ($projects as $project) {
+            $uid = (int) ($project->user_id ?? 0);
+            if ($uid > 0) {
+                $writerIds[$uid] = true;
+            }
+        }
+        if ($preferWriter > 0) {
+            $writerIds[$preferWriter] = true;
+        }
+        $ids = array_map('intval', array_keys($writerIds));
+        if ($ids === []) {
+            return 0;
+        }
+
+        $capacity = $this->writerCapacity ?? app(ContentProjectWriterMonthlyCapacityService::class);
+        $remaining = $capacity->remainingByUserId($ids, $destCarbon);
+        foreach ($remaining as $uid => $slots) {
+            $remaining[(int) $uid] = max(0, (int) $slots);
+        }
+
+        $intake = 0;
+        foreach ($projects as $project) {
+            $uid = (int) ($project->user_id ?? 0);
+            $free = min($packing->freeSlots($project), (int) ($remaining[$uid] ?? 0));
+            if ($free < 1) {
+                continue;
+            }
+            $intake += $free;
+            $remaining[$uid] = max(0, (int) ($remaining[$uid] ?? 0) - $free);
+        }
+
+        if ($preferWriter > 0) {
+            $intake += max(0, (int) ($remaining[$preferWriter] ?? 0));
+        }
+
+        return $intake;
+    }
+
+    /**
      * @param  array<string, mixed>  $snapshot
      * @param  array<string, mixed>  $plan
      * @return array<string, mixed>
@@ -655,6 +860,8 @@ final class ContentProjectMonthBalanceService
             'fixed_total' => (int) $snapshot['fixed_total'],
             'excluded_total' => (int) ($snapshot['excluded_total'] ?? 0),
             'move_count' => (int) $plan['move_count'],
+            'capacity_blocked' => (int) ($plan['capacity_blocked'] ?? 0),
+            'capacity_blocked_reasons' => $plan['capacity_blocked_reasons'] ?? [],
             'fixed_changed' => 0,
             'fixed_reasons' => $snapshot['fixed_reasons'],
             'excluded_reasons' => $snapshot['excluded_reasons'] ?? [],

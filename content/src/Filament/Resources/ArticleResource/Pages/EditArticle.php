@@ -5461,6 +5461,18 @@ class EditArticle extends SeoEditRecord
         );
     }
 
+    /**
+     * Optional Search URL fallback when no published same-domain article matches.
+     * Returns empty string when the site has no configured template.
+     */
+    public function resolveInternalLinkSearchUrl(string $keyword = ''): string
+    {
+        $url = app(\Omnichannel\Addons\Content\Services\SiteInternalLinkSearchUrlTemplate::class)
+            ->buildUrl((int) $this->record->site_id, $keyword);
+
+        return is_string($url) ? $url : '';
+    }
+
     public function generateFeaturedSnippetFromEditor(string $refBlockId, string $position = 'after'): void
     {
         if (! $this->canGenerateFeaturedSnippet()) {

@@ -2380,7 +2380,12 @@ PROMPT;
             $this->aiProviderResolver->assertTextReady((string) $connection->provider);
         } catch (RuntimeException $exception) {
             $meta = is_array($connection->metadata) ? $connection->metadata : [];
-            if (! is_array($meta['provider_template'] ?? null)) {
+            $templateBacked = is_array($meta['provider_template'] ?? null)
+                || ApiConnectionProviders::allowsTemplateBackedText(
+                    (string) $connection->provider,
+                    (int) ($connection->user_id ?? 0),
+                );
+            if (! $templateBacked) {
                 throw new PromptRunException($exception->getMessage());
             }
         }

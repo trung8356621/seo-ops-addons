@@ -406,6 +406,21 @@ function keywordLabel(item) {
     return '—';
 }
 
+function suggestionMetaLabel(item) {
+    const source = String(item?.source_label ?? item?.candidate_source ?? item?.source ?? '').trim();
+    const relationship = String(item?.relationship ?? item?.bucket ?? '').trim();
+    const bits = [];
+    if (source) {
+        bits.push(source);
+    }
+    if (relationship === 'cross_domain') {
+        bits.push('Cross-domain');
+    } else if (relationship === 'internal') {
+        bits.push('Internal');
+    }
+    return bits.join(' · ');
+}
+
 function fullTitle(item, hint) {
     const label = keywordLabel(item);
     const parts = [hint, label];
@@ -414,6 +429,10 @@ function fullTitle(item, hint) {
     }
     if (item?.target_url && item.target_url !== item.href) {
         parts.push(t('links_target_url_hint', { url: item.target_url }));
+    }
+    const meta = suggestionMetaLabel(item);
+    if (meta) {
+        parts.push(meta);
     }
     if (item?.keyword_type) {
         parts.push(t('links_source_hint', { type: item.keyword_type }));
@@ -477,12 +496,22 @@ function renderSemanticBadges(item) {
         return null;
     }
 
+    const meta = suggestionMetaLabel(item);
+    const sourceBadge = meta ? (
+        <span
+            className="wp-article-links-semantic-badge wp-article-links-semantic-badge--type"
+            title={meta}
+        >
+            {meta}
+        </span>
+    ) : null;
+
     const linkType = String(item?.link_type ?? '').trim();
     const semanticRisk = String(item?.semantic_risk ?? '').trim();
 
     // Internal, social, and contact CTA links never show semantic risk badges.
     if (linkType === 'internal' || linkType === 'social' || linkType === 'contact' || item?.is_cta) {
-        return null;
+        return sourceBadge;
     }
 
     if (linkType === 'managed_cross_site') {
@@ -571,7 +600,7 @@ function renderSemanticBadges(item) {
         );
     }
 
-    return null;
+    return sourceBadge;
 }
 
 /**
@@ -902,6 +931,7 @@ function InternalLinksSection({
     onGenerateSuggestions,
     suggestionsLoading = false,
     suggestionsHasResults = false,
+    suggestionsFirstPassDone = false,
     suggestionsExhausted = false,
     suggestionsCanReveal = false,
     suggestionsError = null,
@@ -921,7 +951,9 @@ function InternalLinksSection({
     const showSuggestions = suggestedInternal.length > 0;
     const showExcludedClear = excludedCount > 0;
     const showGenerate = typeof onGenerateSuggestions === 'function';
-    const showFindMore = suggestionsHasResults && (suggestionsCanReveal || !suggestionsExhausted);
+    // First pass may be empty — still allow «Tìm thêm gợi ý» for Semantic on demand.
+    const showFindMore = (suggestionsHasResults || suggestionsFirstPassDone)
+        && (suggestionsCanReveal || !suggestionsExhausted);
     const feedbackPhase = String(suggestionFeedback?.phase ?? 'idle');
     const feedbackText = feedbackPhase === 'idle'
         ? ''
@@ -1601,10 +1633,15 @@ export default function ArticleLinksSidebar({
                 });
             const needInternal = shouldRefetchInternalSuggestions(resolved.internal, { force });
             const needExternal = resolved.external === null;
+            // Second pass = first pass already done (even if lexical returned 0).
             findMore = !force
                 && !needInternal
                 && !needExternal
-                && suggestionCursorRef.current.hasResults === true;
+                && (
+                    suggestionCursorRef.current.phase === 'source1_done'
+                    || suggestionCursorRef.current.phase === 'source2_active'
+                    || suggestionCursorRef.current.hasResults === true
+                );
 
             if (!findMore && !needInternal && !needExternal) {
                 const cached = suggestionsCacheRef.current.get(memoryKey);
@@ -1618,8 +1655,9 @@ export default function ArticleLinksSidebar({
                     setCatalogVersion((value) => value + 1);
                 }
                 const usableCached = countUsableSuggestions();
+                // Keep source1_done so empty lexical still unlocks «Tìm thêm gợi ý».
                 bumpSuggestionCursor({
-                    phase: usableCached > 0 ? 'source1_done' : 'exhausted',
+                    phase: 'source1_done',
                     hasResults: usableCached > 0,
                 });
                 rememberCategoryGenerated({ internal: true, external: true });
@@ -1646,7 +1684,7 @@ export default function ArticleLinksSidebar({
             if (findMore) {
                 bumpSuggestionCursor({
                     phase: 'source2_active',
-                    hasResults: true,
+                    hasResults: suggestionCursorRef.current.hasResults === true,
                 });
                 const payload = await fetchEditorLinksSuggestions(articleId, {
                     content,
@@ -1660,9 +1698,16 @@ export default function ArticleLinksSidebar({
                 }
                 applySuggestionPayload(payload, 'links-suggestions-fallback', { append: true });
                 const fallbackOutcome = publishSuggestionOutcome(payload, countUsableSuggestions());
-                if (fallbackOutcome.phase !== 'error') {
-                    persistSuggestionSession({ contentFingerprint: cacheKey });
+                if (fallbackOutcome.phase === 'error') {
+                    // Keep lexical suggestions; do not claim "no match".
+                    bumpSuggestionCursor({
+                        phase: 'source1_done',
+                        hasResults: suggestionCursorRef.current.hasResults === true
+                            || countUsableSuggestions() > 0,
+                    });
+                    return;
                 }
+                persistSuggestionSession({ contentFingerprint: cacheKey });
                 return;
             }
 
@@ -1704,12 +1749,11 @@ export default function ArticleLinksSidebar({
             // Full staged pipeline already includes generic fallback when needed —
             // do NOT fire a second blue-only HTTP pass.
 
+            // Lexical first pass done — never mark exhausted (semantic still available).
             bumpSuggestionCursor({
-                phase: usableCount > 0 ? 'source1_done' : 'exhausted',
+                phase: 'source1_done',
                 hasResults: usableCount > 0,
             });
-            // After Normal full, Advanced starts at content_deep (expanded discovery),
-            // not a re-walk of the same production pool from product_cat/0.
             persistSuggestionSession({
                 contentFingerprint: cacheKey,
                 generated: nextGenerated,
@@ -2644,6 +2688,7 @@ export default function ArticleLinksSidebar({
                         onGenerateSuggestions={loadLinkSuggestions}
                         suggestionsLoading={suggestionsLoading}
                         suggestionsHasResults={suggestionsHasResults}
+                        suggestionsFirstPassDone={suggestionPhase === 'source1_done' || suggestionPhase === 'source2_active'}
                         suggestionsCanReveal={visibleInternalCount < countUsableSuggestions()}
                         suggestionsExhausted={suggestionPhase === 'exhausted'}
                         suggestionTitle={t('links_semantic_v2_suggestion_title', { count: suggestedInternal.length })}

@@ -308,6 +308,32 @@ final class ContentProjectMonthBalancePlannerTest extends TestCase
         ])['movable']);
     }
 
+    public function test_eligibility_draft_planning_is_movable_despite_compact_safety(): void
+    {
+        $eligibility = new ContentProjectMonthBalanceEligibility;
+
+        $draft = $eligibility->classifyFromFacts([
+            'raw_status' => 'pending',
+            'project_is_draft' => true,
+            'safety_movable' => false,
+            'safety_reason' => 'project_draft',
+            'project_ok' => false,
+            'project_reason' => 'project_draft',
+        ]);
+        self::assertTrue($draft['in_domain']);
+        self::assertTrue($draft['movable']);
+        self::assertFalse($draft['fixed']);
+
+        $running = $eligibility->classifyFromFacts([
+            'raw_status' => 'writing',
+            'project_is_draft' => true,
+            'safety_movable' => false,
+            'safety_reason' => 'project_draft',
+        ]);
+        self::assertTrue($running['fixed']);
+        self::assertSame(ContentProjectMonthBalanceEligibility::REASON_ACTIVE_RUNNING, $running['reason']);
+    }
+
     public function test_generated_excluded_from_balance_domain_not_fixed_load(): void
     {
         $eligibility = new ContentProjectMonthBalanceEligibility;
@@ -356,9 +382,13 @@ final class ContentProjectMonthBalancePlannerTest extends TestCase
         self::assertStringContainsString("! (\$gate['in_domain']", $service);
         self::assertStringContainsString('excluded_total', $service);
         self::assertStringContainsString('planPackForBalanceMonth', $service);
+        self::assertStringContainsString('constrainPlanByCapacity', $service);
         self::assertStringContainsString('DEFAULT_MODE', $service);
         self::assertStringContainsString('normalizeMode', $service);
         self::assertDoesNotMatchRegularExpression('/\$packing->planPack\(/', $service);
+
+        self::assertStringContainsString('isDraftPlanning()', $eligibility);
+        self::assertStringContainsString('project_draft', $eligibility);
     }
 
     public function test_month_context_nearby_and_shift(): void
@@ -412,6 +442,8 @@ final class ContentProjectMonthBalancePlannerTest extends TestCase
         self::assertStringContainsString('balance_months_col_before', $list);
         self::assertStringContainsString('balance_months_stat_will_move', $list);
         self::assertStringContainsString('balance_months_stat_fixed_stay', $list);
+        self::assertStringContainsString('balance_months_stat_capacity_left', $list);
+        self::assertStringContainsString('balance_months_stat_fixed_reasons', $list);
         self::assertStringContainsString('space-y-4', $list);
         self::assertStringContainsString('px-3 py-2.5', $list);
         self::assertStringNotContainsString('balance_months_stat_fixed_changed', $list);

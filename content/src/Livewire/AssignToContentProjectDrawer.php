@@ -638,10 +638,15 @@ class AssignToContentProjectDrawer extends Component
         }
 
         $placeholderHref = trim($result->placeholderHref);
+        if ($placeholderHref !== '' && str_starts_with($placeholderHref, '#')) {
+            $placeholderHref = '';
+        }
+        $searchUrl = trim($result->searchUrl);
 
         $this->dispatch(
             'pending-internal-link-ready',
             placeholderHref: $placeholderHref,
+            searchUrl: $searchUrl,
             message: $result->message,
         );
 
@@ -650,6 +655,8 @@ class AssignToContentProjectDrawer extends Component
             .json_encode([
                 'placeholderHref' => $placeholderHref,
                 'placeholder_href' => $placeholderHref,
+                'searchUrl' => $searchUrl,
+                'search_url' => $searchUrl,
                 'message' => $result->message,
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
             .'}));'

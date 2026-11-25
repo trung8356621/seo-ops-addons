@@ -74,6 +74,8 @@ final class SearchIntelligenceServiceProvider extends ServiceProvider
         });
         $this->app->singleton(ConceptMatchingClient::class);
         $this->app->singleton(IndustryGroupSemanticMatcher::class);
+        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\VocabularyKeywordIntelligenceIngestionService::class);
+        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\VocabularySuggestDevBackfillService::class);
 
         // Centralized provider selection — default remains legacy (safe).
         $this->app->singleton(TopicGroupingProvider::class, function ($app) {

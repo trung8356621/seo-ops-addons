@@ -4,6 +4,7 @@ import { Loader2, Monitor, Smartphone, Sparkles, X } from 'lucide-react';
 import {
     applyArticleSeoMetaSaveResult,
     executePromptHookViaApi,
+    formatAiErrorToastBody,
     readArticleMetaFromDom,
     saveSeoMetaViaApi,
 } from '@content-addon/utils/articleEditorApi.js';
@@ -391,7 +392,7 @@ export default function ArticleGoogleSerpPreview({
                 new CustomEvent('seo-article-editor-notify', {
                     detail: {
                         title: t('prompt_hook_meta_failed'),
-                        body: error?.message ?? t('prompt_hook_try_again'),
+                        body: formatAiErrorToastBody(error, t('prompt_hook_try_again')),
                         status: 'danger',
                     },
                 }),

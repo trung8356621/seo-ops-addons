@@ -11,6 +11,11 @@ use Omnichannel\Addons\Seo\Support\LinkSuggestionScoreScale;
 use Omnichannel\Addons\WordPress\Services\WordPressInternalLinkTargetPolicy;
 use Illuminate\Database\Eloquent\Builder;
 
+/**
+ * Editor popup search — WordPress-synced permalinks only ({@see WordPressInternalLinkTargetPolicy}).
+ *
+ * Pending-keyword Search URL fallback is {@see SiteInternalLinkSearchUrlTemplate}, not this service.
+ */
 final class ArticleInternalLinkSearchService
 {
     public const REASON_TITLE_EXACT = 'title_exact';
@@ -62,6 +67,7 @@ final class ArticleInternalLinkSearchService
         $currentLanguage = $current instanceof SeoArticle ? ((string) ($current->language ?? '') ?: 'vi') : 'vi';
         $escaped = str_replace(['%', '_'], ['\%', '\_'], $query);
         $poolLimit = min(100, max(40, $limit * 5));
+        $focusKeys = ['seo_focus_keyword', 'rank_math_focus_keyword'];
         $builder = SeoArticle::query()
             ->with(['site', 'articleMetas', 'wordpressLink'])
             ->where('site_id', $siteId)
@@ -69,9 +75,15 @@ final class ArticleInternalLinkSearchService
             ->where('language', $currentLanguage)
             ->notContentArchived()
             ->hasWpPostId()
-            ->where(function (Builder $inner) use ($query, $escaped): void {
+            ->where(function (Builder $inner) use ($query, $escaped, $focusKeys): void {
+                // Retrieval only — focus keyword participates before scoring.
+                // Do not require title/slug match first.
                 $inner->where('title', 'like', '%'.$escaped.'%')
-                    ->orWhere('slug', 'like', '%'.$escaped.'%');
+                    ->orWhere('slug', 'like', '%'.$escaped.'%')
+                    ->orWhereHas('articleMetas', static function (Builder $meta) use ($escaped, $focusKeys): void {
+                        $meta->whereIn('meta_key', $focusKeys)
+                            ->where('meta_value', 'like', '%'.$escaped.'%');
+                    });
 
                 if (ctype_digit($query)) {
                     $inner->orWhere('id', (int) $query);

@@ -213,11 +213,43 @@ final class ProviderConnectionResolver
         }
 
         return ! isset($this->catalog->builtins()[$template->providerKey])
-            && ! in_array($template->providerKey, [
-                ApiConnectionProviders::GEMINI,
-                ApiConnectionProviders::DEEPSEEK,
-                ApiConnectionProviders::OPENROUTER,
-                ApiConnectionProviders::CLAUDE,
-            ], true);
+            && ! in_array($template->providerKey, ApiConnectionProviders::builtinAiKeys(), true);
+    }
+
+    /**
+     * OpenAI-compatible model discovery when the template enables GET models.
+     */
+    public function supportsOpenAiCompatibleDiscovery(ApiConnection $connection): bool
+    {
+        try {
+            $template = $this->resolve($connection)->effectiveTemplate();
+        } catch (AiProviderTemplateException) {
+            return false;
+        }
+
+        if (! in_array($template->protocol->value, [
+            \Omnichannel\Addons\AiPrompt\Support\AiProviderProtocol::OpenaiCompatible->value,
+            \Omnichannel\Addons\AiPrompt\Support\AiProviderProtocol::Openrouter->value,
+        ], true)) {
+            return false;
+        }
+
+        $models = $template->endpoints['models'] ?? [];
+
+        return ! empty($models['enabled']);
+    }
+
+    public function isOpenAiCompatibleProtocol(ApiConnection $connection): bool
+    {
+        try {
+            $template = $this->resolve($connection)->effectiveTemplate();
+        } catch (AiProviderTemplateException) {
+            return false;
+        }
+
+        return in_array($template->protocol->value, [
+            \Omnichannel\Addons\AiPrompt\Support\AiProviderProtocol::OpenaiCompatible->value,
+            \Omnichannel\Addons\AiPrompt\Support\AiProviderProtocol::Openrouter->value,
+        ], true);
     }
 }

@@ -37,8 +37,10 @@ final class PlanningDraftIntakeResult
         public readonly array $articleIds = [],
         public readonly array $keywordIds = [],
         public readonly array $taskIds = [],
-        /** Pending-link editor placeholder (#hash) or resolved target URL. */
+        /** Published permalink (or empty). New path never returns #placeholder hashes. */
         public readonly string $placeholderHref = '',
+        /** Optional Search URL template expansion for user-chosen fallback. */
+        public readonly string $searchUrl = '',
     ) {}
 
     public function isSuccess(): bool

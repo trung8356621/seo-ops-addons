@@ -163,159 +163,346 @@ function makePool(count) {
     return out;
 }
 
-function manyH3(prefix, count) {
-    const parts = [];
-    for (let i = 1; i <= count; i += 1) {
-        parts.push(`<h3>${prefix}.${i}</h3><p>Nội dung ${prefix}.${i}.</p>`);
-    }
-    return parts.join('');
+/** Deterministic RNG cycling through fixed unit values. */
+function sequenceRng(values) {
+    let i = 0;
+    return () => {
+        const value = values[i % values.length];
+        i += 1;
+        return value;
+    };
 }
 
-describe('ctaGenerator H2-only density', () => {
+function words(n, seed = 'từ') {
+    const parts = [];
+    for (let i = 0; i < n; i += 1) {
+        parts.push(`${seed}${i}`);
+    }
+    return parts.join(' ');
+}
+
+function para(n, seed = 'nội') {
+    return `<p>${words(n, seed)}</p>`;
+}
+
+/**
+ * Build a long article with 7 H2s and nested H3s totaling ~targetWords.
+ */
+function buildLongArticle({ h2Count = 7, h3PerH2 = 3, targetWords = 6595, existingCtaIndexes = [] } = {}) {
+    const sections = Math.max(1, h2Count);
+    const nested = Math.max(0, h3PerH2);
+    const bodySlots = sections * (1 + nested); // one direct H2 body + each H3 body
+    const perSlot = Math.max(20, Math.floor(targetWords / bodySlots));
+    const parts = [];
+    let slot = 0;
+    for (let h = 1; h <= sections; h += 1) {
+        parts.push(`<h2>Phần ${h}</h2>`);
+        parts.push(para(perSlot, `h2${h}w`));
+        slot += 1;
+        if (existingCtaIndexes.includes(h)) {
+            parts.push(`<div class="seo-managed-cta" data-cta-placement="cta_h2_${h}">[seo_ops_cta style="soft"]CTA sẵn ${h}[/seo_ops_cta]</div>`);
+        }
+        for (let s = 1; s <= nested; s += 1) {
+            parts.push(`<h3>Phần ${h}.${s}</h3>`);
+            parts.push(para(perSlot, `h3${h}${s}w`));
+            slot += 1;
+        }
+    }
+    // Top up remaining words on last paragraph if needed.
+    const html = parts.join('');
+    return html;
+}
+
+describe('ctaGenerator word-density + H2/H3 placement', () => {
     let analyzeArticleForCta;
     let planCtaGeneration;
     let applyCtaGenerationPlan;
+    let countCtaContentWords;
+    let selectPoolTemplatesForPoints;
     let detectCtas;
+    let WORDS_PER_CTA;
 
     before(async () => {
         installDom();
-        ({ analyzeArticleForCta, planCtaGeneration, applyCtaGenerationPlan } = await import('../utils/ctaGenerator.js'));
+        ({
+            analyzeArticleForCta,
+            planCtaGeneration,
+            applyCtaGenerationPlan,
+            countCtaContentWords,
+            selectPoolTemplatesForPoints,
+            WORDS_PER_CTA,
+        } = await import('../utils/ctaGenerator.js'));
         ({ detectCtas } = await import('../utils/ctaDetector.js'));
     });
 
-    it('3 H2 + many H3 => max 1 CTA at end of first H2 group', () => {
+    it('1) 650 words => target 1 CTA', () => {
+        const html = `<h2>A</h2>${para(650, 'a')}`;
+        const analysis = analyzeArticleForCta(html);
+        assert.equal(WORDS_PER_CTA, 650);
+        assert.ok(analysis.wordCount >= 650);
+        assert.equal(analysis.targetCtas, Math.floor(analysis.wordCount / 650));
+        assert.equal(analysis.maxAllowed, analysis.targetCtas);
+        assert.equal(analysis.remainingQuota, analysis.targetCtas);
+        const plan = planCtaGeneration(html, makePool(5), { rng: sequenceRng([0]) });
+        assert.equal(plan.proposals.length, Math.min(1, analysis.safePoints.length));
+    });
+
+    it('2) 1500 words => target 2 CTAs', () => {
         const html = [
-            '<h2>Phần 1</h2><p>Nội dung phần 1.</p>',
-            manyH3('1', 5),
-            '<h2>Phần 2</h2><p>Nội dung phần 2.</p>',
-            manyH3('2', 5),
-            '<h2>Phần 3</h2><p>Nội dung phần 3.</p>',
-            manyH3('3', 5),
+            `<h2>A</h2>${para(500, 'a')}`,
+            `<h2>B</h2>${para(500, 'b')}`,
+            `<h2>C</h2>${para(500, 'c')}`,
         ].join('');
-
-        const plan = planCtaGeneration(html, makePool(10));
-        assert.equal(plan.analysis.eligibleHeadingCount, 3);
-        assert.equal(plan.analysis.maxAllowed, 1);
-        assert.equal(plan.proposals.length, 1);
-        assert.equal(plan.proposals[0].heading, 'Phần 3');
-
-        const applied = applyCtaGenerationPlan(html, plan);
-        assert.equal(applied.inserted, 1);
-        assert.equal(detectCtas(applied.html).shortcodes.length, 1);
-
-        const second = planCtaGeneration(applied.html, makePool(10));
-        assert.equal(second.canInsert, false);
-        assert.equal(second.reason, 'density_reached');
+        const analysis = analyzeArticleForCta(html);
+        assert.equal(analysis.targetCtas, Math.floor(analysis.wordCount / 650));
+        assert.ok(analysis.targetCtas >= 2);
+        const plan = planCtaGeneration(html, makePool(10), { rng: sequenceRng([0, 0.5]) });
+        assert.equal(plan.analysis.maxAllowed, plan.analysis.targetCtas);
+        assert.ok(plan.proposals.length <= plan.analysis.remainingQuota);
+        assert.ok(plan.proposals.length >= 1);
     });
 
-    it('6 H2 + many H3 => max 2 CTAs; 9 H2 => max 3; 1 H2 => 0', () => {
-        const six = [];
-        for (let i = 1; i <= 6; i += 1) {
-            six.push(`<h2>Phần ${i}</h2><p>Nội dung ${i}.</p>${manyH3(String(i), 3)}`);
-        }
-        const sixPlan = planCtaGeneration(six.join(''), makePool(10));
-        assert.equal(sixPlan.analysis.eligibleHeadingCount, 6);
-        assert.equal(sixPlan.analysis.maxAllowed, 2);
-        assert.equal(sixPlan.proposals.length, 2);
-        assert.equal(sixPlan.proposals[0].heading, 'Phần 3');
-        assert.equal(sixPlan.proposals[1].heading, 'Phần 6');
-
-        const nine = [];
-        for (let i = 1; i <= 9; i += 1) {
-            nine.push(`<h2>Phần ${i}</h2><p>Nội dung ${i}.</p>`);
-        }
-        const ninePlan = planCtaGeneration(nine.join(''), makePool(20));
-        assert.equal(ninePlan.analysis.eligibleHeadingCount, 9);
-        assert.equal(ninePlan.proposals.length, 3);
-
-        const one = planCtaGeneration(`<h2>Only</h2><p>Body.</p>${manyH3('1', 10)}`, makePool(10));
-        assert.equal(one.analysis.eligibleHeadingCount, 1);
-        assert.equal(one.analysis.maxAllowed, 0);
-        assert.equal(one.canInsert, false);
-        assert.equal(one.reason, 'density_reached');
-    });
-
-    it('skips H2 subtree that already has a CTA and does not move legacy CTAs', () => {
-        const legacy = '<div class="seo-managed-cta" data-cta-placement="cta_old">[seo_ops_cta style="soft"]CTA cũ[/seo_ops_cta]</div>';
-        const html = [
-            '<h2>Phần 1</h2><p>Nội dung 1.</p>',
-            '<h2>Phần 2</h2><p>Nội dung 2.</p>',
-            legacy,
-            '<h3>2.1</h3><p>Con của phần 2.</p>',
-            '<h2>Phần 3</h2><p>Nội dung 3.</p>',
-            '<h2>Phần 4</h2><p>Nội dung 4.</p>',
-            '<h2>Phần 5</h2><p>Nội dung 5.</p>',
-            '<h2>Phần 6</h2><p>Nội dung 6.</p>',
-        ].join('');
-
-        const plan = planCtaGeneration(html, makePool(10));
-        assert.equal(plan.analysis.eligibleHeadingCount, 6);
-        assert.equal(plan.analysis.existingCount, 1);
-        assert.equal(plan.analysis.maxAllowed, 2);
-        // Group 1 (H2 1-3) already has CTA in H2#2 → skip; group 2 (H2 4-6) gets one at end.
-        assert.equal(plan.proposals.length, 1);
-        assert.equal(plan.proposals[0].heading, 'Phần 6');
-
-        const applied = applyCtaGenerationPlan(html, plan);
-        assert.ok(applied.html.includes(legacy));
-        assert.equal(detectCtas(applied.html).shortcodes.length, 2);
-    });
-
-    it('9 H2 with 2 existing CTAs can add at most 1 more in a free group', () => {
-        const cta = (id) => `<div class="seo-managed-cta" data-cta-placement="${id}">[seo_ops_cta style="soft"]Body ${id}[/seo_ops_cta]</div>`;
+    it('3) 3000 words => target 4 CTAs', () => {
         const parts = [];
-        for (let i = 1; i <= 9; i += 1) {
-            parts.push(`<h2>Phần ${i}</h2><p>Nội dung ${i}.</p>`);
-            if (i === 2 || i === 5) {
-                parts.push(cta(`cta_${i}`));
+        for (let i = 1; i <= 6; i += 1) {
+            parts.push(`<h2>Phần ${i}</h2>${para(500, `p${i}`)}`);
+        }
+        const html = parts.join('');
+        const analysis = analyzeArticleForCta(html);
+        assert.equal(analysis.targetCtas, Math.floor(analysis.wordCount / 650));
+        assert.ok(analysis.targetCtas >= 4);
+        const plan = planCtaGeneration(html, makePool(20), { rng: () => 0.1 });
+        assert.ok(plan.proposals.length <= analysis.remainingQuota);
+        assert.ok(plan.proposals.length >= Math.min(4, analysis.safeH2Count));
+    });
+
+    it('4) ~6595 words => target 10 CTAs', () => {
+        const html = buildLongArticle({ h2Count: 7, h3PerH2: 3, targetWords: 6595 });
+        const analysis = analyzeArticleForCta(html);
+        assert.ok(analysis.wordCount >= 6500, `wordCount=${analysis.wordCount}`);
+        assert.equal(analysis.targetCtas, Math.floor(analysis.wordCount / 650));
+        assert.ok(analysis.targetCtas >= 10);
+        assert.equal(analysis.maxAllowed, analysis.targetCtas);
+    });
+
+    it('5) 7 H2 needing 10 CTAs falls back to H3 ends', () => {
+        const html = buildLongArticle({ h2Count: 7, h3PerH2: 3, targetWords: 6595 });
+        const plan = planCtaGeneration(html, makePool(20), { rng: () => 0.2 });
+        assert.ok(plan.analysis.safeH2Count <= 7);
+        assert.ok(plan.analysis.safeH3Count > 0);
+        assert.ok(plan.proposals.length > plan.analysis.safeH2Count || plan.proposals.some((p) => p.headingTag === 'h3'));
+        const tags = new Set(plan.proposals.map((p) => p.headingTag));
+        assert.ok(tags.has('h2'));
+        assert.ok(tags.has('h3'), 'should use H3 when H2 alone cannot cover quota');
+    });
+
+    it('6) H2 with many H3s inserts at true H2 end (after nested H3 bodies)', () => {
+        const html = [
+            '<h2>Phần 1</h2>',
+            para(200, 'a'),
+            '<h3>1.1</h3>',
+            para(200, 'b'),
+            '<h3>1.2</h3>',
+            para(200, 'c'),
+            '<h2>Phần 2</h2>',
+            para(400, 'd'),
+        ].join('');
+        const analysis = analyzeArticleForCta(html);
+        const h2Point = analysis.safeH2Points.find((p) => p.heading === 'Phần 1');
+        assert.ok(h2Point);
+        const h3Points = analysis.safeH3Points.filter((p) => p.parentH2SectionId === h2Point.sectionId);
+        assert.equal(h3Points.length, 2);
+        assert.ok(h2Point.anchorChildIndex > h3Points[0].anchorChildIndex);
+        assert.equal(h2Point.anchorChildIndex, h3Points[1].anchorChildIndex);
+    });
+
+    it('7) consecutive H3s get distinct end anchors', () => {
+        const html = [
+            '<h2>Phần 1</h2>',
+            para(100, 'a'),
+            '<h3>1.1</h3>',
+            para(100, 'b'),
+            '<h3>1.2</h3>',
+            para(100, 'c'),
+            '<h3>1.3</h3>',
+            para(100, 'd'),
+        ].join('');
+        const analysis = analyzeArticleForCta(html);
+        assert.equal(analysis.safeH3Count, 3);
+        const anchors = analysis.safeH3Points.map((p) => p.anchorChildIndex);
+        assert.equal(new Set(anchors).size, 3);
+    });
+
+    it('8) existing CTAs are preserved and reduce remaining quota', () => {
+        const legacy = '<div class="seo-managed-cta" data-cta-placement="cta_old">[seo_ops_cta style="soft"]CTA cũ[/seo_ops_cta]</div>';
+        const parts = [];
+        for (let i = 1; i <= 8; i += 1) {
+            parts.push(`<h2>Phần ${i}</h2>${para(400, `p${i}`)}`);
+            if (i === 2) {
+                parts.push(legacy);
             }
         }
-        const plan = planCtaGeneration(parts.join(''), makePool(10));
-        assert.equal(plan.analysis.existingCount, 2);
-        assert.equal(plan.analysis.maxAllowed, 3);
-        assert.equal(plan.proposals.length, 1);
-        assert.equal(plan.proposals[0].heading, 'Phần 9');
-    });
-
-    it('excludes H1/H3/H4/FAQ and never inserts into FAQ or empty H2', () => {
-        const html = [
-            '<h1>H1 title</h1>',
-            '<h2>Phần 1</h2>',
-            '<h2>Phần 2</h2><p>Nội dung 2.</p>',
-            '<h4>H4 sub</h4><p>Nội dung H4.</p>',
-            '<h2>Câu hỏi thường gặp</h2>',
-            '<h3>Câu hỏi 1?</h3><p>Trả lời 1.</p>',
-            '<p class="omi-faq-placeholder" data-omi-faq="1">[omi_faq]</p>',
-        ].join('');
-
+        const html = parts.join('');
         const analysis = analyzeArticleForCta(html);
-        assert.equal(analysis.eligibleHeadingCount, 2);
-        assert.equal(analysis.maxAllowed, 0);
+        assert.equal(analysis.existingCount, 1);
+        assert.equal(analysis.remainingQuota, Math.max(0, analysis.targetCtas - 1));
 
-        const oneSafe = planCtaGeneration(
-            '<h2>A</h2><h2>B</h2><h2>C</h2><p>Only C has body.</p>',
-            makePool(5),
-        );
-        assert.equal(oneSafe.analysis.safePoints.length, 1);
-        assert.equal(oneSafe.proposals[0].heading, 'C');
-    });
-
-    it('returns empty_pool and preserves shortcodes byte-for-byte when adding remaining quota', () => {
-        assert.equal(planCtaGeneration('<h2>A</h2><p>1</p><h2>B</h2><p>2</p><h2>C</h2><p>3</p>', []).reason, 'empty_pool');
-
-        const legacy = '<p>[seo_ops_cta style="soft" placement="cta_001" intent="product_discovery"]Xem mẫu cũ [website][/seo_ops_cta]</p>';
-        const html = [
-            '<h2>Phần 1</h2><p>Nội dung 1.</p>',
-            legacy,
-            '<h2>Phần 2</h2><p>Nội dung 2.</p>',
-            '<h2>Phần 3</h2><p>Nội dung 3.</p>',
-            '<h2>Phần 4</h2><p>Nội dung 4.</p>',
-            '<h2>Phần 5</h2><p>Nội dung 5.</p>',
-            '<h2>Phần 6</h2><p>Nội dung 6.</p>',
-        ].join('');
-        const plan = planCtaGeneration(html, makePool(20));
-        assert.equal(plan.proposals.length, 1);
+        const plan = planCtaGeneration(html, makePool(20), { rng: () => 0.3 });
         const applied = applyCtaGenerationPlan(html, plan);
         assert.ok(applied.html.includes(legacy));
+        assert.ok(applied.html.includes('CTA cũ'));
+    });
+
+    it('9) second generator run does not duplicate when density already reached', () => {
+        const parts = [];
+        for (let i = 1; i <= 6; i += 1) {
+            parts.push(`<h2>Phần ${i}</h2>${para(500, `p${i}`)}`);
+        }
+        const html = parts.join('');
+        const first = planCtaGeneration(html, makePool(20), { rng: () => 0.15 });
+        assert.ok(first.canInsert);
+        const applied = applyCtaGenerationPlan(html, first);
+        assert.ok(applied.inserted > 0);
+
+        const second = planCtaGeneration(applied.html, makePool(20), { rng: () => 0.15 });
+        const before = detectCtas(applied.html).shortcodes.length;
+        if (second.canInsert) {
+            const again = applyCtaGenerationPlan(applied.html, second);
+            const after = detectCtas(again.html).shortcodes.length;
+            assert.ok(after >= before);
+            // No duplicate placement ids from first batch.
+            for (const p of first.proposals) {
+                const occurrences = again.html.split(`data-cta-placement="${p.id}"`).length - 1;
+                assert.equal(occurrences, 1);
+            }
+        } else {
+            assert.ok(['density_reached', 'no_safe_position'].includes(second.reason));
+        }
+    });
+
+    it('10) FAQ / table / list / shortcode zones are not used as insert anchors incorrectly', () => {
+        const html = [
+            '<h2>Phần 1</h2>',
+            para(300, 'a'),
+            '<table><tr><td>bảng</td></tr></table>',
+            '<ul><li>mục một</li><li>mục hai</li></ul>',
+            '<h2>Câu hỏi thường gặp</h2>',
+            '<h3>Hỏi 1?</h3>',
+            para(50, 'faq'),
+            '<p class="omi-faq-placeholder" data-omi-faq="1">[omi_faq]</p>',
+            '<h2>Phần 2</h2>',
+            para(300, 'b'),
+        ].join('');
+        const analysis = analyzeArticleForCta(html);
+        assert.ok(analysis.safePoints.every((p) => !/faq|câu hỏi thường gặp/i.test(p.heading)));
+        const plan = planCtaGeneration(html, makePool(5), { rng: () => 0 });
+        if (plan.canInsert) {
+            const applied = applyCtaGenerationPlan(html, plan);
+            assert.ok(applied.html.includes('omi-faq-placeholder'));
+            assert.ok(applied.html.includes('<table>'));
+            assert.ok(applied.html.includes('<ul>'));
+            assert.ok(!applied.html.includes('data-omi-faq="1"[seo_ops_cta'));
+        }
+    });
+
+    it('11) pool smaller than quota allows reuse across rounds', () => {
+        const parts = [];
+        for (let i = 1; i <= 10; i += 1) {
+            parts.push(`<h2>Phần ${i}</h2>${para(400, `p${i}`)}`);
+            parts.push(`<h3>${i}.1</h3>${para(300, `s${i}`)}`);
+        }
+        const html = parts.join('');
+        const analysis = analyzeArticleForCta(html);
+        assert.ok(analysis.remainingQuota > 3);
+        const pool = makePool(3);
+        const plan = planCtaGeneration(html, pool, { rng: sequenceRng([0, 0.3, 0.6, 0.1, 0.4, 0.7, 0.2]) });
+        assert.ok(plan.proposals.length > pool.length);
+        const slotIds = plan.proposals.map((p) => p.slotId);
+        assert.ok(new Set(slotIds).size <= pool.length);
+    });
+
+    it('12) injectable RNG makes pool selection deterministic', () => {
+        const points = [
+            { sectionId: 'h2_1', heading: 'A' },
+            { sectionId: 'h2_2', heading: 'B' },
+            { sectionId: 'h2_3', heading: 'C' },
+        ];
+        const pool = makePool(5);
+        const a = selectPoolTemplatesForPoints(pool, points, { shortcodes: [], texts: [] }, sequenceRng([0, 0, 0]));
+        const b = selectPoolTemplatesForPoints(pool, points, { shortcodes: [], texts: [] }, sequenceRng([0, 0, 0]));
+        assert.deepEqual(
+            a.map((row) => row.template.slot_id),
+            b.map((row) => row.template.slot_id),
+        );
+    });
+
+    it('13) apply does not destroy article body HTML', () => {
+        const marker = '<p>Đoạn quan trọng tiếng Việt có dấu.</p>';
+        const html = [
+            '<h2>Phần 1</h2>',
+            marker,
+            para(400, 'a'),
+            '<h2>Phần 2</h2>',
+            para(400, 'b'),
+            '<h2>Phần 3</h2>',
+            para(400, 'c'),
+        ].join('');
+        const plan = planCtaGeneration(html, makePool(10), { rng: () => 0.25 });
+        const applied = applyCtaGenerationPlan(html, plan);
+        assert.ok(applied.html.includes(marker));
+        assert.ok(applied.html.includes('Đoạn quan trọng tiếng Việt có dấu'));
+        assert.ok(applied.html.includes('<h2>Phần 1</h2>'));
+        assert.ok(applied.html.includes('<h2>Phần 3</h2>'));
+    });
+
+    it('14) preview/apply fields remain compatible for Article Editor panel', () => {
+        const html = [
+            `<h2>A</h2>${para(400, 'a')}`,
+            `<h2>B</h2>${para(400, 'b')}`,
+            `<h2>C</h2>${para(400, 'c')}`,
+        ].join('');
+        const plan = planCtaGeneration(html, makePool(8), { rng: () => 0.4 });
+        assert.equal(typeof plan.analysis.maxAllowed, 'number');
+        assert.equal(typeof plan.analysis.remainingQuota, 'number');
+        assert.equal(typeof plan.analysis.wordCount, 'number');
+        assert.equal(typeof plan.analysis.targetCtas, 'number');
+        assert.equal(plan.analysis.maxAllowed, plan.analysis.targetCtas);
+        if (plan.canInsert) {
+            assert.ok(plan.proposals[0].managedHtml.includes('seo-managed-cta'));
+            assert.ok(plan.proposals[0].managedHtml.includes('seo_ops_cta'));
+            const applied = applyCtaGenerationPlan(html, plan);
+            assert.equal(applied.ok, true);
+            assert.ok(applied.inserted > 0);
+        }
+    });
+
+    it('word counter ignores HTML tags, shortcodes, and CTA bodies', () => {
+        assert.equal(countCtaContentWords('Xin chào thế giới'), 4);
+        // Shortcode syntax stripped; plain words between tags still count at text level.
+        assert.equal(countCtaContentWords('Một [seo_ops_cta style="soft"][/seo_ops_cta] ba'), 2);
+        assert.equal(countCtaContentWords('Một [omi_faq] ba'), 2);
+        const html = [
+            '<h2>Tiêu đề</h2>',
+            '<p>Một hai ba bốn năm</p>',
+            '<div class="seo-managed-cta">[seo_ops_cta]CTA dài không đếm vào quota từ[/seo_ops_cta]</div>',
+            '<p class="omi-faq-placeholder" data-omi-faq="1">[omi_faq]</p>',
+        ].join('');
+        // FAQ heading not present; faq placeholder alone ends analysis after first section content.
+        const withFaqH2 = [
+            '<h2>Mở</h2>',
+            '<p>Một hai ba bốn năm sáu</p>',
+            '<h2>Câu hỏi thường gặp</h2>',
+            '<p class="omi-faq-placeholder" data-omi-faq="1">[omi_faq] metadata không đếm</p>',
+        ].join('');
+        const analysis = analyzeArticleForCta(withFaqH2);
+        assert.equal(analysis.wordCount, 6);
+        assert.ok(!Number.isNaN(analysis.wordCount));
+    });
+
+    it('empty pool and density_reached reasons still work', () => {
+        assert.equal(planCtaGeneration(`<h2>A</h2>${para(700, 'a')}`, []).reason, 'empty_pool');
+        const short = planCtaGeneration('<h2>A</h2><p>Ngắn.</p>', makePool(3));
+        assert.equal(short.analysis.targetCtas, 0);
+        assert.equal(short.reason, 'density_reached');
     });
 });

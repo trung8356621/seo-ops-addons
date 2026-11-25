@@ -170,6 +170,25 @@ final class AiProviderFailureClassifier
             );
         }
 
+        // OpenRouter (and similar relays) return HTTP 400 "Request path cannot be relayed"
+        // for upstream/network path blocks — NOT an application payload bug. Stop retrying
+        // the same connection; allow fallback to other providers/routes.
+        if ($this->matchesProviderRelayPathBlocked($httpStatus, $lower)) {
+            return $this->allow(
+                category: AiFailureClass::TransientProvider,
+                scope: AiFailureScope::Connection,
+                safeMessage: 'Provider relay path unavailable.',
+                errorCode: $httpStatus > 0 ? (string) $httpStatus : 'relay_path_blocked',
+                httpStatus: $httpStatus > 0 ? $httpStatus : null,
+                healthStatus: AiRuntimeHealthStatus::Degraded,
+                applyCooldown: true,
+                failureStage: 'provider_http',
+                providerErrorCode: $providerCode,
+                requestSent: true,
+                responseReceived: true,
+            );
+        }
+
         if ($this->matchesRequestInvalid($httpStatus, $lower, $providerCode)) {
             return $this->deny(
                 category: AiFailureClass::RequestInvalid,
@@ -760,8 +779,29 @@ final class AiProviderFailureClassifier
             || str_contains($lower, 'request entity too large');
     }
 
+    /**
+     * Provider relay/gateway rejected the outbound path (transport), not our JSON schema.
+     */
+    private function matchesProviderRelayPathBlocked(int $httpStatus, string $lower): bool
+    {
+        if ($httpStatus !== 400 && $httpStatus !== 0) {
+            // Also match when status is embedded only in the message body.
+            if ($httpStatus > 0) {
+                return false;
+            }
+        }
+
+        return str_contains($lower, 'request path cannot be relayed')
+            || str_contains($lower, 'path cannot be relayed')
+            || str_contains($lower, 'cannot be relayed');
+    }
+
     private function matchesRequestInvalid(int $httpStatus, string $lower, ?string $providerCode): bool
     {
+        if ($this->matchesProviderRelayPathBlocked($httpStatus, $lower)) {
+            return false;
+        }
+
         if (in_array($httpStatus, [400, 422], true)) {
             // Prefer context-limit wording when both match.
             if ($this->matchesContextLimit($httpStatus, $lower, $providerCode)) {

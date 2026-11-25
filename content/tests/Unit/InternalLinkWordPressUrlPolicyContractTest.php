@@ -31,6 +31,7 @@ final class InternalLinkWordPressUrlPolicyContractTest extends TestCase
         self::assertStringNotContainsString('getPermalinkBase', $searchSrc);
         self::assertStringNotContainsString("\$base.'/'.ltrim(\$slug", $searchSrc);
         self::assertStringNotContainsString('WordPressPermalinkBuilder', $searchSrc);
+        self::assertStringContainsString('SiteInternalLinkSearchUrlTemplate', $searchSrc);
     }
 
     public function test_keyword_resolver_prefers_focus_article_over_stale_target_url(): void

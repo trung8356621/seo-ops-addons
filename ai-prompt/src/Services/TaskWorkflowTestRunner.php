@@ -139,7 +139,8 @@ final class TaskWorkflowTestRunner
                     'type' => (string) ($node['type'] ?? ''),
                     'title' => (string) ($node['title'] ?? 'Bước'),
                     'status' => 'failed',
-                    'message' => $exception->getMessage(),
+                    'message' => $this->presentAiExceptionMessage($exception, $node),
+                    'error_details' => $this->presentAiExceptionDetails($exception, $node),
                 ];
                 if ($this->isOutlineRoleNode($node)) {
                     $outlineFailed = true;
@@ -387,7 +388,8 @@ final class TaskWorkflowTestRunner
                     'type' => (string) ($node['type'] ?? ''),
                     'title' => (string) ($node['title'] ?? 'Bước'),
                     'status' => 'failed',
-                    'message' => $exception->getMessage(),
+                    'message' => $this->presentAiExceptionMessage($exception, $node),
+                    'error_details' => $this->presentAiExceptionDetails($exception, $node),
                     'execution_role' => $roleValue,
                     'hook_key' => $hookFromNode !== '' ? $hookFromNode : null,
                 ];
@@ -4429,5 +4431,43 @@ final class TaskWorkflowTestRunner
         }
 
         return $videoPrompt;
+    }
+
+    /**
+     * @param  array<string, mixed>  $node
+     */
+    private function presentAiExceptionMessage(\Throwable $exception, array $node = []): string
+    {
+        try {
+            return $this->presentAiException($exception, $node)->message;
+        } catch (\Throwable) {
+            return $exception->getMessage();
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $node
+     * @return array<string, mixed>|null
+     */
+    private function presentAiExceptionDetails(\Throwable $exception, array $node = []): ?array
+    {
+        try {
+            return $this->presentAiException($exception, $node)->toArray();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $node
+     */
+    private function presentAiException(\Throwable $exception, array $node = []): \Omnichannel\Addons\AiPrompt\DataTransfer\AiErrorPresentation
+    {
+        $hookKey = trim((string) ($node['data']['hook_key'] ?? $node['hook_key'] ?? ''));
+
+        return (new AiErrorPresenter())->presentFromThrowable($exception, [
+            'hook_key' => $hookKey !== '' ? $hookKey : null,
+            'step' => trim((string) ($node['title'] ?? '')) ?: null,
+        ]);
     }
 }

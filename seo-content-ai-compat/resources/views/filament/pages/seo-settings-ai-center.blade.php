@@ -18,6 +18,7 @@
                     editingProfile: @js($editingProfile),
                     routingUnsaved: @js($routingUnsaved),
                 })"
+                @ai-center-models-connection-changed.window="clearPendingOrders()"
             >
                 <header class="seo-settings-header">
                     <h1>{{ __('seo-content-ai::filament.ai_center.title') }}</h1>
@@ -89,6 +90,22 @@
                                 </button>
                             </p>
                         </section>
+
+                        <div class="seo-ai-toolbar seo-ai-toolbar--connection">
+                            <label class="seo-ai-connection-select">
+                                <span class="seo-ai-muted">{{ __('seo-content-ai::filament.ai_center.models_connection_label') }}</span>
+                                <select wire:model.live="modelsConnectionId" aria-label="{{ __('seo-content-ai::filament.ai_center.models_connection_label') }}">
+                                    @forelse ($this->modelsConnectionOptions() as $connOpt)
+                                        <option value="{{ $connOpt['id'] }}">
+                                            {{ $connOpt['label'] }}@if (! ($connOpt['enabled'] ?? true)) ({{ __('seo-content-ai::filament.ai_center.status_inactive') }})@endif
+                                        </option>
+                                    @empty
+                                        <option value="">{{ __('seo-content-ai::filament.ai_center.models_connection_empty') }}</option>
+                                    @endforelse
+                                </select>
+                            </label>
+                            <p class="seo-ai-muted">{{ __('seo-content-ai::filament.ai_center.models_connection_help') }}</p>
+                        </div>
 
                         <nav class="seo-ai-segment seo-ai-segment--wide" aria-label="{{ __('seo-content-ai::filament.ai_center.models_page_title') }}">
                             @foreach (\Omnichannel\Addons\AiPrompt\Support\AiModelArea::uiCases() as $areaEnum)
@@ -183,8 +200,9 @@
                             <div
                                 x-show="activeCapability === '{{ $areaKey }}'"
                                 x-cloak
-                                wire:key="ai-center-models-{{ $areaKey }}"
+                                wire:key="ai-center-models-{{ $areaKey }}-{{ $this->modelsConnectionId ?? 0 }}"
                                 data-models-area="{{ $areaKey }}"
+                                data-models-connection="{{ $this->modelsConnectionId ?? 0 }}"
                                 data-area-summary="{{ $areaCount['enabled'] }} {{ __('seo-content-ai::filament.ai_center.enabled') }} · {{ $areaCount['available'] }} {{ __('seo-content-ai::filament.ai_center.status_available') }}"
                                 data-add-label="{{ __('seo-content-ai::filament.ai_center.add_area_models.'.$areaKey) }}"
                             >
@@ -192,6 +210,7 @@
                                     :area="$areaKey"
                                     :models="$this->areaModelRowsFor($areaKey)"
                                     :can-reorder="$this->canReorderModels()"
+                                    :connection-id="$this->modelsConnectionId"
                                 />
                             </div>
                         @endforeach
@@ -1200,18 +1219,28 @@
                     this.routingUnsaved = true;
                     this.$wire.toggleFamily(key, familyKey);
                 },
-                markModelsOrder(area, ids) {
-                    this.pendingOrders[area] = ids;
+                markModelsOrder(area, ids, connectionId) {
+                    const cid = Number(connectionId || this.$wire.modelsConnectionId || 0);
+                    const key = area + '@' + cid;
+                    this.pendingOrders[key] = { area, connectionId: cid, ids };
                     this.modelsOrderDirty = Object.keys(this.pendingOrders).length > 0;
                 },
+                clearPendingOrders() {
+                    this.pendingOrders = {};
+                    this.modelsOrderDirty = false;
+                },
                 async saveModelOrders() {
-                    const entries = Object.entries(this.pendingOrders);
+                    const entries = Object.values(this.pendingOrders);
                     if (entries.length === 0) {
                         return;
                     }
                     try {
-                        for (const [area, ids] of entries) {
-                            const ok = await this.$wire.reorderCapabilityModels(area, ids);
+                        for (const entry of entries) {
+                            const ok = await this.$wire.reorderCapabilityModels(
+                                entry.area,
+                                entry.ids,
+                                entry.connectionId || null,
+                            );
                             if (ok === false) {
                                 return;
                             }
@@ -1242,13 +1271,14 @@
                 },
                 notifyDirty() {
                     const area = this.$root.dataset.area;
+                    const connectionId = Number(this.$root.dataset.connectionId || 0);
                     const ids = this.ids();
                     let parent = this.$root.parentElement;
                     while (parent) {
                         if (parent._x_dataStack) {
                             const data = Alpine.$data(parent);
                             if (data && typeof data.markModelsOrder === 'function') {
-                                data.markModelsOrder(area, ids);
+                                data.markModelsOrder(area, ids, connectionId);
                                 break;
                             }
                         }

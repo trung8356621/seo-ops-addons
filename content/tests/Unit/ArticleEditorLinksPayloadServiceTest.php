@@ -54,23 +54,26 @@ final class ArticleEditorLinksPayloadServiceTest extends TestCase
         self::assertStringNotContainsString('->suggestExternalCatalog(', $body);
     }
 
-    public function test_link_assistant_runs_lexical_search_before_semantic_v2(): void
+    public function test_link_assistant_first_pass_is_lexical_only_without_semantic_fallback(): void
     {
         $source = (string) file_get_contents(
             (string) (new ReflectionClass(ArticleEditorLinksPayloadService::class))->getFileName(),
         );
-        $body = $this->methodBody(ArticleEditorLinksPayloadService::class, 'suggestInternalLinks');
+        $lexicalBody = $this->methodBody(ArticleEditorLinksPayloadService::class, 'suggestLexicalOnly');
+        $semanticBody = $this->methodBody(ArticleEditorLinksPayloadService::class, 'suggestSemanticOnly');
+        $mergeBody = $this->methodBody(ArticleEditorLinksPayloadService::class, 'mergeSemanticSuggestions');
+        $fallbackBody = $this->methodBody(ArticleEditorLinksPayloadService::class, 'withFallbackOnly');
 
         self::assertStringContainsString('ArticleInternalLinkLexicalSuggester', $source);
-        self::assertStringContainsString('suggestInternalLinks', $source);
-        self::assertStringContainsString('ArticleInternalLinkLexicalSuggester::class', $body);
-        self::assertStringContainsString('InternalLinkV2Suggester::class', $body);
-        self::assertLessThan(
-            strpos($body, 'InternalLinkV2Suggester::class') ?: PHP_INT_MAX,
-            strpos($body, 'ArticleInternalLinkLexicalSuggester::class') ?: PHP_INT_MAX,
-        );
-        self::assertStringContainsString("['suggestion_source'] = 'lexical_search'", $body);
-        self::assertStringContainsString("['suggestion_source'] = 'semantic_v2'", $body);
+        self::assertStringContainsString('ArticleInternalLinkLexicalSuggester::class', $lexicalBody);
+        self::assertStringNotContainsString('InternalLinkV2Suggester::class', $lexicalBody);
+        self::assertStringContainsString('InternalLinkV2Suggester::class', $semanticBody);
+        self::assertStringContainsString('suggestLexicalOnly', $mergeBody);
+        self::assertStringNotContainsString('suggestSemanticOnly', $mergeBody);
+        self::assertStringContainsString('suggestSemanticOnly', $fallbackBody);
+        self::assertStringContainsString("['suggestion_source'] = 'lexical_search'", $lexicalBody);
+        self::assertStringContainsString("['suggestion_source'] = 'semantic_v2'", $semanticBody);
+        self::assertStringContainsString("['suggestions_exhausted'] = false", $mergeBody);
     }
 
     public function test_service_never_calls_seo_payload_bundle(): void

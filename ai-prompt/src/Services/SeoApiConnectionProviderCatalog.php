@@ -50,6 +50,8 @@ class SeoApiConnectionProviderCatalog
             ApiConnectionProviders::CLAUDE => $this->claudeDefinition(),
             ApiConnectionProviders::DEEPSEEK => $this->deepseekDefinition(),
             ApiConnectionProviders::OPENROUTER => $this->openrouterDefinition(),
+            ApiConnectionProviders::NVIDIA => $this->nvidiaDefinition(),
+            ApiConnectionProviders::CUSTOM_OPENAI => $this->customOpenAiDefinition(),
             ApiConnectionProviders::GOOGLE_SEARCH_CONSOLE => $this->gscDefinition(),
             ApiConnectionProviders::DATAFORSEO => $this->dataForSeoDefinition(),
             ApiConnectionProviders::SERPAPI => $this->serpApiDefinition(),
@@ -335,6 +337,48 @@ class SeoApiConnectionProviderCatalog
             description: __('seo-content-ai::filament.api_connections.provider_openrouter_desc'),
             documentationUrl: 'https://openrouter.ai/keys',
             priority: 16,
+            settingsSupported: true,
+            performanceTabSupported: false,
+            supportedCapabilities: [],
+            implementedCapabilities: [],
+            dashboardSections: [],
+            dashboardActions: [],
+            requiredCredentials: ['api_key'],
+            bestFor: null,
+        );
+    }
+
+    private function nvidiaDefinition(): SeoProviderDefinition
+    {
+        return new SeoProviderDefinition(
+            key: ApiConnectionProviders::NVIDIA,
+            label: __('seo-content-ai::filament.api_connections.provider_nvidia'),
+            connectionType: ApiConnectionType::Ai,
+            category: SeoProviderCategory::SeoSuite,
+            description: __('seo-content-ai::filament.api_connections.provider_nvidia_desc'),
+            documentationUrl: 'https://build.nvidia.com/',
+            priority: 17,
+            settingsSupported: true,
+            performanceTabSupported: false,
+            supportedCapabilities: [],
+            implementedCapabilities: [],
+            dashboardSections: [],
+            dashboardActions: [],
+            requiredCredentials: ['api_key'],
+            bestFor: null,
+        );
+    }
+
+    private function customOpenAiDefinition(): SeoProviderDefinition
+    {
+        return new SeoProviderDefinition(
+            key: ApiConnectionProviders::CUSTOM_OPENAI,
+            label: __('seo-content-ai::filament.api_connections.provider_custom_openai'),
+            connectionType: ApiConnectionType::Ai,
+            category: SeoProviderCategory::SeoSuite,
+            description: __('seo-content-ai::filament.api_connections.provider_custom_openai_desc'),
+            documentationUrl: null,
+            priority: 18,
             settingsSupported: true,
             performanceTabSupported: false,
             supportedCapabilities: [],

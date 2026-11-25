@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Support;
 
+use Omnichannel\Addons\AiPrompt\Services\OpenRouterModelEconomics;
+
 /**
  * Built-in model → capability map. Never infers image/video from provider alone.
  *
@@ -138,5 +140,38 @@ final class BuiltInModelCapabilityCatalog
         }
 
         return $model;
+    }
+
+    /**
+     * Heuristic capabilities for OpenAI-compatible catalogs (NVIDIA NIM, custom gateways).
+     * Returns [] for clearly non-chat ids; null when model id is empty.
+     *
+     * @return list<string>|null
+     */
+    public static function openAiCompatibleTextCapabilitiesFor(string $model): ?array
+    {
+        $model = self::normalizeModel($model);
+        if ($model === '') {
+            return null;
+        }
+        if (OpenRouterModelEconomics::looksLikeNonChatId($model)) {
+            return [];
+        }
+        $lower = strtolower($model);
+        if (str_contains($lower, 'guard')
+            || str_contains($lower, 'safety')
+            || str_contains($lower, 'detector')
+            || str_contains($lower, 'retriev')
+            || str_contains($lower, 'rerank')
+            || str_contains($lower, 'embed')) {
+            return [];
+        }
+
+        return [
+            AiModelCapability::TextGenerate->value,
+            AiModelCapability::TextReasoning->value,
+            AiModelCapability::StructuredOutput->value,
+            AiModelCapability::ToolCall->value,
+        ];
     }
 }

@@ -15,6 +15,7 @@ use Omnichannel\Addons\SearchFoundation\Models\SeoPendingInternalLink;
 use Omnichannel\Addons\Seo\Services\SeoIssueProjectTaskAssignmentService;
 use Omnichannel\Addons\WordPress\Services\ArticleWordPressSyncFlagService;
 use Omnichannel\Addons\WordPress\Services\WordPressInternalLinkTargetPolicy;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 final class ArticlePendingInternalLinkService
@@ -26,15 +27,23 @@ final class ArticlePendingInternalLinkService
         private readonly ArticleKeywordLinkReconcileService $articleReconcile,
         private readonly KeywordProjectAssignmentService $keywordProjectAssignment,
         private readonly SeoIssueProjectTaskAssignmentService $seoIssueAssignment,
+        private readonly SiteInternalLinkSearchUrlTemplate $searchUrlTemplate,
     ) {}
 
     /**
+     * New Link Assistant path: published permalink → optional Search URL (user-chosen) →
+     * Content Project keyword idea only. Does NOT create #placeholder hrefs.
+     *
+     * Legacy SeoPendingInternalLink rows remain resolvable via resolveForKeyword().
+     *
      * @return array{
      *     success: bool,
      *     placeholder_href?: string,
+     *     search_url?: string|null,
      *     keyword_id?: int,
      *     assigned_to_project?: bool,
      *     already_has_target?: bool,
+     *     insert_mode?: string,
      *     message?: string,
      * }
      */
@@ -77,16 +86,18 @@ final class ArticlePendingInternalLinkService
                 return [
                     'success' => true,
                     'placeholder_href' => $targetUrl,
+                    'search_url' => null,
                     'keyword_id' => $keywordId,
                     'assigned_to_project' => false,
                     'already_has_target' => true,
+                    'insert_mode' => 'permalink',
                     'message' => __('seo-content-ai::filament.article_edit.pending_link_existing_target'),
                 ];
             }
         }
 
         $assignedToProject = false;
-        $message = __('seo-content-ai::filament.article_edit.pending_link_created');
+        $message = __('seo-content-ai::filament.article_edit.pending_link_project_only');
 
         if ($projectId !== null && $projectId > 0) {
             $keyword->refresh();
@@ -95,7 +106,7 @@ final class ArticlePendingInternalLinkService
             $existingProjectForSite = $this->keywordProjectAssignment->keywordAssignedContentProjectIdForSite($keyword, $siteId);
             if ($existingProjectForSite === $projectId) {
                 $assignedToProject = true;
-                $message = __('seo-content-ai::filament.article_edit.pending_link_assigned');
+                $message = __('seo-content-ai::filament.article_edit.pending_link_project_only');
             } elseif ($existingProjectForSite !== null) {
                 return [
                     'success' => false,
@@ -123,7 +134,7 @@ final class ArticlePendingInternalLinkService
 
                 if ($added > 0 || $duplicate > 0) {
                     $assignedToProject = true;
-                    $message = __('seo-content-ai::filament.article_edit.pending_link_assigned');
+                    $message = __('seo-content-ai::filament.article_edit.pending_link_project_only');
                 } else {
                     return [
                         'success' => false,
@@ -135,24 +146,28 @@ final class ArticlePendingInternalLinkService
             $message = __('seo-content-ai::filament.article_edit.pending_link_no_content_project');
         }
 
-        try {
-            $pending = $this->findReusablePending($sourceArticle, $keywordId, $anchorPhrase)
-                ?? $this->createPending($sourceArticle, $keywordId, $anchorPhrase, $siteId);
-        } catch (\Throwable $exception) {
-            report($exception);
-
+        $searchUrl = $this->searchUrlTemplate->buildUrl($siteId, $anchorPhrase);
+        if ($searchUrl !== null && $searchUrl !== '') {
             return [
-                'success' => false,
-                'message' => __('seo-content-ai::filament.article_edit.pending_link_storage_failed'),
+                'success' => true,
+                'placeholder_href' => '',
+                'search_url' => $searchUrl,
+                'keyword_id' => $keywordId,
+                'assigned_to_project' => $assignedToProject,
+                'already_has_target' => false,
+                'insert_mode' => 'search_url',
+                'message' => __('seo-content-ai::filament.article_edit.pending_link_search_url_available'),
             ];
         }
 
         return [
             'success' => true,
-            'placeholder_href' => $pending->placeholderHref(),
+            'placeholder_href' => '',
+            'search_url' => null,
             'keyword_id' => $keywordId,
             'assigned_to_project' => $assignedToProject,
             'already_has_target' => false,
+            'insert_mode' => 'project_only',
             'message' => $message,
         ];
     }

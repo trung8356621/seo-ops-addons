@@ -244,11 +244,21 @@ final class ModelCapabilityRegistry
      */
     private function providerTextOnlyPolicy(string $provider, string $model): ?array
     {
-        if (strtolower($provider) !== ApiConnectionProviders::DEEPSEEK) {
-            return null;
+        $provider = strtolower(trim($provider));
+        if ($provider === ApiConnectionProviders::DEEPSEEK) {
+            return BuiltInModelCapabilityCatalog::deepseekCapabilitiesFor($model) ?? [];
         }
 
-        return BuiltInModelCapabilityCatalog::deepseekCapabilitiesFor($model) ?? [];
+        // NVIDIA NIM + other OpenAI-compatible text endpoints: chat-like ids get text
+        // capabilities without hard-coding every model name. Embed/image/video-looking
+        // ids stay empty so Unknown ≠ auto-enabled multimedia.
+        if ($provider === ApiConnectionProviders::NVIDIA
+            || ApiConnectionProviders::allowsTemplateBackedText($provider)
+            || ApiConnectionProviders::isCustomOpenAiProvider($provider)) {
+            return BuiltInModelCapabilityCatalog::openAiCompatibleTextCapabilitiesFor($model);
+        }
+
+        return null;
     }
 
     /**

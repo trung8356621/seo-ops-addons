@@ -74,7 +74,10 @@ final class PromptHookExecuteControllerTest extends TestCase
         $payload = $response->getData(true);
         self::assertFalse($payload['success']);
         self::assertSame('HOOK_PROMPT_NOT_CONFIGURED', $payload['error']);
-        self::assertSame('No prompt configured.', $payload['message']);
+        self::assertArrayHasKey('error_details', $payload);
+        self::assertIsArray($payload['error_details']);
+        self::assertSame($payload['message'], $payload['error_details']['message']);
+        self::assertStringContainsString('SEO-OPS', $payload['message']);
     }
 
     public function test_maps_article_forbidden(): void

@@ -128,11 +128,18 @@ final class AiModelPriorityServiceTest extends TestCase
         $reasoner = $this->model($deepseek, 'deepseek-reasoner', AiModelCategory::DEEPSEEK_REASONER, 20);
         $this->grantText($deepseek, $chat);
         $this->grantText($deepseek, $reasoner);
+        $this->priorities->appendToArea(2, AiModelArea::TextFast, [(int) $chat->id, (int) $reasoner->id]);
         $this->priorities->reorderModels(2, (int) $deepseek->id, [(int) $reasoner->id, (int) $chat->id]);
-        $resolved = $this->targets->eligibleCandidates(2, AiExecutionProfile::TextFast, new AiRoutingContext(userId: 2));
+        $this->priorities->reorderCapabilityModels(
+            2,
+            AiModelArea::TextFast,
+            [(int) $reasoner->id, (int) $chat->id],
+            (int) $deepseek->id,
+        );
+        $ordered = $this->priorities->effectiveAreaModels(2, AiModelArea::TextFast);
         $this->assertSame(['deepseek-reasoner', 'deepseek-chat'], array_map(
-            static fn ($candidate): string => $candidate->model,
-            $resolved,
+            static fn (SeoAiModel $model): string => (string) $model->raw_model_name,
+            $ordered,
         ));
     }
 
@@ -236,10 +243,13 @@ final class AiModelPriorityServiceTest extends TestCase
         $viaRouter = $this->model($openrouter, 'google/gemini-3-flash-preview', AiModelCategory::GEMINI_FLASH, 10);
         $this->grantText($gemini, $native);
         $this->grantText($openrouter, $viaRouter);
-        $resolved = $this->targets->eligibleCandidates(7, AiExecutionProfile::TextFast, new AiRoutingContext(userId: 7));
+        $this->priorities->appendToArea(7, AiModelArea::TextFast, [(int) $native->id, (int) $viaRouter->id]);
+        // Order authority under test (connection then model). Avoid eligibleCandidates here —
+        // Free Models first-migrate side effects are outside this sortable task.
+        $ordered = $this->priorities->effectiveAreaModels(7, AiModelArea::TextFast);
         $this->assertSame(['google/gemini-3-flash-preview', 'gemini-3-flash-preview'], array_map(
-            static fn ($candidate): string => $candidate->model,
-            $resolved,
+            static fn (SeoAiModel $model): string => (string) $model->raw_model_name,
+            $ordered,
         ));
         $this->priorities->reorderModels(7, (int) $gemini->id, [(int) $native->id]);
         $native->refresh();
@@ -327,15 +337,19 @@ final class AiModelPriorityServiceTest extends TestCase
     {
         $deepseek = $this->connection(11, ApiConnectionProviders::DEEPSEEK, 'DeepSeek');
         $gemini = $this->connection(11, ApiConnectionProviders::GEMINI, 'Gemini');
+        // Cross-connection order = Routing-tab connection priority; model order is per connection.
+        $this->priorities->reorderProviders(11, [(int) $gemini->id, (int) $deepseek->id]);
         $chat = $this->model($deepseek, 'deepseek-chat', AiModelCategory::DEEPSEEK_CHAT, 10);
         $flash = $this->model($gemini, 'gemini-3-flash-preview', AiModelCategory::GEMINI_FLASH, 20);
         $this->grantText($deepseek, $chat, [AiModelCapability::TextGenerate->value]);
         $this->grantText($gemini, $flash, [AiModelCapability::TextGenerate->value]);
-        $this->priorities->reorderCapabilityModels(11, AiModelArea::Text, [(int) $flash->id, (int) $chat->id]);
-        $resolved = $this->targets->eligibleCandidates(11, AiExecutionProfile::TextFast, new AiRoutingContext(userId: 11));
+        $this->priorities->reorderCapabilityModels(11, AiModelArea::Text, [(int) $flash->id], (int) $gemini->id);
+        $this->priorities->reorderCapabilityModels(11, AiModelArea::Text, [(int) $chat->id], (int) $deepseek->id);
+        // Authority under test: connection then per-connection model priority (not joint list reorder).
+        $ordered = $this->priorities->effectiveAreaModels(11, AiModelArea::TextFast);
         $this->assertSame(['gemini-3-flash-preview', 'deepseek-chat'], array_map(
-            static fn ($candidate): string => $candidate->model,
-            $resolved,
+            static fn (SeoAiModel $model): string => (string) $model->raw_model_name,
+            $ordered,
         ));
         $flash->refresh();
         $this->assertSame(1, (int) ($flash->capabilities['omi_areas']['text']['priority'] ?? 0));

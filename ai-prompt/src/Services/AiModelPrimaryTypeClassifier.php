@@ -77,6 +77,7 @@ final class AiModelPrimaryTypeClassifier
 
             $area = $this->classify($connection, $model, $caps, $raw, $routingHints);
             $this->writeAutoPrimary($model, $area);
+            $this->clearSpuriousAutoDisabledMembership($model);
             $classified++;
 
             if ($isOpenRouter && OpenRouterModelEconomics::isFree($caps, $raw)) {
@@ -217,6 +218,9 @@ final class AiModelPrimaryTypeClassifier
             }
         }
 
+        // Primary-type classification must NOT invent area membership.
+        // Writing enabled=false blocked Unknown → Add and stamped models as "disabled".
+        // Only migrate legacy Text membership into the classified primary lane.
         if (! $anyNew && $legacyEnabled) {
             foreach (AiModelArea::textPrimaryCases() as $textArea) {
                 $enabled = $textArea === $area;
@@ -226,15 +230,49 @@ final class AiModelPrimaryTypeClassifier
                     'source' => AiModelArea::SOURCE_AUTO,
                 ];
             }
-        } elseif (! $anyNew) {
-            $areas[$area->value] = [
-                'enabled' => ! empty($areas[$area->value]['enabled']),
-                'priority' => (int) (($areas[$area->value]['priority'] ?? null) ?: ($model->priority ?: 100)),
-                'source' => AiModelArea::SOURCE_AUTO,
-            ];
+            $caps[AiModelPriorityService::AREAS_KEY] = $areas;
         }
 
-        $caps[AiModelPriorityService::AREAS_KEY] = $areas;
+        $model->capabilities = $caps;
+        $model->save();
+    }
+
+    /**
+     * Remove auto-stamped enabled=false membership left by older classifiers.
+     * Preserves manual disables and any enabled membership.
+     */
+    private function clearSpuriousAutoDisabledMembership(SeoAiModel $model): void
+    {
+        $caps = is_array($model->capabilities) ? $model->capabilities : [];
+        $areas = is_array($caps[AiModelPriorityService::AREAS_KEY] ?? null)
+            ? $caps[AiModelPriorityService::AREAS_KEY]
+            : [];
+        if ($areas === []) {
+            return;
+        }
+        $changed = false;
+        foreach ($areas as $key => $bag) {
+            if (! is_array($bag) || ! array_key_exists('enabled', $bag)) {
+                continue;
+            }
+            if ((bool) $bag['enabled']) {
+                continue;
+            }
+            $source = (string) ($bag['source'] ?? '');
+            if ($source !== '' && $source !== AiModelArea::SOURCE_AUTO) {
+                continue;
+            }
+            unset($areas[$key]);
+            $changed = true;
+        }
+        if (! $changed) {
+            return;
+        }
+        if ($areas === []) {
+            unset($caps[AiModelPriorityService::AREAS_KEY]);
+        } else {
+            $caps[AiModelPriorityService::AREAS_KEY] = $areas;
+        }
         $model->capabilities = $caps;
         $model->save();
     }

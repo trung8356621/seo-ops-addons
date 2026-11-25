@@ -32,6 +32,20 @@ final class ApiConnectionFormSchema
                     $set('metadata.base_url', null);
                     $set('metadata.base_url_override', null);
                     $set('metadata.override_base_url', false);
+                    if (ApiConnectionProviders::isCustomFormMode($state)) {
+                        $set('name', '');
+                        $set('custom_provider.provider_name', '');
+                        $set('custom_provider.provider_key', '');
+                        $set('custom_provider.short_code', '');
+                        $set('custom_provider.base_url', '');
+                        $set('custom_provider.auth_type', 'bearer');
+                        $set('custom_provider.models_path', '/models');
+                        $set('custom_provider.text_path', '/chat/completions');
+                        $set('custom_provider.model_discovery', true);
+                        $set('custom_provider.manual_models', '');
+
+                        return;
+                    }
                     $newLabel = is_string($state) && $state !== '' ? ApiConnectionProviders::label($state) : '';
                     $oldLabel = is_string($old) && $old !== '' ? ApiConnectionProviders::label($old) : '';
                     $name = trim((string) $get('name'));
@@ -42,15 +56,99 @@ final class ApiConnectionFormSchema
                 ->helperText(fn (Get $get): ?HtmlString => self::providerHelper($get('provider'))),
             Forms\Components\TextInput::make('name')
                 ->label(__('seo-content-ai::filament.ai_connection.name'))
-                ->required()
+                ->required(fn (Get $get): bool => ! ApiConnectionProviders::isCustomFormMode($get('provider'))
+                    && ! self::showsCustomProviderFields($get, $operation))
+                ->visible(fn (Get $get): bool => ! ApiConnectionProviders::isCustomFormMode($get('provider'))
+                    && ! self::showsCustomProviderFields($get, $operation))
                 ->default(fn (): string => ApiConnectionProviders::label(ApiConnectionProviders::GEMINI))
                 ->maxLength(255),
+            Forms\Components\Section::make(__('seo-content-ai::filament.ai_connection.custom_openai_heading'))
+                ->description(__('seo-content-ai::filament.ai_connection.custom_openai_hint'))
+                ->visible(fn (Get $get): bool => ApiConnectionProviders::isCustomFormMode($get('provider'))
+                    || self::showsCustomProviderFields($get, $operation))
+                ->schema([
+                    Forms\Components\TextInput::make('custom_provider.provider_name')
+                        ->label(__('seo-content-ai::filament.ai_connection.custom_provider_name'))
+                        ->required()
+                        ->live(onBlur: true)
+                        ->afterStateUpdated(function (?string $state, Forms\Set $set, Get $get) use ($operation): void {
+                            $name = trim((string) $state);
+                            $set('name', $name);
+                            if ($operation !== 'create') {
+                                return;
+                            }
+                            $factory = app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderCustomFormFactory::class);
+                            $key = trim((string) $get('custom_provider.provider_key'));
+                            if ($key === '' && $name !== '') {
+                                $set('custom_provider.provider_key', $factory->slugify($name));
+                            }
+                            $code = trim((string) $get('custom_provider.short_code'));
+                            if ($code === '' && $name !== '') {
+                                $set('custom_provider.short_code', \Omnichannel\Addons\AiPrompt\Support\AiConnectionShortCode::generate($name));
+                            }
+                        })
+                        ->maxLength(255),
+                    Forms\Components\TextInput::make('custom_provider.provider_key')
+                        ->label(__('seo-content-ai::filament.ai_connection.custom_provider_key'))
+                        ->helperText(__('seo-content-ai::filament.ai_connection.custom_provider_key_help'))
+                        ->required(fn (): bool => $operation === 'create')
+                        ->disabled(fn (): bool => $operation === 'edit')
+                        ->dehydrated()
+                        ->rule('regex:/^[a-z][a-z0-9_-]{1,63}$/')
+                        ->maxLength(64),
+                    Forms\Components\TextInput::make('custom_provider.short_code')
+                        ->label(__('seo-content-ai::filament.ai_connection.custom_short_code'))
+                        ->helperText(__('seo-content-ai::filament.ai_connection.custom_short_code_help'))
+                        ->maxLength(8),
+                    Forms\Components\TextInput::make('custom_provider.base_url')
+                        ->label(__('seo-content-ai::filament.ai_connection.base_url'))
+                        ->helperText(__('seo-content-ai::filament.ai_connection.custom_base_url_help'))
+                        ->required()
+                        ->url()
+                        ->maxLength(255),
+                    Forms\Components\Select::make('custom_provider.auth_type')
+                        ->label(__('seo-content-ai::filament.ai_connection.custom_auth_type'))
+                        ->options([
+                            'bearer' => 'Bearer API Key',
+                            'header' => 'Header (x-api-key)',
+                            'query' => 'Query parameter',
+                        ])
+                        ->default('bearer')
+                        ->native(false)
+                        ->required(),
+                    Forms\Components\TextInput::make('custom_provider.models_path')
+                        ->label(__('seo-content-ai::filament.ai_connection.models_endpoint'))
+                        ->default('/models')
+                        ->required()
+                        ->maxLength(255),
+                    Forms\Components\TextInput::make('custom_provider.text_path')
+                        ->label(__('seo-content-ai::filament.ai_connection.text_endpoint'))
+                        ->default('/chat/completions')
+                        ->required()
+                        ->maxLength(255),
+                    Forms\Components\Toggle::make('custom_provider.model_discovery')
+                        ->label(__('seo-content-ai::filament.ai_connection.custom_model_discovery'))
+                        ->helperText(__('seo-content-ai::filament.ai_connection.custom_model_discovery_help'))
+                        ->default(true)
+                        ->live(),
+                    Forms\Components\Textarea::make('custom_provider.manual_models')
+                        ->label(__('seo-content-ai::filament.ai_connection.custom_manual_models'))
+                        ->helperText(__('seo-content-ai::filament.ai_connection.custom_manual_models_help'))
+                        ->rows(3)
+                        ->visible(fn (Get $get): bool => ! (bool) $get('custom_provider.model_discovery')),
+                ])
+                ->columns(2),
             Forms\Components\TextInput::make('api_key')
                 ->label(__('seo-content-ai::filament.ai_connection.api_key'))
                 ->password()
                 ->revealable()
-                ->visible(fn (Get $get): bool => ApiConnectionProviders::isAi($get('provider')))
-                ->required(fn (Get $get): bool => ApiConnectionProviders::isAi($get('provider')) && $operation === 'create')
+                ->visible(fn (Get $get): bool => ApiConnectionProviders::isAi($get('provider'))
+                    || ApiConnectionProviders::isCustomFormMode($get('provider'))
+                    || self::showsCustomProviderFields($get, $operation))
+                ->required(fn (Get $get): bool => (
+                    ApiConnectionProviders::isAi($get('provider'))
+                    || ApiConnectionProviders::isCustomFormMode($get('provider'))
+                ) && $operation === 'create')
                 ->dehydrated(fn (?string $state): bool => filled($state))
                 ->maxLength(65535)
                 ->helperText(__('seo-content-ai::filament.ai_connection.helper_sync')),
@@ -58,7 +156,7 @@ final class ApiConnectionFormSchema
                 ->label(__('seo-content-ai::filament.ai_connection.transport'))
                 ->content(function (Get $get): HtmlString {
                     $provider = (string) $get('provider');
-                    if (! self::isTemplateBacked($provider)) {
+                    if (ApiConnectionProviders::isCustomFormMode($provider) || ! self::isTemplateBacked($provider)) {
                         return new HtmlString('');
                     }
                     try {
@@ -75,10 +173,14 @@ final class ApiConnectionFormSchema
                         .'</div>'
                     );
                 })
-                ->visible(fn (Get $get): bool => self::isTemplateBacked((string) $get('provider'))),
+                ->visible(fn (Get $get): bool => self::isTemplateBacked((string) $get('provider'))
+                    && ! ApiConnectionProviders::isCustomFormMode($get('provider'))
+                    && ! self::showsCustomProviderFields($get, $operation)),
             Forms\Components\Section::make(__('seo-content-ai::filament.ai_connection.technical_details'))
                 ->collapsed()
-                ->visible(fn (Get $get): bool => self::isTemplateBacked((string) $get('provider')))
+                ->visible(fn (Get $get): bool => self::isTemplateBacked((string) $get('provider'))
+                    && ! ApiConnectionProviders::isCustomFormMode($get('provider'))
+                    && ! self::showsCustomProviderFields($get, $operation))
                 ->schema([
                     Forms\Components\Placeholder::make('tech_protocol')
                         ->label(__('seo-content-ai::filament.ai_connection.protocol'))
@@ -98,7 +200,9 @@ final class ApiConnectionFormSchema
                 ]),
             Forms\Components\Section::make(__('seo-content-ai::filament.ai_connection.advanced'))
                 ->collapsed()
-                ->visible(fn (Get $get): bool => self::allowsOverride((string) $get('provider')))
+                ->visible(fn (Get $get): bool => self::allowsOverride((string) $get('provider'))
+                    && ! ApiConnectionProviders::isCustomFormMode($get('provider'))
+                    && ! self::showsCustomProviderFields($get, $operation))
                 ->schema([
                     Forms\Components\Toggle::make('metadata.override_base_url')
                         ->label(__('seo-content-ai::filament.ai_connection.override_base_url'))
@@ -123,14 +227,17 @@ final class ApiConnectionFormSchema
                     'inactive' => __('seo-content-ai::filament.ai_connection.inactive'),
                 ])
                 ->default('active')
-                ->visible(fn (Get $get): bool => ApiConnectionProviders::isAi($get('provider')))
+                ->visible(fn (Get $get): bool => ApiConnectionProviders::isAi($get('provider'))
+                    || ApiConnectionProviders::isCustomFormMode($get('provider')))
                 ->native(false),
             Forms\Components\Toggle::make('paid_locked')
                 ->label(__('seo-content-ai::filament.api_connections.free_only_form_label'))
                 ->helperText(__('seo-content-ai::filament.api_connections.free_only_form_help'))
                 ->default(false)
-                ->visible(fn (Get $get): bool => ApiConnectionProviders::isAi($get('provider')))
-                ->dehydrated(fn (Get $get): bool => ApiConnectionProviders::isAi($get('provider')))
+                ->visible(fn (Get $get): bool => ApiConnectionProviders::isAi($get('provider'))
+                    || ApiConnectionProviders::isCustomFormMode($get('provider')))
+                ->dehydrated(fn (Get $get): bool => ApiConnectionProviders::isAi($get('provider'))
+                    || ApiConnectionProviders::isCustomFormMode($get('provider')))
                 ->afterStateHydrated(function (Forms\Components\Toggle $component, mixed $state, ?\Illuminate\Database\Eloquent\Model $record): void {
                     if (! $record instanceof \App\Models\ApiConnection) {
                         return;
@@ -349,7 +456,7 @@ final class ApiConnectionFormSchema
 
     private static function isTemplateBacked(?string $provider): bool
     {
-        if ($provider === null || $provider === '') {
+        if ($provider === null || $provider === '' || ApiConnectionProviders::isCustomFormMode($provider)) {
             return false;
         }
         if (ApiConnectionProviders::isExternal($provider) || ApiConnectionProviders::isSeo($provider)) {
@@ -358,6 +465,15 @@ final class ApiConnectionFormSchema
 
         return app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\ProviderConnectionResolver::class)
             ->hasTemplate((int) auth()->id(), $provider);
+    }
+
+    private static function showsCustomProviderFields(Get $get, string $operation): bool
+    {
+        if (ApiConnectionProviders::isCustomFormMode($get('provider'))) {
+            return true;
+        }
+
+        return $operation === 'edit' && ApiConnectionProviders::isCustomOpenAiProvider((string) $get('provider'));
     }
 
     private static function allowsOverride(?string $provider): bool
@@ -424,6 +540,15 @@ final class ApiConnectionFormSchema
                 .'class="text-primary-600 hover:underline" style="color:#3b82f6;text-decoration:underline;font-weight:500;">'
                 .e('👉 How to get OpenRouter API key')
                 .'</a>'
+            ),
+            ApiConnectionProviders::NVIDIA => new HtmlString(
+                '<a href="https://build.nvidia.com/settings/api-keys" target="_blank" rel="noopener noreferrer" '
+                .'class="text-primary-600 hover:underline" style="color:#3b82f6;text-decoration:underline;font-weight:500;">'
+                .e('👉 How to get NVIDIA NIM API key')
+                .'</a>'
+            ),
+            ApiConnectionProviders::CUSTOM_OPENAI => new HtmlString(
+                e(__('seo-content-ai::filament.ai_connection.custom_openai_helper'))
             ),
             default => null,
         };

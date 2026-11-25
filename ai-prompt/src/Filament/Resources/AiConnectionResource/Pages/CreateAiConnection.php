@@ -65,6 +65,12 @@ class CreateAiConnection extends SeoCreateRecord
             return;
         }
 
+        if (ApiConnectionProviders::isCustomFormMode($provider)) {
+            $this->createCustomOpenAiConnection($data, $another);
+
+            return;
+        }
+
         if (! ApiConnectionProviders::isAi($provider)) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.api_connections.unsupported_provider'))
@@ -332,5 +338,108 @@ class CreateAiConnection extends SeoCreateRecord
             ->title(__('seo-content-ai::filament.keyword.workspace_save_denied'))
             ->danger()
             ->send();
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function createCustomOpenAiConnection(array $data, bool $another = false): void
+    {
+        $userId = (int) auth()->id();
+        $custom = is_array($data['custom_provider'] ?? null) ? $data['custom_provider'] : [];
+        $factory = app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderCustomFormFactory::class);
+        $store = app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderTemplateStore::class);
+
+        try {
+            $template = $factory->buildFromForm($custom);
+            $factory->assertProviderKeyAvailable($userId, $template->providerKey);
+            $store->persist($userId, $template, builtin: false);
+        } catch (\Omnichannel\Addons\AiPrompt\Exceptions\AiProviderTemplateException $exception) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.ai_connection.custom_validation_failed'))
+                ->body($exception->getMessage())
+                ->danger()
+                ->send();
+
+            return;
+        } catch (\Throwable $exception) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.ai_connection.custom_validation_failed'))
+                ->body(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderSecureHttpClient::redact($exception->getMessage()))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $this->callHook('beforeCreate');
+        $createData = [
+            'provider' => $template->providerKey,
+            'name' => trim((string) ($custom['provider_name'] ?? $template->providerName)),
+            'api_key' => $data['api_key'] ?? '',
+            'status' => $data['status'] ?? 'active',
+            'user_id' => $userId,
+            'is_global' => false,
+            'metadata' => [],
+            'paid_locked' => $data['paid_locked'] ?? false,
+        ];
+        $createData = $this->mutateFormDataBeforeCreate($createData);
+        $this->record = $this->handleRecordCreation($createData);
+        if ($this->record instanceof \App\Models\ApiConnection) {
+            $store->applyToConnection($userId, $this->record, $template);
+            $this->seedManualModels($this->record, (string) ($custom['manual_models'] ?? ''));
+        }
+        $this->form->model($this->getRecord())->saveRelationships();
+        $this->callHook('afterCreate');
+        $this->afterCreate();
+
+        Notification::make()
+            ->success()
+            ->title(__('filament-panels::resources/pages/create-record.notifications.created.title'))
+            ->send();
+
+        if ($another) {
+            $this->form->fill();
+            $this->redirect(static::getResource()::getUrl('create'));
+
+            return;
+        }
+
+        $this->redirect($this->getRedirectUrl());
+    }
+
+    private function seedManualModels(\App\Models\ApiConnection $connection, string $raw): void
+    {
+        $lines = preg_split('/[\r\n,]+/', $raw) ?: [];
+        $models = [];
+        foreach ($lines as $line) {
+            $id = trim((string) $line);
+            if ($id !== '') {
+                $models[] = $id;
+            }
+        }
+        if ($models === []) {
+            return;
+        }
+
+        foreach (array_values(array_unique($models)) as $index => $modelId) {
+            \Omnichannel\Addons\AiPrompt\Models\SeoAiModel::query()->updateOrCreate(
+                [
+                    'api_connection_id' => (int) $connection->id,
+                    'raw_model_name' => $modelId,
+                ],
+                [
+                    'display_name' => $modelId,
+                    'category' => \Omnichannel\Addons\Seo\Support\AiModelCategory::GEMINI_FLASH,
+                    'priority' => 100 - $index,
+                    'status' => \Omnichannel\Addons\AiPrompt\Models\SeoAiModel::STATUS_ACTIVE,
+                    'capabilities' => [
+                        'source' => (string) $connection->provider,
+                        'language_suitability' => 'unknown',
+                        'manual' => true,
+                    ],
+                ],
+            );
+        }
     }
 }

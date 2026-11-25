@@ -38,7 +38,9 @@ final class PlanningDraftIntakeContractTest extends TestCase
             (string) (new ReflectionClass(PlanningDraftIntakeService::class))->getFileName(),
         );
         self::assertStringContainsString("(\$result['placeholder_href']", $src);
+        self::assertStringContainsString("(\$result['search_url']", $src);
         self::assertStringContainsString('placeholderHref:', $src);
+        self::assertStringContainsString('searchUrl:', $src);
 
         $result = new PlanningDraftIntakeResult(
             PlanningDraftIntakeResult::STATUS_ADDED,

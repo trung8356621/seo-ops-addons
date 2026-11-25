@@ -16,6 +16,9 @@ use Illuminate\Support\Facades\Cache;
  *
  * Semantic Internal Link V2 may suggest a target only after Laravel has a real permalink.
  * This policy does not rank suggestions.
+ *
+ * Pending-link Search URL fallback uses explicit site meta
+ * ({@see \Omnichannel\Addons\Content\Services\SiteInternalLinkSearchUrlTemplate}) — never invented here.
  */
 final class WordPressInternalLinkTargetPolicy
 {

@@ -8,7 +8,7 @@ use App\Core\Capability\CapabilityRegistry;
 use App\Models\Site;
 use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Livewire\Livewire;
@@ -51,34 +51,66 @@ final class SiteHealthBehaviorTest extends TestCase
         self::assertSame('failed', $result->stages['dns']['status']);
     }
 
-    public function test_public_site_ok_and_heartbeat_failure_is_bridge_degradation(): void
+    public function test_http_200_is_healthy(): void
+    {
+        $site = $this->managedSite('127.0.0.1');
+        Http::fake(['https://127.0.0.1' => Http::response('ok', 200)]);
+
+        $result = app(SiteHealthCheckService::class)->check($site);
+
+        self::assertTrue($result->healthy);
+        self::assertSame('ok', $result->stages['public_site']['status']);
+        self::assertSame('HTTP 200', $result->stages['public_site']['detail']);
+    }
+
+    public function test_http_404_is_alive_not_down(): void
+    {
+        $site = $this->managedSite('127.0.0.1');
+        Http::fake(['https://127.0.0.1' => Http::response('missing', 404)]);
+
+        $result = app(SiteHealthCheckService::class)->check($site);
+
+        self::assertTrue($result->healthy);
+        self::assertSame('HTTP 404', $result->stages['public_site']['detail']);
+    }
+
+    public function test_http_500_is_alive_not_down(): void
+    {
+        $site = $this->managedSite('127.0.0.1');
+        Http::fake(['https://127.0.0.1' => Http::response('error', 500)]);
+
+        $result = app(SiteHealthCheckService::class)->check($site);
+
+        self::assertTrue($result->healthy);
+        self::assertSame('HTTP 500', $result->stages['public_site']['detail']);
+    }
+
+    public function test_homepage_ok_ignores_wordpress_bridge_endpoints(): void
     {
         $site = $this->managedSite('127.0.0.1');
         Http::fake([
             'https://127.0.0.1/wp-json/omi-seo-ai/v1/heartbeat' => Http::response([], 503),
+            'https://127.0.0.1/wp-json/omi-seo-ai/v1/capabilities' => Http::response([], 403),
             'https://127.0.0.1' => Http::response('ok', 200),
         ]);
 
         $result = app(SiteHealthCheckService::class)->check($site);
 
-        self::assertFalse($result->healthy);
-        self::assertSame('degraded', $result->status);
-        self::assertSame('WP_BRIDGE_UNREACHABLE', $result->errorCode);
-        self::assertNotContains($result->errorCode, ['DNS_ERROR', 'SITE_UNREACHABLE']);
+        self::assertTrue($result->healthy);
+        self::assertArrayNotHasKey('heartbeat', $result->stages);
+        self::assertArrayNotHasKey('auth_plugin', $result->stages);
     }
 
-    public function test_heartbeat_auth_failure_has_specific_classification(): void
+    public function test_tls_error_is_recorded_without_hosting_down(): void
     {
-        $site = $this->managedSite('127.0.0.2');
-        Http::fake([
-            'https://127.0.0.2/wp-json/omi-seo-ai/v1/heartbeat' => Http::response([], 403),
-            'https://127.0.0.2' => Http::response('ok', 200),
-        ]);
+        $site = $this->managedSite('127.0.0.3');
+        Http::fake(fn () => throw new ConnectionException('SSL certificate problem: self signed certificate'));
 
         $result = app(SiteHealthCheckService::class)->check($site);
 
-        self::assertSame('degraded', $result->status);
-        self::assertSame('WP_BRIDGE_AUTH_ERROR', $result->errorCode);
+        self::assertTrue($result->healthy);
+        self::assertSame('warning', $result->stages['connectivity']['status']);
+        self::assertSame('TLS_ERROR', $result->stages['connectivity']['detail']);
     }
 
     public function test_health_lifecycle_and_notifications_preserve_incident_history(): void
@@ -90,10 +122,17 @@ final class SiteHealthBehaviorTest extends TestCase
         $site = new Site(['domain' => 'site-health-test.invalid', 'status' => 'active']);
         $site->id = 91;
         $failure = SiteHealthResult::failed('down', 'critical', 'DNS_ERROR', 'DNS failed', ['dns' => ['status' => 'failed']]);
+        $ok = SiteHealthResult::ok(['dns' => ['status' => 'ok'], 'public_site' => ['status' => 'ok', 'detail' => 'HTTP 200']]);
 
         $state = $service->record($site, $failure);
         self::assertSame('suspected', $state->status);
         self::assertSame(1, $state->consecutive_failures);
+        self::assertNull($state->active_incident_id);
+        self::assertSame([], $notifications->activeIncidentIds);
+
+        $state = $service->record($site, $failure);
+        self::assertSame('suspected', $state->status);
+        self::assertSame(2, $state->consecutive_failures);
         self::assertNull($state->active_incident_id);
         self::assertSame([], $notifications->activeIncidentIds);
 
@@ -103,11 +142,33 @@ final class SiteHealthBehaviorTest extends TestCase
         self::assertGreaterThan(0, $firstIncidentId);
         self::assertSame([$firstIncidentId], $notifications->activeIncidentIds);
 
+        // Same open incident continues failing — no duplicate active notification.
         $state = $service->record($site, $failure);
         self::assertSame($firstIncidentId, (int) $state->active_incident_id);
         self::assertSame(1, SiteHealthIncident::query()->count());
+        self::assertSame([$firstIncidentId], $notifications->activeIncidentIds);
 
-        $state = $service->record($site, SiteHealthResult::ok(['dns' => ['status' => 'ok']]));
+        // One success → recovering, not resolved yet.
+        $state = $service->record($site, $ok);
+        self::assertSame('recovering', $state->status);
+        self::assertSame($firstIncidentId, (int) $state->active_incident_id);
+        self::assertSame([], $notifications->resolvedIncidentIds);
+
+        // Intermittent failure during recovery keeps the same incident open, no new email.
+        $state = $service->record($site, $failure);
+        self::assertSame('suspected', $state->status);
+        self::assertSame($firstIncidentId, (int) $state->active_incident_id);
+        self::assertSame([$firstIncidentId], $notifications->activeIncidentIds);
+
+        // Re-confirm still same incident, still one notification.
+        $service->record($site, $failure);
+        $state = $service->record($site, $failure);
+        self::assertSame($firstIncidentId, (int) $state->active_incident_id);
+        self::assertSame([$firstIncidentId], $notifications->activeIncidentIds);
+
+        // Two consecutive successes → resolve once.
+        $service->record($site, $ok);
+        $state = $service->record($site, $ok);
         self::assertSame('healthy', $state->status);
         self::assertNull($state->active_incident_id);
         self::assertSame(0, $state->consecutive_failures);
@@ -116,6 +177,8 @@ final class SiteHealthBehaviorTest extends TestCase
         self::assertNotNull($firstIncident->resolved_at);
         self::assertSame([$firstIncidentId], $notifications->resolvedIncidentIds);
 
+        // New outage after recovery creates a new incident.
+        $service->record($site, $failure);
         $service->record($site, $failure);
         $state = $service->record($site, $failure);
         $secondIncidentId = (int) $state->active_incident_id;
@@ -133,6 +196,7 @@ final class SiteHealthBehaviorTest extends TestCase
         $site->id = 92;
         $failure = SiteHealthResult::failed('down', 'critical', 'DNS_ERROR', 'DNS failed', ['dns' => ['status' => 'failed']]);
 
+        $service->record($site, $failure);
         $service->record($site, $failure);
         $state = $service->record($site, $failure);
 
@@ -166,6 +230,7 @@ final class SiteHealthBehaviorTest extends TestCase
         ]);
         $monitor = app(SiteHealthMonitor::class);
         $monitor->check($site);
+        $monitor->check($site);
         $state = $monitor->check($site);
         $incidentId = (int) $state->active_incident_id;
         $lastCheckedAt = $state->last_checked_at;
@@ -176,7 +241,7 @@ final class SiteHealthBehaviorTest extends TestCase
             ->test(SiteHealthNotice::class)
             ->call('retrySiteHealth', $site->id)
             ->assertSet('alert.incidents.0.id', $incidentId)
-            ->assertSet('alert.incidents.0.consecutive_failures', 3)
+            ->assertSet('alert.incidents.0.consecutive_failures', 4)
             ->assertDispatched('site-health-retried');
 
         $state->refresh();
@@ -188,10 +253,16 @@ final class SiteHealthBehaviorTest extends TestCase
         $site->metas()->create(['meta_key' => 'seo_read_token', 'meta_value' => 'test-token']);
         Http::fake([
             'https://127.0.0.1' => Http::response('ok', 200),
-            'https://127.0.0.1/wp-json/omi-seo-ai/v1/heartbeat*' => Http::response(['status' => 'ok'], 200),
-            'https://127.0.0.1/wp-json/omi-seo-ai/v1/capabilities*' => Http::response(['status' => 'ok'], 200),
         ]);
 
+        // First success → still recovering / alert present.
+        Livewire::actingAs($user)
+            ->test(SiteHealthNotice::class)
+            ->call('retrySiteHealth', $site->id)
+            ->assertSet('alert.incidents.0.id', $incidentId)
+            ->assertDispatched('site-health-retried');
+
+        // Second consecutive success → resolved.
         Livewire::actingAs($user)
             ->test(SiteHealthNotice::class)
             ->call('retrySiteHealth', $site->id)

@@ -502,6 +502,11 @@ class PlanningDraftIntakeService
         $assigned = (bool) ($result['assigned_to_project'] ?? false);
         $alreadyTarget = (bool) ($result['already_has_target'] ?? false);
         $placeholderHref = trim((string) ($result['placeholder_href'] ?? ''));
+        // Guard: new path must never surface #hash placeholders to the editor.
+        if ($placeholderHref !== '' && str_starts_with($placeholderHref, '#')) {
+            $placeholderHref = '';
+        }
+        $searchUrl = trim((string) ($result['search_url'] ?? ''));
 
         if ($alreadyTarget) {
             return new PlanningDraftIntakeResult(
@@ -511,6 +516,7 @@ class PlanningDraftIntakeService
                 articleIds: [$articleId],
                 keywordIds: isset($result['keyword_id']) ? [(int) $result['keyword_id']] : [],
                 placeholderHref: $placeholderHref,
+                searchUrl: $searchUrl,
             );
         }
 
@@ -522,6 +528,7 @@ class PlanningDraftIntakeService
             articleIds: [$articleId],
             keywordIds: isset($result['keyword_id']) ? [(int) $result['keyword_id']] : [],
             placeholderHref: $placeholderHref,
+            searchUrl: $searchUrl,
         );
     }
 

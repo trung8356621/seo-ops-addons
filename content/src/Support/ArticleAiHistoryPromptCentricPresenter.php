@@ -121,7 +121,17 @@ final class ArticleAiHistoryPromptCentricPresenter
         if ($category === '' && is_array($failure)) {
             $category = strtoupper(trim((string) ($failure['category'] ?? '')));
         }
-        $summary = is_array($failure) ? (string) ($failure['user_message'] ?? $failure['code'] ?? '') : '';
+        $summary = '';
+        if (is_array($failure)) {
+            // Prefer presentation adapter message when stored under extra/presentation.
+            $presentation = is_array($failure['presentation'] ?? null) ? $failure['presentation'] : null;
+            $summary = trim((string) (
+                $presentation['message']
+                ?? $failure['user_message']
+                ?? $failure['code']
+                ?? ''
+            ));
+        }
         if ($summary === '') {
             $summary = trim((string) ($prompt['failure_code'] ?? ''));
         }
@@ -136,6 +146,9 @@ final class ArticleAiHistoryPromptCentricPresenter
             'routing_attempts' => $routingAttempts,
             'failure_category' => $category !== '' ? $category : null,
             'failure_summary' => $summary !== '' ? $summary : null,
+            'error_details' => is_array($failure) && is_array($failure['presentation'] ?? null)
+                ? $failure['presentation']
+                : null,
             'normalized_failure' => $failure,
             'validation_contract' => is_string($validationContract) ? $validationContract : null,
             'validators_applied' => is_array($validatorsApplied) ? $validatorsApplied : null,

@@ -186,6 +186,8 @@ final class AiPromptServiceProvider extends ServiceProvider
             $this->loadTranslationsFrom($lang, 'seo-content-ai');
         }
 
+        $this->registerSeoApiErrorPresentation();
+
         if ($this->app->runningInConsole()) {
             $this->commands([
                 \Omnichannel\Addons\AiPrompt\Console\DebugArticleGenerationCommand::class,
@@ -253,6 +255,59 @@ final class AiPromptServiceProvider extends ServiceProvider
             }
             $caps->register($id, new CapabilityMarker($id, self::SLUG), self::SLUG);
         }
+    }
+
+    /**
+     * Map Laravel HTTP method mismatches on SEO AI APIs to structured error_details.
+     * Does not change HTTP status (still 405).
+     */
+    private function registerSeoApiErrorPresentation(): void
+    {
+        $this->app->afterResolving(
+            \Illuminate\Contracts\Debug\ExceptionHandler::class,
+            function (object $handler): void {
+                if (! method_exists($handler, 'renderable')) {
+                    return;
+                }
+
+                $handler->renderable(function (
+                    \Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException $exception,
+                    $request,
+                ) {
+                    if (! is_object($request) || ! method_exists($request, 'is')) {
+                        return null;
+                    }
+                    if (! $request->is('api/seo/prompt-hooks/*') && ! $request->is('api/seo/*')) {
+                        return null;
+                    }
+                    if (! method_exists($request, 'expectsJson') || ! $request->expectsJson()) {
+                        // Still return JSON for fetch() Accept: application/json clients.
+                        $accept = method_exists($request, 'header') ? (string) $request->header('Accept', '') : '';
+                        if (! str_contains($accept, 'application/json') && ! str_contains($accept, '*/*')) {
+                            return null;
+                        }
+                    }
+
+                    $hookKey = null;
+                    $path = method_exists($request, 'path') ? (string) $request->path() : '';
+                    if (preg_match('#api/seo/prompt-hooks/([^/]+)/execute#', $path, $m) === 1) {
+                        $hookKey = rawurldecode($m[1]);
+                    }
+
+                    $presentation = (new \Omnichannel\Addons\AiPrompt\Services\AiErrorPresenter())
+                        ->presentFromThrowable($exception, [
+                            'hook_key' => $hookKey,
+                        ]);
+
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'HTTP_METHOD_NOT_ALLOWED',
+                        'message' => $presentation->message,
+                        'error_details' => $presentation->toArray(),
+                    ], 405);
+                });
+            },
+        );
     }
 
     /** @return list<string> */

@@ -27,14 +27,18 @@ final class SiteHealthCheckClassificationTest extends TestCase
         self::assertStringNotContainsString('=secret', (string) $clean);
     }
 
-    public function test_pipeline_contains_dns_http_5xx_and_bridge_specific_classification(): void
+    public function test_pipeline_is_dns_and_hosting_availability_only(): void
     {
         $source = (string) file_get_contents((new \ReflectionClass(SiteHealthCheckService::class))->getFileName());
         self::assertStringContainsString("'DNS_ERROR'", $source);
-        self::assertStringContainsString("'HTTP_5XX'", $source);
-        self::assertStringContainsString("'WP_BRIDGE_UNREACHABLE'", $source);
-        self::assertStringContainsString("'WP_BRIDGE_AUTH_ERROR'", $source);
-        self::assertStringContainsString("'HEARTBEAT_INVALID'", $source);
-        self::assertLessThan(strpos($source, "'/omi-seo-ai/v1/heartbeat'"), strpos($source, "'public_site'"));
+        self::assertStringContainsString("'TLS_ERROR'", $source);
+        self::assertStringContainsString('public_site', $source);
+        self::assertStringNotContainsString("'HTTP_5XX'", $source);
+        self::assertStringNotContainsString("'WP_BRIDGE_UNREACHABLE'", $source);
+        self::assertStringNotContainsString("'WP_BRIDGE_AUTH_ERROR'", $source);
+        self::assertStringNotContainsString("'HEARTBEAT_INVALID'", $source);
+        self::assertStringNotContainsString('/omi-seo-ai/v1/heartbeat', $source);
+        self::assertStringNotContainsString('/omi-seo-ai/v1/capabilities', $source);
+        self::assertStringNotContainsString('healthProbe', $source);
     }
 }

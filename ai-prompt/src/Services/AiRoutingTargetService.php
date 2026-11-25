@@ -483,22 +483,15 @@ final class AiRoutingTargetService
                 provider: (string) $connection->provider,
                 model: $modelKey,
                 capabilities: $this->capabilities->capabilitiesFor($connection, $modelKey),
-                priority: $this->priorities->areaPriority($model, $area, $connection),
+                priority: $this->priorities->physicalAreaPriority($model, $area, $connection),
                 options: [],
                 seoAiModelId: (int) $model->id,
                 isFree: \Omnichannel\Addons\AiPrompt\Support\AiCandidateCostClass::fromModel($model)->isFree()
                     || \Omnichannel\Addons\AiPrompt\Support\AiCandidateCostClass::fromCapabilities([], $modelKey)->isFree(),
             );
         }
-        usort($out, static function (RoutedAiCandidate $a, RoutedAiCandidate $b): int {
-            $cmp = $a->priority <=> $b->priority;
-            if ($cmp !== 0) {
-                return $cmp;
-            }
-
-            return ((int) ($a->seoAiModelId ?? 0)) <=> ((int) ($b->seoAiModelId ?? 0));
-        });
-
+        // Preserve effectiveAreaModels authority: connection priority, then per-connection model order.
+        // Do not re-sort by raw area priority alone (that mixes connections).
         return $this->liveCandidatesMemo[$memoKey] = array_values($out);
     }
 
@@ -732,7 +725,7 @@ final class AiRoutingTargetService
                 provider: (string) $connection->provider,
                 model: $modelKey,
                 capabilities: $this->capabilities->capabilitiesFor($connection, $modelKey),
-                priority: $this->priorities->areaPriority($model, $area, $connection),
+                priority: $this->priorities->physicalAreaPriority($model, $area, $connection),
                 options: [],
                 seoAiModelId: (int) $model->id,
                 isFree: \Omnichannel\Addons\AiPrompt\Support\AiCandidateCostClass::fromModel($model)->isFree()
@@ -744,14 +737,7 @@ final class AiRoutingTargetService
             'live_compatible_rejections' => array_slice($rejected, 0, 40),
             'live_compatible_rejection_counts' => $this->tallyRejectionReasons($rejected),
         ]);
-        usort($out, static function (RoutedAiCandidate $a, RoutedAiCandidate $b): int {
-            $cmp = $a->priority <=> $b->priority;
-            if ($cmp !== 0) {
-                return $cmp;
-            }
-
-            return ($a->seoAiModelId ?? 0) <=> ($b->seoAiModelId ?? 0);
-        });
+        // Preserve effectiveAreaModels order (connection then per-connection model priority).
 
         return $this->liveCandidatesMemo[$memoKey] = array_values($out);
     }

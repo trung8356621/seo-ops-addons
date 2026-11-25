@@ -79,7 +79,8 @@ final class ArticleEditorLinksPayloadService
     }
 
     /**
-     * «Tìm thêm gợi ý» — cùng staged pipeline, loại URL đã hiện.
+     * «Tìm thêm gợi ý» — Semantic V2 on demand only (never re-runs lexical).
+     * Excludes URLs already shown / already inserted. Preserves caller lexical set on error.
      *
      * @param  list<array<string, mixed>>  $existingInternal
      * @param  array<string, mixed>  $cursor
@@ -97,7 +98,7 @@ final class ArticleEditorLinksPayloadService
             is_array($base['extracted_links']['internal'] ?? null) ? $base['extracted_links']['internal'] : [],
             $existingInternal,
         );
-        $internal = $this->suggestInternalLinks($article, $content, $occupied, $cursor);
+        $internal = $this->suggestSemanticOnly($article, $content, $occupied, $cursor);
         $suggestions = is_array($internal['suggestions'] ?? null) ? $internal['suggestions'] : [];
         $exhausted = ($internal['discovery']['exhausted'] ?? false) === true;
 
@@ -110,7 +111,8 @@ final class ArticleEditorLinksPayloadService
             'internal_link_v2' => $internal,
             'suggestion_status' => (string) ($internal['status'] ?? 'empty'),
             'suggestion_reason' => $internal['reason'] ?? null,
-            'suggestion_source' => (string) ($internal['suggestion_source'] ?? 'semantic_v2'),
+            'suggestion_source' => 'semantic_v2',
+            'suggestion_diagnostics' => is_array($internal['diagnostics'] ?? null) ? $internal['diagnostics'] : null,
             'suggestions_exhausted' => $exhausted,
             'discovery_cursor' => is_array($internal['discovery'] ?? null) ? $internal['discovery'] : null,
             'content_source' => $this->describeContentSource($article, $submittedContent, $content),
@@ -194,14 +196,16 @@ final class ArticleEditorLinksPayloadService
             $existing = is_array($payload['extracted_links']['internal'] ?? null)
                 ? $payload['extracted_links']['internal']
                 : [];
-            $internal = $this->suggestInternalLinks($article, $content, $existing);
+            $internal = $this->suggestLexicalOnly($article, $content, $existing);
             $payload['internal_link_v2'] = $internal;
             $payload['suggested_internal_links'] = $internal['suggestions'] ?? [];
             $payload['suggested_internal_links_catalog'] = $internal['suggestions'] ?? [];
             $payload['suggestion_status'] = (string) ($internal['status'] ?? 'empty');
-            $payload['suggestion_source'] = (string) ($internal['suggestion_source'] ?? 'semantic_v2');
+            $payload['suggestion_source'] = 'lexical_search';
+            $payload['suggestion_diagnostics'] = is_array($internal['diagnostics'] ?? null) ? $internal['diagnostics'] : null;
             $payload['discovery_cursor'] = is_array($internal['discovery'] ?? null) ? $internal['discovery'] : null;
-            $payload['suggestions_exhausted'] = ($internal['discovery']['exhausted'] ?? false) === true;
+            // First pass never exhausts semantic — user may still click «Tìm thêm gợi ý».
+            $payload['suggestions_exhausted'] = false;
             if (is_string($internal['reason'] ?? null) && $internal['reason'] !== '') {
                 $payload['suggestion_reason'] = $internal['reason'];
             }
@@ -217,30 +221,43 @@ final class ArticleEditorLinksPayloadService
     }
 
     /**
-     * Link Assistant pipeline: lexical content-phrase search first; semantic V2 only when empty.
+     * First pass — lexical/deterministic only. Never calls Semantic Service.
+     *
+     * @param  list<array<string, mixed>>  $existingInternal
+     * @return array<string, mixed>
+     */
+    private function suggestLexicalOnly(
+        SeoArticle $article,
+        string $content,
+        array $existingInternal = [],
+    ): array {
+        $lexical = app(ArticleInternalLinkLexicalSuggester::class)->suggest($article, $content, $existingInternal);
+        $lexical['suggestion_source'] = 'lexical_search';
+
+        return $lexical;
+    }
+
+    /**
+     * Second pass — Semantic V2 on user request only.
      *
      * @param  list<array<string, mixed>>  $existingInternal
      * @param  array<string, mixed>  $cursor
      * @return array<string, mixed>
      */
-    private function suggestInternalLinks(
+    private function suggestSemanticOnly(
         SeoArticle $article,
         string $content,
         array $existingInternal = [],
         array $cursor = [],
     ): array {
-        $lexical = app(ArticleInternalLinkLexicalSuggester::class)->suggest($article, $content, $existingInternal);
-        $lexicalSuggestions = is_array($lexical['suggestions'] ?? null) ? $lexical['suggestions'] : [];
-        if ($lexicalSuggestions !== []) {
-            $lexical['suggestion_source'] = 'lexical_search';
-
-            return $lexical;
-        }
-
-        // Existing semantic capability only — no new engine. Reports semantic_unavailable when disabled.
         $semantic = app(InternalLinkV2Suggester::class)->suggest($article, $content, $existingInternal, $cursor);
         $semantic['suggestion_source'] = 'semantic_v2';
-        $semantic['lexical_metrics'] = is_array($lexical['metrics'] ?? null) ? $lexical['metrics'] : [];
+        if (! isset($semantic['diagnostics']) || ! is_array($semantic['diagnostics'])) {
+            $semantic['diagnostics'] = [
+                'final_suggestions' => count(is_array($semantic['suggestions'] ?? null) ? $semantic['suggestions'] : []),
+                'reason' => $semantic['reason'] ?? null,
+            ];
+        }
 
         return $semantic;
     }

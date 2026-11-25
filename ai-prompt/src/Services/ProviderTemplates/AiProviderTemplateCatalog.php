@@ -150,6 +150,23 @@ final class AiProviderTemplateCatalog
                     'video' => ['enabled' => false],
                 ],
             ],
+            'nvidia' => [
+                'schema_version' => AiProviderTemplateLimits::SCHEMA_VERSION,
+                'provider' => ['key' => 'nvidia', 'name' => 'NVIDIA NIM', 'short_code' => 'NV', 'protocol' => 'openai_compatible'],
+                'connection' => [
+                    'base_url' => 'https://integrate.api.nvidia.com/v1',
+                    'auth' => ['type' => 'bearer'],
+                    'headers' => [
+                        'accept' => 'application/json',
+                    ],
+                ],
+                'endpoints' => [
+                    'models' => ['enabled' => true, 'method' => 'GET', 'path' => '/models', 'response' => ['items_path' => 'data', 'id_path' => 'id', 'name_path' => 'id']],
+                    'text' => ['enabled' => true, 'method' => 'POST', 'path' => '/chat/completions'],
+                    'image' => ['enabled' => false],
+                    'video' => ['enabled' => false],
+                ],
+            ],
         ];
     }
 }

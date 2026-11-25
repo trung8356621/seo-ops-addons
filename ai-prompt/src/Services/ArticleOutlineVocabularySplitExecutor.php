@@ -10,6 +10,10 @@ use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\PromptHookFailure;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookBindingRunner;
 use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape;
+use Omnichannel\Addons\AiPrompt\Services\Vocabulary\InternalVocabularyAssembler;
+use Omnichannel\Addons\AiPrompt\Services\Vocabulary\VocabularyFinalMerger;
+use Omnichannel\Addons\AiPrompt\Services\Vocabulary\VocabularySufficiencyGate;
+use Omnichannel\Addons\AiPrompt\Support\Vocabulary\VocabularyMarkdownCodec;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Services\ArticleGenerationInputResolver;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
@@ -61,6 +65,10 @@ final class ArticleOutlineVocabularySplitExecutor
     public function __construct(
         private readonly PromptHookBindingRunner $hookBindingExecutor,
         private readonly SeoCreateArticleSettingsService $settings,
+        private readonly ?InternalVocabularyAssembler $internalVocabularyAssembler = null,
+        private readonly ?VocabularySufficiencyGate $vocabularySufficiencyGate = null,
+        private readonly ?VocabularyFinalMerger $vocabularyFinalMerger = null,
+        private readonly ?VocabularyMarkdownCodec $vocabularyMarkdownCodec = null,
     ) {}
 
     /**
@@ -119,11 +127,6 @@ final class ArticleOutlineVocabularySplitExecutor
         }
 
         $vocabularyPrompt = $this->resolveVocabularyPrompt($nodeData);
-        if ($vocabularyPrompt === null) {
-            return $this->fail(
-                'Vocabulary generation failed: chưa cấu hình Vocabulary Prompt (vocabulary_prompt_id hoặc binding article.vocabulary.generate).',
-            );
-        }
 
         $started = (int) round(microtime(true) * 1000);
         $outlineAiInvoked = false;
@@ -202,76 +205,110 @@ final class ArticleOutlineVocabularySplitExecutor
             }
         }
 
-        $vocabContext = $this->enrichContext($contextExtras, 'vocabulary');
-        $vocabularyVariables = $this->bindVocabularyVariables($variables, $contextExtras, $outlineMarkdown);
-        if (isset($vocabularyVariables['__error'])) {
-            return $this->fail(
-                (string) $vocabularyVariables['__error'],
-                outlineResult: $outlineResult,
-                sections: ['outline' => $outlineMarkdown],
-                outlineSubtask: 'vocabulary_failed',
-                outlineAiInvoked: $outlineAiInvoked,
-                durationMs: (int) round(microtime(true) * 1000) - $started,
-            );
-        }
+        $internalGroups = $this->internalVocabularyAssembler()->assemble($contextExtras, $variables, $outlineMarkdown);
+        $vocabularyResult = null;
+        $vocabularyMarkdown = '';
 
-        try {
-            $vocabularyResult = $this->hookBindingExecutor->execute(
-                $vocabularyPrompt,
-                $vocabularyVariables,
-                $vocabContext,
-            );
-            $vocabularyAiInvoked = true;
-        } catch (PromptHookFailure $exception) {
-            return $this->fail(
-                'Vocabulary generation failed: '.$this->publicFacingErrorMessage($exception),
-                outlineResult: $outlineResult,
-                vocabularyResult: [
-                    'error' => $exception->getMessage(),
-                    'result_id' => $exception->promptResultId(),
-                    'prompt_result_id' => $exception->promptResultId(),
-                ],
-                sections: ['outline' => $outlineMarkdown],
-                outlineSubtask: 'vocabulary_failed',
-                outlineAiInvoked: $outlineAiInvoked,
-                vocabularyAiInvoked: true,
-                durationMs: (int) round(microtime(true) * 1000) - $started,
-                hookKey: self::VOCABULARY_HOOK,
-                aiRouting: $this->routingContextFromException($exception),
-            );
-        } catch (\Throwable $exception) {
-            $promptResultId = $this->exceptionPromptResultId($exception);
+        if ($this->vocabularySufficiencyGate()->isSufficient($internalGroups)) {
+            $vocabularyMarkdown = $this->vocabularyMarkdownCodec()->render($internalGroups);
+            $vocabularyResult = [
+                'output' => $vocabularyMarkdown,
+                'reused' => true,
+                'source' => 'internal_vocabulary',
+            ];
+        } else {
+            if ($vocabularyPrompt === null) {
+                return $this->fail(
+                    'Vocabulary generation failed: chưa cấu hình Vocabulary Prompt (vocabulary_prompt_id hoặc binding article.vocabulary.generate).',
+                    outlineResult: $outlineResult ?? [],
+                    sections: ['outline' => $outlineMarkdown],
+                    outlineSubtask: 'vocabulary_failed',
+                    outlineAiInvoked: $outlineAiInvoked,
+                    durationMs: (int) round(microtime(true) * 1000) - $started,
+                );
+            }
 
-            return $this->fail(
-                'Vocabulary generation failed: '.$this->publicFacingErrorMessage($exception),
-                outlineResult: $outlineResult,
-                vocabularyResult: [
-                    'error' => $exception->getMessage(),
-                    'result_id' => $promptResultId,
-                    'prompt_result_id' => $promptResultId,
-                ],
-                sections: ['outline' => $outlineMarkdown],
-                outlineSubtask: 'vocabulary_failed',
-                outlineAiInvoked: $outlineAiInvoked,
-                vocabularyAiInvoked: true,
-                durationMs: (int) round(microtime(true) * 1000) - $started,
-                hookKey: self::VOCABULARY_HOOK,
-                aiRouting: $this->routingContextFromException($exception),
-            );
-        }
+            $vocabContext = $this->enrichContext($contextExtras, 'vocabulary');
+            $vocabularyVariables = $this->bindVocabularyVariables($variables, $contextExtras, $outlineMarkdown);
+            if (isset($vocabularyVariables['__error'])) {
+                return $this->fail(
+                    (string) $vocabularyVariables['__error'],
+                    outlineResult: $outlineResult,
+                    sections: ['outline' => $outlineMarkdown],
+                    outlineSubtask: 'vocabulary_failed',
+                    outlineAiInvoked: $outlineAiInvoked,
+                    durationMs: (int) round(microtime(true) * 1000) - $started,
+                );
+            }
 
-        $vocabularyMarkdown = $this->normalizeDirectBody((string) ($vocabularyResult['output'] ?? ''));
-        if ($vocabularyMarkdown === '') {
-            return $this->fail(
-                'Vocabulary generation failed: empty output.',
-                outlineResult: $outlineResult,
-                vocabularyResult: $vocabularyResult,
-                sections: ['outline' => $outlineMarkdown],
-                outlineSubtask: 'vocabulary_failed',
-                outlineAiInvoked: $outlineAiInvoked,
-                vocabularyAiInvoked: true,
-                durationMs: (int) round(microtime(true) * 1000) - $started,
-            );
+            try {
+                $vocabularyResult = $this->hookBindingExecutor->execute(
+                    $vocabularyPrompt,
+                    $vocabularyVariables,
+                    $vocabContext,
+                );
+                $vocabularyAiInvoked = true;
+            } catch (PromptHookFailure $exception) {
+                return $this->fail(
+                    'Vocabulary generation failed: '.$this->publicFacingErrorMessage($exception),
+                    outlineResult: $outlineResult,
+                    vocabularyResult: [
+                        'error' => $exception->getMessage(),
+                        'result_id' => $exception->promptResultId(),
+                        'prompt_result_id' => $exception->promptResultId(),
+                    ],
+                    sections: ['outline' => $outlineMarkdown],
+                    outlineSubtask: 'vocabulary_failed',
+                    outlineAiInvoked: $outlineAiInvoked,
+                    vocabularyAiInvoked: true,
+                    durationMs: (int) round(microtime(true) * 1000) - $started,
+                    hookKey: self::VOCABULARY_HOOK,
+                    aiRouting: $this->routingContextFromException($exception),
+                );
+            } catch (\Throwable $exception) {
+                $promptResultId = $this->exceptionPromptResultId($exception);
+
+                return $this->fail(
+                    'Vocabulary generation failed: '.$this->publicFacingErrorMessage($exception),
+                    outlineResult: $outlineResult,
+                    vocabularyResult: [
+                        'error' => $exception->getMessage(),
+                        'result_id' => $promptResultId,
+                        'prompt_result_id' => $promptResultId,
+                    ],
+                    sections: ['outline' => $outlineMarkdown],
+                    outlineSubtask: 'vocabulary_failed',
+                    outlineAiInvoked: $outlineAiInvoked,
+                    vocabularyAiInvoked: true,
+                    durationMs: (int) round(microtime(true) * 1000) - $started,
+                    hookKey: self::VOCABULARY_HOOK,
+                    aiRouting: $this->routingContextFromException($exception),
+                );
+            }
+
+            $externalMarkdown = $this->normalizeDirectBody((string) ($vocabularyResult['output'] ?? ''));
+            if ($externalMarkdown === '') {
+                return $this->fail(
+                    'Vocabulary generation failed: empty output.',
+                    outlineResult: $outlineResult,
+                    vocabularyResult: $vocabularyResult,
+                    sections: ['outline' => $outlineMarkdown],
+                    outlineSubtask: 'vocabulary_failed',
+                    outlineAiInvoked: $outlineAiInvoked,
+                    vocabularyAiInvoked: true,
+                    durationMs: (int) round(microtime(true) * 1000) - $started,
+                );
+            }
+
+            if ($internalGroups === []) {
+                $vocabularyMarkdown = $externalMarkdown;
+            } else {
+                $externalGroups = $this->vocabularyMarkdownCodec()->parse($externalMarkdown);
+                $mergedGroups = $this->vocabularyFinalMerger()->merge($internalGroups, $externalGroups);
+                $vocabularyMarkdown = $this->vocabularyMarkdownCodec()->render($mergedGroups);
+                $vocabularyResult['internal_merged'] = true;
+            }
+            $vocabularyResult['output'] = $vocabularyMarkdown;
         }
 
         $vocabLengthError = $this->validateDirectBody($vocabularyMarkdown, 'Vocabulary');
@@ -283,7 +320,7 @@ final class ArticleOutlineVocabularySplitExecutor
                 sections: ['outline' => $outlineMarkdown],
                 outlineSubtask: 'vocabulary_failed',
                 outlineAiInvoked: $outlineAiInvoked,
-                vocabularyAiInvoked: true,
+                vocabularyAiInvoked: $vocabularyAiInvoked,
                 durationMs: (int) round(microtime(true) * 1000) - $started,
             );
         }
@@ -653,5 +690,25 @@ final class ArticleOutlineVocabularySplitExecutor
         }
 
         return null;
+    }
+
+    private function internalVocabularyAssembler(): InternalVocabularyAssembler
+    {
+        return $this->internalVocabularyAssembler ?? app(InternalVocabularyAssembler::class);
+    }
+
+    private function vocabularySufficiencyGate(): VocabularySufficiencyGate
+    {
+        return $this->vocabularySufficiencyGate ?? app(VocabularySufficiencyGate::class);
+    }
+
+    private function vocabularyFinalMerger(): VocabularyFinalMerger
+    {
+        return $this->vocabularyFinalMerger ?? app(VocabularyFinalMerger::class);
+    }
+
+    private function vocabularyMarkdownCodec(): VocabularyMarkdownCodec
+    {
+        return $this->vocabularyMarkdownCodec ?? app(VocabularyMarkdownCodec::class);
     }
 }

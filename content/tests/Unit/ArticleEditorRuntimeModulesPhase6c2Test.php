@@ -114,6 +114,10 @@ final class ArticleEditorRuntimeModulesPhase6c2Test extends TestCase
         self::assertStringContainsString('searchInternalLinkArticlesSemantic', $bubble);
         self::assertStringContainsString('link_bubble_article_search_semantic', $bubble);
         self::assertStringContainsString('never auto-run semantic', $bubble);
+        self::assertStringContainsString('searchUrlFallback', $bubble);
+        self::assertStringContainsString('link_bubble_use_search_url', $bubble);
+        self::assertStringContainsString('Never auto-insert #hash placeholders', $bubble);
+        self::assertStringContainsString('Search URL requires explicit user click', $bubble);
     }
 
     public function test_scoped_hooks_exist_without_giant_host_bag(): void

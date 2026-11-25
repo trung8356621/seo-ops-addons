@@ -98,17 +98,32 @@ final class AiCenterModelPresenter
         $status = trim((string) ($filters['status'] ?? ''));
         $technical = (bool) ($filters['technical'] ?? false);
         $cost = trim((string) ($filters['cost'] ?? 'all'));
+        $connectionFilter = isset($filters['connection_id']) ? (int) $filters['connection_id'] : null;
+        if ($connectionFilter !== null && $connectionFilter <= 0) {
+            $connectionFilter = null;
+        }
         $effectiveMembership = $this->priorities->effectiveAreaMembership($userId, $area);
         $rows = [];
-        foreach ($this->familyInventory($userId, enabledOnly: false) as $row) {
+        foreach ($this->familyInventory($userId, enabledOnly: false, connectionId: $connectionFilter) as $row) {
             $connection = $this->connectionById($userId, (int) ($row['connection_id'] ?? 0));
             $model = $this->firstModel($row);
             if ($connection === null || $model === null) {
                 continue;
             }
+            if ($connectionFilter !== null && (int) $connection->id !== $connectionFilter) {
+                continue;
+            }
             $unknown = (bool) ($row['unknown'] ?? false);
             $memberPriorities = [];
             foreach (array_values(array_map('intval', $row['ids'] ?? [])) as $modelId) {
+                if ($connectionFilter !== null) {
+                    $member = $this->modelsById[$modelId] ?? null;
+                    if ($member instanceof SeoAiModel
+                        && $this->priorities->isAreaEnabled($member, $area, $connection)) {
+                        $memberPriorities[] = $this->priorities->physicalAreaPriority($member, $area, $connection);
+                    }
+                    continue;
+                }
                 if (isset($effectiveMembership[$modelId])) {
                     $memberPriorities[] = $effectiveMembership[$modelId];
                 }
@@ -174,7 +189,10 @@ final class AiCenterModelPresenter
             ]];
             $rows[] = $row;
         }
-        $rows = $this->snapLogicalModelRows($rows);
+        // Connection-scoped Models tab: never merge across connections.
+        if ($connectionFilter === null) {
+            $rows = $this->snapLogicalModelRows($rows);
+        }
         // Hide individual OpenRouter free members from primary list; inject virtual Free Pool.
         $rows = $this->stripIndividualOpenRouterFreeRows($rows);
 
@@ -184,7 +202,10 @@ final class AiCenterModelPresenter
                 $rows,
                 static fn (array $row): bool => ! empty($row['is_free']) || ! empty($row['is_free_pool']),
             ));
-            $rows = $this->injectOpenRouterFreePoolRow($rows, $userId, $area);
+            if ($connectionFilter === null
+                || $this->isOpenRouterConnection($userId, $connectionFilter)) {
+                $rows = $this->injectOpenRouterFreePoolRow($rows, $userId, $area);
+            }
         } elseif ($area->isPaidText()) {
             $rows = array_values(array_filter(
                 $rows,
@@ -201,6 +222,14 @@ final class AiCenterModelPresenter
         usort($rows, static fn (array $a, array $b): int => ((int) ($a['area_priority'] ?? 0)) <=> ((int) ($b['area_priority'] ?? 0)));
 
         return array_values($rows);
+    }
+
+    private function isOpenRouterConnection(int $userId, int $connectionId): bool
+    {
+        $connection = $this->connectionById($userId, $connectionId);
+
+        return $connection instanceof ApiConnection
+            && (string) $connection->provider === ApiConnectionProviders::OPENROUTER;
     }
 
     /**

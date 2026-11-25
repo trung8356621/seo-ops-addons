@@ -10,6 +10,10 @@ use Illuminate\Support\Facades\Http;
 use Omnichannel\Addons\SiteSync\Services\Inbound\WordPressSiteSyncClient;
 use Throwable;
 
+/**
+ * Domain & hosting availability only.
+ * HTTP status codes and WordPress Bridge probes do not trigger Site Health Down.
+ */
 final class SiteHealthCheckService
 {
     public function __construct(private readonly DnsResolver $dns, private readonly WordPressSiteSyncClient $wordpress) {}
@@ -29,44 +33,27 @@ final class SiteHealthCheckService
         $stages['dns'] = ['status' => 'ok'];
 
         try {
+            // Single probe per check — do not retry here (retries would inflate failure evidence).
             $response = Http::connectTimeout(3)->timeout(5)->withHeaders(['Range' => 'bytes=0-1023'])->get($base);
         } catch (Throwable $e) {
             $code = self::classifyException($e);
-            $stages['connectivity'] = ['status' => 'failed'];
+
+            // TLS/certificate issues are recorded but never treated as Hosting Down.
+            if ($code === 'TLS_ERROR') {
+                $stages['connectivity'] = ['status' => 'warning', 'detail' => 'TLS_ERROR'];
+                $stages['public_site'] = ['status' => 'ok', 'detail' => 'TLS_RECORDED'];
+
+                return SiteHealthResult::ok($stages);
+            }
+
+            $stages['connectivity'] = ['status' => 'failed', 'detail' => $code];
 
             return SiteHealthResult::failed('down', 'critical', $code, __("site_health.reasons.{$code}"), $stages, $e->getMessage());
         }
 
+        // Any HTTP response (2xx/3xx/4xx/5xx) means the host answered — site is alive.
         $stages['connectivity'] = ['status' => 'ok'];
-        if ($response->serverError()) {
-            $stages['public_site'] = ['status' => 'failed', 'detail' => 'HTTP '.$response->status()];
-
-            return SiteHealthResult::failed('down', 'critical', 'HTTP_5XX', __('site_health.reasons.HTTP_5XX'), $stages, 'HTTP '.$response->status());
-        }
         $stages['public_site'] = ['status' => 'ok', 'detail' => 'HTTP '.$response->status()];
-
-        $probe = $this->wordpress->healthProbe($site, '/omi-seo-ai/v1/heartbeat', 5);
-        if (! $probe['ok']) {
-            $code = $probe['auth_error'] ? 'WP_BRIDGE_AUTH_ERROR' : 'WP_BRIDGE_UNREACHABLE';
-            $stages['heartbeat'] = ['status' => 'failed', 'detail' => $probe['message']];
-
-            return SiteHealthResult::failed('degraded', $probe['auth_error'] ? 'critical' : 'warning', $code, __("site_health.reasons.{$code}"), $stages, $probe['message']);
-        }
-        if (($probe['payload']['status'] ?? '') !== 'ok') {
-            $stages['heartbeat'] = ['status' => 'failed'];
-
-            return SiteHealthResult::failed('degraded', 'warning', 'HEARTBEAT_INVALID', __('site_health.reasons.HEARTBEAT_INVALID'), $stages, 'Invalid heartbeat payload');
-        }
-        $stages['heartbeat'] = ['status' => 'ok'];
-
-        $capabilities = $this->wordpress->healthProbe($site, '/omi-seo-ai/v1/capabilities', 5);
-        if (! $capabilities['ok']) {
-            $code = $capabilities['auth_error'] ? 'WP_BRIDGE_AUTH_ERROR' : 'WP_BRIDGE_UNREACHABLE';
-            $stages['auth_plugin'] = ['status' => 'failed', 'detail' => $capabilities['message']];
-
-            return SiteHealthResult::failed('degraded', $capabilities['auth_error'] ? 'critical' : 'warning', $code, __("site_health.reasons.{$code}"), $stages, $capabilities['message']);
-        }
-        $stages['auth_plugin'] = ['status' => 'ok'];
 
         return SiteHealthResult::ok($stages);
     }

@@ -2,12 +2,14 @@
     $canReorder = $canReorder ?? false;
     $area = $area ?? 'text';
     $models = $models ?? [];
+    $connectionId = (int) ($connectionId ?? 0);
 @endphp
 <div
     class="seo-ai-sort"
-    wire:key="sort-{{ $area }}"
+    wire:key="sort-{{ $area }}-{{ $connectionId }}"
     x-data="seoAiSortableList()"
     data-area="{{ $area }}"
+    data-connection-id="{{ $connectionId }}"
     data-can-reorder="{{ $canReorder ? '1' : '0' }}"
 >
     @if (! $canReorder && $models !== [])

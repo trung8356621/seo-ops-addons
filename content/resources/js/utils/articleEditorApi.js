@@ -577,13 +577,62 @@ export async function executePromptHookViaApi(hookKey, articleId, input = {}) {
     });
 
     if (!response.ok || data.success === false) {
-        const err = new Error(data.message ?? 'Prompt Hook thất bại.');
-        err.code = data.error ?? 'HOOK_EXECUTION_FAILED';
-        err.status = response.status;
-        throw err;
+        throw buildPromptHookApiError(data, response.status);
     }
 
     return data;
+}
+
+/**
+ * Prefer structured error_details from AiErrorPresenter; keep legacy message fallback.
+ *
+ * @param {Record<string, unknown>|null|undefined} data
+ * @param {number} [status]
+ * @returns {Error & { code?: string, status?: number, details?: Record<string, unknown>|null }}
+ */
+export function buildPromptHookApiError(data, status = 0) {
+    const payload = data && typeof data === 'object' ? data : {};
+    const details = payload.error_details && typeof payload.error_details === 'object'
+        ? payload.error_details
+        : null;
+    const message = String(
+        details?.message
+        ?? payload.message
+        ?? 'Prompt Hook thất bại.',
+    );
+    const err = new Error(message);
+    err.code = String(payload.error ?? details?.error_code ?? 'HOOK_EXECUTION_FAILED');
+    err.status = Number(status) || 0;
+    err.details = details;
+    return err;
+}
+
+/**
+ * Toast body: short presented message (+ optional first upstream detail line).
+ *
+ * @param {unknown} error
+ * @param {string} [fallback]
+ */
+export function formatAiErrorToastBody(error, fallback = 'Thử lại sau.') {
+    if (error && typeof error === 'object') {
+        const details = error.details && typeof error.details === 'object' ? error.details : null;
+        const message = String(error.message ?? details?.message ?? '').trim();
+        if (message !== '') {
+            const upstream = details?.upstream_message
+                ? String(details.upstream_message).trim()
+                : '';
+            const http = details?.upstream_http_status != null
+                ? Number(details.upstream_http_status)
+                : null;
+            if (upstream && !message.includes(upstream)) {
+                const prefix = http ? `HTTP ${http}: ` : '';
+                return `${message}\n${prefix}${upstream}`;
+            }
+            return message;
+        }
+    }
+
+    return String(fallback);
 }
 
 function resolveEditArticleLivewireComponent() {
