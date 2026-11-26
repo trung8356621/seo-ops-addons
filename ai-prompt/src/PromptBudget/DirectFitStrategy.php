@@ -13,6 +13,7 @@ final class DirectFitStrategy implements PromptSplitStrategy
         private readonly string $hook,
         private readonly PromptSplitClass $class = PromptSplitClass::DirectFit,
         private readonly int $defaultOutputReserve = 512,
+        private readonly bool $capabilityAwareOutputReserve = false,
     ) {}
 
     public function hookKey(): string
@@ -37,10 +38,11 @@ final class DirectFitStrategy implements PromptSplitStrategy
             return $requested;
         }
 
-        // Business-split Outline/Vocabulary: capability-aware desired reserve.
-        // Cap by model max here so minimum_required (derived from desired) stays sendable.
-        // Preflight still applies min(desired, modelMax) as the outbound ceiling.
-        if ($this->class === PromptSplitClass::BusinessSplit) {
+        // Business-split Outline/Vocabulary, and opted-in DirectFit hooks (Meta):
+        // capability-aware desired reserve. Cap by model max so minimum_required
+        // (derived from desired) stays sendable. Preflight still applies
+        // min(desired, modelMax) + context-fit as the outbound ceiling.
+        if ($this->class === PromptSplitClass::BusinessSplit || $this->capabilityAwareOutputReserve) {
             $base = $capability->isReasoningModel ? 8192 : 4096;
 
             return max(256, min($base, max(256, $capability->maxOutputTokens)));

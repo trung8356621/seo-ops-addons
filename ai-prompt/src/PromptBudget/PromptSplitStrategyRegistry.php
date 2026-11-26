@@ -51,7 +51,6 @@ final class PromptSplitStrategyRegistry
     {
         foreach ([
             'article.title_suggestion' => 256,
-            'article.meta_description_suggestion' => 320,
             'article.faq.generate' => 800,
             'article.featured_snippet.generate' => 512,
             'article.comment.generate' => 400,
@@ -63,6 +62,16 @@ final class PromptSplitStrategyRegistry
         ] as $hook => $reserve) {
             $this->register(new DirectFitStrategy($hook, PromptSplitClass::DirectFit, $reserve));
         }
+
+        // Meta: same capability-aware reserve as BusinessSplit (reasoning 8192 /
+        // non-reasoning 4096, capped by maxOutputTokens). Stays DirectFit.
+        // Preflight owns context-fit; ModelContextCapability prefers trusted
+        // provider metadata over model-id heuristics.
+        $this->register(new DirectFitStrategy(
+            'article.meta_description_suggestion',
+            PromptSplitClass::DirectFit,
+            capabilityAwareOutputReserve: true,
+        ));
 
         // Business-split already exists (outline ↔ vocabulary). Capability-aware
         // desired reserve (reasoning→8192 / else→4096); preflight caps by model max.
