@@ -17,9 +17,9 @@ use Omnichannel\Addons\AiPrompt\Support\PromptPostProcessing;
  * Single place to assemble final prompt for hooks.
  *
  * Order:
- * 1. Base = PromptRunnerService::compilePrompt (markdown + {{variables}})
- * 2. Hook template from locale (before_prompt | after_prompt)
- * 3. Output contract (if definition.output_contract set)
+ * 1. Base = PromptRunnerService::compileInstructions (system/user buckets)
+ * 2. Hook template from locale → user side only (before_prompt | after_prompt)
+ * 3. Output contract → user side only (never into system)
  *
  * Variables include:
  * - Each expose_to_prompt field
@@ -61,14 +61,22 @@ final class PromptHookPromptAssembler
         array $resolvedSettings,
     ): array {
         $variables = $this->buildVariables($exposedInput, $resolvedSettings);
-        $base = $this->promptRunner->compilePrompt($prompt, $variables);
-        $hookTemplate = $this->templateRenderer->render($definition, $exposedInput, $resolvedSettings);
+        $instructions = $this->promptRunner->compileInstructions($prompt, $variables);
+        $system = $instructions->systemText();
+        $user = $instructions->userText();
+        // Prompts with only system-side parts: keep content on user for APIs that require user.
+        if ($user === '' && $system !== '') {
+            $user = $system;
+            $system = '';
+        }
 
-        $final = $base;
+        $hookTemplate = $this->templateRenderer->render($definition, $exposedInput, $resolvedSettings);
+        // Hook locale template stays on the user side — not merged into system.
         if ($hookTemplate !== null && trim($hookTemplate) !== '') {
-            $final = $this->templateRenderer->position($definition) === 'before_prompt'
-                ? trim($hookTemplate)."\n\n".trim($base)
-                : trim($base)."\n\n".trim($hookTemplate);
+            $tpl = trim($hookTemplate);
+            $user = $this->templateRenderer->position($definition) === 'before_prompt'
+                ? $tpl."\n\n".$user
+                : trim($user."\n\n".$tpl);
         }
 
         $contractKey = null;
@@ -78,18 +86,29 @@ final class PromptHookPromptAssembler
             $contractKey = trim((string) $definition->output['output_contract']);
         }
 
-        $appended = $this->contracts()->appendToPrompt($final, $contractKey !== '' ? $contractKey : null);
+        // Output contracts append to user instructions only (never into system).
+        $appended = $this->contracts()->appendToPrompt($user, $contractKey !== '' ? $contractKey : null);
+        $user = $appended['prompt'];
 
-        $finalPrompt = $appended['prompt'];
+        $finalPrompt = $system !== ''
+            ? trim($system)."\n\n".trim($user)
+            : trim($user);
         if (ImageToolType::fromMixed($prompt->tools ?? 'default')->isImagePipeline()) {
             $config = PromptPostProcessing::fromPrompt($prompt);
             $finalPrompt = app(ImageOutputModePromptInjector::class)->inject($finalPrompt, $config);
+            $user = $finalPrompt;
+            $system = '';
         }
+
+        $variables['_compiled_system'] = $system;
+        $variables['_compiled_user'] = $user;
 
         return [
             'final_prompt' => $finalPrompt,
             'variables' => $variables,
             'output_contracts' => $appended['contracts'],
+            'system' => $system,
+            'user' => $user,
         ];
     }
 

@@ -187,6 +187,19 @@ final class AiCenterModelPresenter
                 'short_code' => (string) ($presented['short_code'] ?? ''),
                 'badge_variant' => (string) ($presented['badge_variant'] ?? 'badge-1'),
             ]];
+            $prov = is_array($model->capabilities) ? ($model->capabilities[AiRecommendedModelMapper::PROVISIONAL_KEY] ?? null) : null;
+            if (is_array($prov)) {
+                $row['map_source'] = (string) ($prov['score_source'] ?? '');
+                $row['map_score'] = isset($prov['score']) && is_numeric($prov['score']) ? (float) $prov['score'] : null;
+                $row['map_confidence'] = isset($prov['confidence']) && is_numeric($prov['confidence']) ? (float) $prov['confidence'] : null;
+                $row['map_reason'] = (string) ($prov['reason'] ?? '');
+            } else {
+                $areaSource = $this->priorities->areaSource($model, $area);
+                $row['map_source'] = $areaSource === AiModelArea::SOURCE_MANUAL ? 'manual' : ($areaSource ?? '');
+                $row['map_score'] = null;
+                $row['map_confidence'] = null;
+                $row['map_reason'] = '';
+            }
             $rows[] = $row;
         }
         // Connection-scoped Models tab: never merge across connections.

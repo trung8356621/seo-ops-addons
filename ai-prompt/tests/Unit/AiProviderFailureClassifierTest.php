@@ -160,6 +160,19 @@ final class AiProviderFailureClassifierTest extends TestCase
         $this->assertSame(AiFailureClass::TransientProvider, $decision->category);
         $this->assertTrue($decision->fallbackAllowed());
         $this->assertSame('provider_http', $decision->failureStage);
+        $this->assertFalse($decision->markModelUnavailable);
+    }
+
+    public function test_503_temporarily_unavailable_does_not_hard_poison_model(): void
+    {
+        $decision = $this->classifier->classify(new PromptRunException(
+            'Provider API error (503): content safety screening is temporarily unavailable',
+            503,
+        ));
+        $this->assertSame(AiFailureClass::TransientProvider, $decision->category);
+        $this->assertTrue($decision->applyCooldown);
+        $this->assertFalse($decision->markModelUnavailable);
+        $this->assertTrue($decision->fallbackAllowed());
     }
 
     public function test_timeout_allows_fallback(): void

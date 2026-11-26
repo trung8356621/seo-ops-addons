@@ -362,6 +362,11 @@ final class AiProviderFailureClassifier
         if ($this->matchesTransientProvider($httpStatus, $lower, $providerCode)
             || GeminiModelVersionPolicy::isProviderUnavailableError($message)
         ) {
+            // 5xx / transport blips stay Degraded+cooldown — never hard Unavailable.
+            // Hard unavailable is for retired/missing models (see 404 / explicit policy).
+            $hardUnavailable = GeminiModelVersionPolicy::isProviderUnavailableError($message)
+                && ! in_array($httpStatus, [0, 408, 425, 429, 500, 502, 503, 504], true);
+
             return $this->allow(
                 category: AiFailureClass::TransientProvider,
                 scope: AiFailureScope::Model,
@@ -370,7 +375,7 @@ final class AiProviderFailureClassifier
                 httpStatus: $httpStatus > 0 ? $httpStatus : null,
                 healthStatus: AiRuntimeHealthStatus::Degraded,
                 applyCooldown: true,
-                markModelUnavailable: GeminiModelVersionPolicy::isProviderUnavailableError($message),
+                markModelUnavailable: $hardUnavailable,
                 failureStage: $httpStatus > 0 ? 'provider_http' : 'transport',
                 providerErrorCode: $providerCode,
                 requestSent: true,
@@ -852,6 +857,8 @@ final class AiProviderFailureClassifier
             || str_contains($lower, 'schema validation')
             || str_contains($lower, 'structured output')
             || str_contains($lower, 'planner structured output')
+            || str_contains($lower, 'prompt instructions, not seo copy')
+            || str_contains($lower, 'looks like prompt instructions')
             || (str_contains($lower, 'validation failed') && ! str_contains($lower, 'business validation'));
     }
 

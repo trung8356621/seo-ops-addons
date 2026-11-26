@@ -87,13 +87,23 @@ final class ClaudeMessagesClient
             $maxTokens = self::MAX_OUTPUT_TOKENS;
         }
 
+        $system = isset($options['system']) ? trim((string) $options['system']) : '';
+        $user = $prompt;
+        if (isset($options['user']) && is_string($options['user']) && trim($options['user']) !== '') {
+            $user = (string) $options['user'];
+        }
+        $mapped = \Omnichannel\Addons\AiPrompt\Support\ProviderChatMessageBuilder::anthropic(
+            $system !== '' ? $system : null,
+            $user,
+        );
         $payload = [
             'model' => $modelName,
             'max_tokens' => $maxTokens,
-            'messages' => [
-                ['role' => 'user', 'content' => $prompt],
-            ],
+            'messages' => $mapped['messages'],
         ];
+        if ($mapped['system'] !== null) {
+            $payload['system'] = $mapped['system'];
+        }
 
         try {
             $response = $client->messages()->create($payload);

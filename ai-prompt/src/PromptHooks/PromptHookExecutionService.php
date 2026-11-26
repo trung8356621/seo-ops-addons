@@ -16,6 +16,7 @@ use Omnichannel\Addons\AiPrompt\PromptHooks\Support\PromptHookErrorCode;
 use Omnichannel\Addons\AiPrompt\Services\PromptResultAttachService;
 use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
 use Omnichannel\Addons\AiPrompt\Support\ArticleContentGenerationHooks;
+use Omnichannel\Addons\AiPrompt\Support\MetaDescriptionOutputGuard;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Media\Support\ImageToolType;
 
@@ -60,6 +61,14 @@ final class PromptHookExecutionService
         }
 
         $resolvedInput = $this->inputResolver->resolve($definition, $runtimeInput, $entityContext);
+        if (str_contains(strtolower($definition->key), 'meta_description')
+            && array_key_exists('old_description', $resolvedInput)
+        ) {
+            // Prompt context only — does not clear draft/SEO meta in the editor or DB.
+            $resolvedInput['old_description'] = MetaDescriptionOutputGuard::sanitizeOldDescriptionForPrompt(
+                isset($resolvedInput['old_description']) ? (string) $resolvedInput['old_description'] : null,
+            );
+        }
         $exposedInput = $this->inputResolver->exposeToPrompt($definition, $resolvedInput);
         $resolvedSettings = $this->settingsResolver->resolve(
             $definition,

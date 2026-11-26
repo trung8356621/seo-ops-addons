@@ -95,6 +95,8 @@ final class OpenRouterModelEconomics
     {
         $raw = strtolower($raw);
 
+        // Shared non-chat gate for OpenRouter + OpenAI-compatible catalogs (NVIDIA NIM, custom).
+        // Specialized ASR/TTS/translate/embed/vision IDs must not become general Fast Text candidates.
         return str_contains($raw, 'embed')
             || str_contains($raw, 'rerank')
             || str_contains($raw, 'whisper')
@@ -102,6 +104,14 @@ final class OpenRouterModelEconomics
             || str_contains($raw, 'moderation')
             || str_contains($raw, 'codec')
             || str_contains($raw, 'transcri')
+            || str_contains($raw, 'translate')
+            || str_contains($raw, 'riva')
+            || str_contains($raw, '-asr')
+            || str_contains($raw, 'asr-')
+            || str_contains($raw, 'speech')
+            || str_contains($raw, 'detector')
+            || str_contains($raw, 'nvclip')
+            || str_contains($raw, 'nemoretriever')
             || (str_contains($raw, 'image') && ! str_contains($raw, 'vl'))
             || str_contains($raw, 'dall-e')
             || str_contains($raw, 'flux')

@@ -104,6 +104,11 @@ export function seoArticleApiHeaders(extraHeaders = {}) {
  */
 export async function seoArticleApiFetch(url, options = {}) {
     const method = String(options.method ?? 'GET').toUpperCase();
+    // Prompt Hook execute is POST-only. Accidental GET yields Laravel 405
+    // ("Supported methods: POST") and must never leave this client.
+    if (method === 'GET' && /\/api\/seo\/prompt-hooks\/[^/]+\/execute(?:\?|$)/.test(String(url))) {
+        throw new Error('Prompt Hook execute requires POST (refusing GET).');
+    }
     const token = csrfToken();
     const xsrf = xsrfTokenFromCookie();
     const needsCsrf = !['GET', 'HEAD', 'OPTIONS'].includes(method);

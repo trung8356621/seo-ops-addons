@@ -42,11 +42,18 @@ final class DeepSeekChatClient
         $baseUrl = rtrim($this->baseUrl($connection), '/');
         $url = $baseUrl.'/chat/completions';
 
+        $system = isset($options['system']) ? trim((string) $options['system']) : '';
+        $user = $prompt;
+        if (isset($options['user']) && is_string($options['user']) && trim($options['user']) !== '') {
+            $user = (string) $options['user'];
+        }
         $payload = [
             'model' => $modelName,
-            'messages' => [
-                ['role' => 'user', 'content' => $prompt],
-            ],
+            'messages' => \Omnichannel\Addons\AiPrompt\Support\ProviderChatMessageBuilder::openAiCompatible(
+                $system !== '' ? $system : null,
+                $user,
+                supportsSystemRole: true,
+            ),
         ];
 
         if (array_key_exists('temperature', $options) && $options['temperature'] !== null) {

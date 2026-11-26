@@ -158,12 +158,17 @@ final class BuiltInModelCapabilityCatalog
             return [];
         }
         $lower = strtolower($model);
-        if (str_contains($lower, 'guard')
-            || str_contains($lower, 'safety')
-            || str_contains($lower, 'detector')
-            || str_contains($lower, 'retriev')
-            || str_contains($lower, 'rerank')
-            || str_contains($lower, 'embed')) {
+        foreach ([
+            'guard', 'safety', 'detector', 'retriev', 'rerank', 'embed',
+            'clip', 'gliner', 'pii', 'calibrat', 'starcoder', 'codec',
+            'translate', 'riva', 'speech', 'nemoretriever', 'nvclip',
+        ] as $needle) {
+            if (str_contains($lower, $needle)) {
+                return [];
+            }
+        }
+        if ((str_contains($lower, 'image') && ! str_contains($lower, 'vl'))
+            || str_contains($lower, 'video')) {
             return [];
         }
 

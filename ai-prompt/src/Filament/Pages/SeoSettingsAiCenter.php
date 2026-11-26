@@ -820,16 +820,43 @@ class SeoSettingsAiCenter extends Page
      * Repair tool: map known recommended models from stored inventory into AI Center areas.
      * No provider sync, no HTTP, no AI spend.
      */
+    /** @var array<string, mixed>|null */
+    public ?array $lastAutoMapDiagnostics = null;
+
     public function autoMapModels(): void
     {
         $this->assertManager();
         $result = app(AiRecommendedModelMapper::class)->mapForUser((int) auth()->id());
+        $this->lastAutoMapDiagnostics = $result->toArray();
         $this->bustInventoryCache();
+        $connectionId = $this->resolveModelsConnectionId($this->modelsConnectionId);
+        if ($connectionId !== null) {
+            $this->dispatch('ai-center-url-sync', connectionId: $connectionId, area: $this->modelArea);
+        }
         Notification::make()
             ->title(__('seo-content-ai::filament.ai_center.auto_map_models_done_title'))
             ->body($result->notificationBody())
             ->success()
             ->send();
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function autoMapConnectionDiagnostics(): array
+    {
+        $rows = is_array($this->lastAutoMapDiagnostics['by_connection'] ?? null)
+            ? array_values($this->lastAutoMapDiagnostics['by_connection'])
+            : [];
+        $selected = $this->resolveModelsConnectionId($this->modelsConnectionId);
+        if ($selected === null) {
+            return $rows;
+        }
+
+        return array_values(array_filter(
+            $rows,
+            static fn (array $row): bool => (int) ($row['connection_id'] ?? 0) === $selected,
+        ));
     }
 
     /**

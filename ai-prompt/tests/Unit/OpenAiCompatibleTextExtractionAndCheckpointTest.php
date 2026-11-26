@@ -64,6 +64,31 @@ final class OpenAiCompatibleTextExtractionAndCheckpointTest extends TestCase
         ]));
     }
 
+    public function test_extract_text_response_ignores_top_level_reasoning_content_field(): void
+    {
+        $adapter = new OpenAiCompatibleProtocolAdapter;
+        self::assertSame('', $adapter->extractTextResponse([
+            'choices' => [[
+                'message' => [
+                    'role' => 'assistant',
+                    'content' => null,
+                    'reasoning_content' => 'internal chain of thought only',
+                ],
+                'finish_reason' => 'length',
+            ]],
+        ]));
+        self::assertSame('Visible answer', $adapter->extractTextResponse([
+            'choices' => [[
+                'message' => [
+                    'role' => 'assistant',
+                    'content' => 'Visible answer',
+                    'reasoning_content' => 'secret',
+                ],
+                'finish_reason' => 'stop',
+            ]],
+        ]));
+    }
+
     public function test_in_memory_checkpoint_reused_without_identity(): void
     {
         $runner = (new ReflectionClass(TaskWorkflowTestRunner::class))->newInstanceWithoutConstructor();

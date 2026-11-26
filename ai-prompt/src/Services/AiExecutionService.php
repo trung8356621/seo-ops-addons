@@ -84,9 +84,31 @@ final class AiExecutionService
             ->make();
 
         $compiledPrompt = trim((string) $compiledPrompt);
-        [$systemInstructions, $userMessages] = $compiledPrompt !== ''
-            ? $this->buildMessagesFromCompiled($compiledPrompt, $inputData, $isTaskMode)
-            : $this->buildMessagesFromParts($prompt, $variables, $isTaskMode, $inputData);
+        $optSystem = isset($budgetOptions['system']) ? trim((string) $budgetOptions['system']) : '';
+        $optUser = isset($budgetOptions['user']) ? trim((string) $budgetOptions['user']) : '';
+        if ($optUser === '') {
+            $optUser = isset($variables['_compiled_user']) ? trim((string) $variables['_compiled_user']) : '';
+        }
+        if ($optSystem === '') {
+            $optSystem = isset($variables['_compiled_system']) ? trim((string) $variables['_compiled_system']) : '';
+        }
+
+        $structuredChat = $optUser !== '' || $optSystem !== '';
+        if ($structuredChat) {
+            $mapped = \Omnichannel\Addons\AiPrompt\Support\ProviderChatMessageBuilder::anthropic(
+                $optSystem !== '' ? $optSystem : null,
+                $optUser !== '' ? $optUser : $compiledPrompt,
+            );
+            $systemInstructions = $mapped['system'] !== null ? [$mapped['system']] : [];
+            $userMessages = array_map(
+                static fn (array $m): string => (string) $m['content'],
+                $mapped['messages'],
+            );
+        } else {
+            [$systemInstructions, $userMessages] = $compiledPrompt !== ''
+                ? $this->buildMessagesFromCompiled($compiledPrompt, $inputData, $isTaskMode)
+                : $this->buildMessagesFromParts($prompt, $variables, $isTaskMode, $inputData);
+        }
 
         if ($userMessages === [] && $systemInstructions === []) {
             throw new PromptRunException('Prompt không có nội dung thành phần nào.');
@@ -125,7 +147,7 @@ final class AiExecutionService
             ],
         ];
 
-        if ($isTaskMode && $systemInstructions !== []) {
+        if ($systemInstructions !== [] && ($structuredChat || $isTaskMode)) {
             $payload['system'] = implode("\n\n", $systemInstructions);
         }
 

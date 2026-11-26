@@ -560,9 +560,10 @@ export async function previewSeoScoreViaApi(articleId, payload, options = {}) {
  * @param {string} hookKey vd. article.title_suggestion
  * @param {number} articleId
  * @param {Record<string, unknown>} [input] runtime overrides
+ * @param {{ signal?: AbortSignal }} [options]
  * @returns {Promise<{ success: true, data: { hook: string, output: { format: string, raw: string, value: string } } }>}
  */
-export async function executePromptHookViaApi(hookKey, articleId, input = {}) {
+export async function executePromptHookViaApi(hookKey, articleId, input = {}, options = {}) {
     const encodedKey = encodeURIComponent(String(hookKey ?? '').trim());
     const { response, data } = await seoArticleApiFetch(`/api/seo/prompt-hooks/${encodedKey}/execute`, {
         method: 'POST',
@@ -574,6 +575,7 @@ export async function executePromptHookViaApi(hookKey, articleId, input = {}) {
             article_id: Number(articleId),
             input: input && typeof input === 'object' ? input : {},
         }),
+        signal: options.signal,
     });
 
     if (!response.ok || data.success === false) {
@@ -618,6 +620,11 @@ export function formatAiErrorToastBody(error, fallback = 'Thử lại sau.') {
         const details = error.details && typeof error.details === 'object' ? error.details : null;
         const message = String(error.message ?? details?.message ?? '').trim();
         if (message !== '') {
+            const code = String(error.code ?? details?.error_code ?? '').trim();
+            // Raw Laravel MethodNotAllowed text confuses users when Generate itself POSTed.
+            if (code === 'HTTP_METHOD_NOT_ALLOWED') {
+                return message;
+            }
             const upstream = details?.upstream_message
                 ? String(details.upstream_message).trim()
                 : '';
@@ -625,6 +632,10 @@ export function formatAiErrorToastBody(error, fallback = 'Thử lại sau.') {
                 ? Number(details.upstream_http_status)
                 : null;
             if (upstream && !message.includes(upstream)) {
+                const looksLikeLaravelMethodMismatch = /method is not supported|supported methods:/i.test(upstream);
+                if (looksLikeLaravelMethodMismatch) {
+                    return message;
+                }
                 const prefix = http ? `HTTP ${http}: ` : '';
                 return `${message}\n${prefix}${upstream}`;
             }

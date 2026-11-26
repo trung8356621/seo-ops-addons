@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\AiPrompt\PromptHooks;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Data\PromptHookDefinition;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\PromptHookException;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Support\PromptHookErrorCode;
+use Omnichannel\Addons\AiPrompt\Support\MetaDescriptionOutputGuard;
 use Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator;
 
 final class PromptHookOutputNormalizer
@@ -40,7 +41,13 @@ final class PromptHookOutputNormalizer
         $raw = $rawOutput;
         $value = $rawOutput;
 
+        $isMeta = str_contains(strtolower($definition->key), 'meta_description');
+
         foreach ($definition->outputNormalizeSteps() as $step) {
+            // Meta: skip first_non_empty_line — it pins onto "Requirement:" / instruction bullets.
+            if ($isMeta && $step === 'first_non_empty_line') {
+                continue;
+            }
             $value = match ($step) {
                 'trim' => trim($value),
                 'strip_markdown_fence' => $this->stripMarkdownFence($value),
@@ -50,12 +57,43 @@ final class PromptHookOutputNormalizer
             };
         }
 
+        if ($isMeta) {
+            $value = MetaDescriptionOutputGuard::extractCandidate($raw !== '' ? $raw : $value);
+            $title = trim((string) ($input['title'] ?? ''));
+            if ($value === ''
+                || MetaDescriptionOutputGuard::looksLikePromptInstruction($value)
+                || MetaDescriptionOutputGuard::looksLikeTitleRestatement($value, $title)
+            ) {
+                throw new PromptHookException(
+                    PromptHookErrorCode::HookOutputInvalid,
+                    "Hook [{$definition->key}] returned prompt instructions instead of a meta description.",
+                );
+            }
+            $value = trim($value);
+        }
+
         $validation = $definition->outputValidation();
         if (($validation['not_empty'] ?? false) === true && trim($value) === '') {
             throw new PromptHookException(
                 PromptHookErrorCode::HookOutputInvalid,
                 "Hook [{$definition->key}] returned empty output.",
             );
+        }
+
+        if (isset($validation['min_length']) && is_numeric($validation['min_length'])) {
+            $min = (int) $validation['min_length'];
+            if ($min > 0 && mb_strlen(trim($value)) < $min) {
+                throw new PromptHookException(
+                    PromptHookErrorCode::HookOutputInvalid,
+                    "Hook [{$definition->key}] output shorter than min_length ({$min}).",
+                );
+            }
+        }
+        if (isset($validation['max_length']) && is_numeric($validation['max_length'])) {
+            $max = (int) $validation['max_length'];
+            if ($max > 0 && mb_strlen(trim($value)) > $max) {
+                $value = trim(mb_substr(trim($value), 0, $max));
+            }
         }
 
         $lengthValidation = $this->assertArticleLengthIfNeeded($definition, $validation, $value, $input);

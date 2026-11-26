@@ -174,11 +174,23 @@ final class GeminiModelVersionPolicy
     {
         $lower = strtolower($message);
 
+        // Soft / temporary provider blips must NOT permanently poison model routing
+        // (e.g. NVIDIA 503 "content safety screening is temporarily unavailable").
+        if (str_contains($lower, 'temporarily unavailable')
+            || str_contains($lower, 'temporary')
+            || str_contains($lower, 'content safety')
+            || str_contains($lower, 'try again later')
+            || str_contains($lower, 'timeout')
+            || str_contains($lower, 'timed out')
+        ) {
+            return false;
+        }
+
         return str_contains($lower, 'no longer available')
-            || str_contains($lower, 'not available')
-            || str_contains($lower, 'unavailable')
             || str_contains($lower, 'has been shutdown')
             || str_contains($lower, 'model is deprecated')
+            || (bool) preg_match('/\b(model|provider)\b.{0,24}\b(unavailable|not available)\b/u', $lower)
+            || (bool) preg_match('/\b(unavailable|not available)\b.{0,24}\b(model|provider)\b/u', $lower)
             || (str_contains($lower, 'not found') && str_contains($lower, 'model'));
     }
 

@@ -42,6 +42,10 @@ use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape;
 use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategy;
 use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot;
 use Omnichannel\Addons\AiPrompt\Support\PromptPostProcessing;
+use Omnichannel\Addons\AiPrompt\Support\CompiledPromptInstructions;
+use Omnichannel\Addons\AiPrompt\Support\ShortPromptHookExecutionBounds;
+use Omnichannel\Addons\AiPrompt\Support\MetaDescriptionOutputGuard;
+use Omnichannel\Addons\AiPrompt\Support\AiExecutionTransport;
 use Omnichannel\Addons\Content\Services\GeneratedContentQualityValidator;
 use Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator;
 use Omnichannel\Addons\Content\Support\ArticleLanguageCode;
@@ -65,6 +69,7 @@ class PromptRunnerService
         private readonly PromptExecutionProfileResolver $profileResolver,
         private readonly DeepSeekChatClient $deepSeekClient,
         private readonly ?PromptBudgetPreflightService $budgetPreflight = null,
+        private readonly ?SeoPromptPartsCompiler $partsCompiler = null,
     ) {}
 
     private function budgetPreflight(): PromptBudgetPreflightService
@@ -85,14 +90,16 @@ class PromptRunnerService
             : new ArticleGenerationExecutionPlanner($this->aiModelRouter);
     }
 
-    private const ROLE_HEADINGS = [
-        'role' => 'Vai trò',
-        'context' => 'Bối cảnh',
-        'task' => 'Nhiệm vụ',
-        'sub_task' => 'Nhiệm vụ phụ thuộc',
-        'formatting' => 'Định dạng đầu ra',
-        'constraints' => 'Ràng buộc',
-    ];
+    private function partsCompiler(): SeoPromptPartsCompiler
+    {
+        if ($this->partsCompiler instanceof SeoPromptPartsCompiler) {
+            return $this->partsCompiler;
+        }
+
+        return function_exists('app') && app()->bound(SeoPromptPartsCompiler::class)
+            ? app(SeoPromptPartsCompiler::class)
+            : new SeoPromptPartsCompiler;
+    }
 
     /**
      * @param  array<string, mixed>  $variables  Prompt scalars + nested side-channels (quick_split, product_gallery, …)
@@ -200,6 +207,7 @@ class PromptRunnerService
         }
 
         $compiled = $this->compilePrompt($prompt, $variables);
+        $variables = $this->stampCompiledChatVariables($prompt, $variables, $compiled);
 
         if ($reuseResultId !== null && $reuseResultId > 0) {
             $result = PromptResult::query()->find($reuseResultId);
@@ -391,6 +399,10 @@ class PromptRunnerService
 
         $variables = Utf8Sanitizer::variablesForAi($variables);
         $variables = app(PromptLanguageVariableService::class)->mergeInto($variables);
+        if (! isset($variables['_compiled_user'])) {
+            $variables['_compiled_system'] = (string) ($variables['_compiled_system'] ?? '');
+            $variables['_compiled_user'] = $compiled;
+        }
 
         $connection = $prompt->aiConnection;
         $toolType = $this->normalizeToolType($prompt);
@@ -978,7 +990,13 @@ class PromptRunnerService
         bool $isTaskMode,
         string $toolType,
     ): array {
-        $compiled = $this->compileChainStep($prompt, $stepPart, $variables);
+        $chainInstructions = $this->partsCompiler()->compileChainStepInstructions($prompt, $stepPart, $variables);
+        $stepBlock = $chainInstructions->userBlocks[0] ?? '';
+        $compiled = Utf8Sanitizer::string($chainInstructions->toChainFlatString($stepBlock));
+        $variables['_compiled_system'] = $chainInstructions->systemText();
+        $variables['_compiled_user'] = $chainInstructions->userText() !== ''
+            ? $chainInstructions->userText()
+            : $compiled;
         $effectiveTool = $this->resolveStepToolType($prompt, $stepPart, $toolType);
         $stepCategory = $this->resolveStepCategory($prompt, $stepPart, $baseCategory, $effectiveTool);
 
@@ -1050,28 +1068,59 @@ class PromptRunnerService
      */
     private function compileChainStep(SeoPrompt $prompt, SeoPromptPart $stepPart, array $variables): string
     {
-        $systemBlocks = [];
-        foreach ($this->promptParts($prompt) as $part) {
-            if (in_array((string) $part->role, ['task', 'sub_task'], true)) {
-                continue;
+        return $this->partsCompiler()->compileChainStep($prompt, $stepPart, $variables);
+    }
+
+    /**
+     * Stamp structured system/user onto variables for provider adapters (Phase B).
+     *
+     * @param  array<string, mixed>  $variables
+     * @return array<string, mixed>
+     */
+    private function stampCompiledChatVariables(SeoPrompt $prompt, array $variables, string $compiledFlat): array
+    {
+        if (! isset($variables['_compiled_system']) && ! isset($variables['_compiled_user'])) {
+            $instructions = $this->partsCompiler()->compile($prompt, $variables);
+            $system = $instructions->systemText();
+            $user = $instructions->userText();
+            if ($user === '' && $system !== '') {
+                $user = $system;
+                $system = '';
+            }
+            if ($user === '') {
+                $user = $compiledFlat;
             }
 
-            $block = $this->formatPartBlock($part, $variables);
-            if ($block !== '') {
-                $systemBlocks[] = $block;
-            }
+            $variables['_compiled_system'] = $system;
+            $variables['_compiled_user'] = $user;
         }
 
-        $stepBlock = $this->formatPartBlock($stepPart, $variables);
-        if ($stepBlock === '') {
-            throw new PromptRunException('Bước chuỗi prompt không có nội dung.');
-        }
+        // Reconcile with post-compile mutations (image inject / contracts / recompile).
+        return \Omnichannel\Addons\AiPrompt\Support\CompiledChatVariableSync::align($variables, $compiledFlat);
+    }
 
-        if ($systemBlocks === []) {
-            return Utf8Sanitizer::string($stepBlock);
-        }
+    /**
+     * @param  array<string, mixed>  $options
+     * @param  array<string, mixed>  $variables
+     * @return array<string, mixed>
+     */
+    private function withProviderChatOptions(array $options, array $variables, string $compiledFlat): array
+    {
+        $variables = \Omnichannel\Addons\AiPrompt\Support\CompiledChatVariableSync::align($variables, $compiledFlat);
 
-        return Utf8Sanitizer::string(implode("\n\n", $systemBlocks)."\n\n---\n\n".$stepBlock);
+        $system = trim((string) ($options['system'] ?? $variables['_compiled_system'] ?? ''));
+        $user = trim((string) ($options['user'] ?? $variables['_compiled_user'] ?? ''));
+        if ($user === '') {
+            $user = trim($compiledFlat);
+        }
+        if ($system !== '') {
+            $options['system'] = $system;
+        } else {
+            unset($options['system']);
+        }
+        $options['user'] = $user;
+
+        return $options;
     }
 
     /**
@@ -1357,7 +1406,7 @@ class PromptRunnerService
             );
         }
 
-        $assembled = $this->assemblePromptBlocks($prompt, $variables);
+        $assembled = $this->compileInstructions($prompt, $variables)->toFlatString();
 
         if (ImageToolType::fromMixed($prompt->tools ?? 'default')->isImagePipeline()) {
             $config = PromptPostProcessing::resolveFromVariablesOrPrompt($variables, $prompt);
@@ -1368,33 +1417,23 @@ class PromptRunnerService
     }
 
     /**
+     * Structured Prompt Parts compile (SSOT). Hook templates/contracts are applied elsewhere.
+     *
+     * @param  array<string, string>  $variables
+     */
+    public function compileInstructions(SeoPrompt $prompt, array $variables = []): CompiledPromptInstructions
+    {
+        $variables = app(PromptLanguageVariableService::class)->mergeInto($variables);
+
+        return $this->partsCompiler()->compile($prompt, $variables);
+    }
+
+    /**
      * Ghép các part thành prompt đầy đủ, giữ nguyên placeholder {{biến}}.
      */
     public function compileRawPrompt(SeoPrompt $prompt): string
     {
-        return $this->assemblePromptBlocks($prompt, []);
-    }
-
-    /**
-     * @param  array<string, string>  $variables
-     */
-    private function assemblePromptBlocks(SeoPrompt $prompt, array $variables): string
-    {
-        $parts = $this->promptParts($prompt);
-        $blocks = [];
-
-        foreach ($parts as $part) {
-            $block = $this->formatPartBlock($part, $variables);
-            if ($block !== '') {
-                $blocks[] = $block;
-            }
-        }
-
-        if ($blocks === []) {
-            throw new PromptRunException('Prompt không có nội dung thành phần nào.');
-        }
-
-        return Utf8Sanitizer::string(implode("\n\n", $blocks));
+        return Utf8Sanitizer::string($this->partsCompiler()->compile($prompt, [])->toFlatString());
     }
 
     /**
@@ -1403,65 +1442,6 @@ class PromptRunnerService
     private function promptParts(SeoPrompt $prompt): \Illuminate\Support\Collection
     {
         return $prompt->resolvedParts();
-    }
-
-    /**
-     * @param  array<string, string>  $variables
-     */
-    private function formatPartBlock(SeoPromptPart $part, array $variables): string
-    {
-        if ((string) $part->role === 'global_constraints') {
-            return '';
-        }
-
-        $content = trim($this->substituteVariables(Utf8Sanitizer::string((string) $part->content), $variables));
-        if ($content === '') {
-            return '';
-        }
-
-        $heading = self::ROLE_HEADINGS[$part->role] ?? ucfirst((string) $part->role);
-        if (in_array($part->role, ['task', 'sub_task'], true) && filled($part->name)) {
-            $heading .= ': '.Utf8Sanitizer::string((string) $part->name);
-        }
-
-        $lines = ["## {$heading}", $content];
-
-        $meta = is_array($part->meta) ? $part->meta : [];
-        $rules = trim(Utf8Sanitizer::string((string) ($meta['rules'] ?? '')));
-        if ($rules !== '') {
-            $lines[] = '';
-            $lines[] = 'Quy tắc:';
-            $lines[] = $this->substituteVariables($rules, $variables);
-        }
-
-        if ($part->role === 'sub_task') {
-            $specific = trim(Utf8Sanitizer::string((string) ($meta['specific_constraints'] ?? '')));
-            if ($specific !== '') {
-                $lines[] = '';
-                $lines[] = 'Ràng buộc riêng (sub-prompt):';
-                $lines[] = $this->substituteVariables($specific, $variables);
-            }
-        }
-
-        return Utf8Sanitizer::string(implode("\n", $lines));
-    }
-
-    /**
-     * @param  array<string, string>  $variables
-     */
-    private function substituteVariables(string $text, array $variables): string
-    {
-        return (string) preg_replace_callback(
-            '/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/',
-            static function (array $matches) use ($variables): string {
-                $key = $matches[1];
-
-                return array_key_exists($key, $variables)
-                    ? Utf8Sanitizer::string((string) $variables[$key])
-                    : $matches[0];
-            },
-            Utf8Sanitizer::string($text),
-        );
     }
 
     /**
@@ -1746,12 +1726,13 @@ class PromptRunnerService
             );
         }
 
+        $sectionHookKey = (string) ($prompt->hook_key ?? '');
         $callOptions = array_merge($routed->options, [
             'omit_application_output_ceiling' => true,
-            'hook_key' => (string) ($prompt->hook_key ?? ''),
+            'hook_key' => $sectionHookKey,
             'sectioned_free_section_id' => $unit->sectionId,
             'section_id' => $unit->sectionId,
-        ]);
+        ], \Omnichannel\Addons\AiPrompt\Support\ShortPromptHookExecutionBounds::providerOptions($sectionHookKey));
 
         (new SectionedFreePromptIsolationGuard)->assertSectionPromptIsIsolated($sectionPrompt, [
             'section_id' => $unit->sectionId,
@@ -2126,7 +2107,8 @@ class PromptRunnerService
             'hook_key' => $hookKey,
             'structured_output' => filter_var($routeVariables['_structured_output'] ?? false, FILTER_VALIDATE_BOOL),
             'structured_strategy' => (string) ($routeVariables['_structured_strategy'] ?? ''),
-        ]);
+        ], \Omnichannel\Addons\AiPrompt\Support\ShortPromptHookExecutionBounds::providerOptions($hookKey));
+        $callOptions = $this->withProviderChatOptions($callOptions, $routeVariables, $compiled);
 
         [$output, $usage] = $this->callProvider(
             $routed->connection,
@@ -2144,11 +2126,49 @@ class PromptRunnerService
         // True provider truncation must fail the physical route inside the router
         // attempt (outline / vocabulary / other hooks) — same contract as article.
         // Budget diagnostics are stamped first so failed attempts retain observability.
-        $this->assertProviderTerminalReasonEligibleForFailover($usage);
+        // Short Meta hooks: NIM reasoning may hit max_tokens with finish_reason=length
+        // while still returning usable SERP text — accept and let quality/guard decide.
+        if (! $this->shortHookUsableDespiteLengthStop($hookKey, $output, $usage)) {
+            $this->assertProviderTerminalReasonEligibleForFailover($usage);
+        } else {
+            $usage['accepted_despite_length_stop'] = true;
+        }
         $this->assertStructuredOutputEligibleForFailover($output, $hookKey, $callOptions);
         $this->assertGeneratedContentQuality($output, $prompt, $routeVariables);
 
         return [$output, $usage];
+    }
+
+    /**
+     * @param  array<string, mixed>  $usage
+     */
+    private function shortHookUsableDespiteLengthStop(string $hookKey, string $output, array $usage): bool
+    {
+        if (! ShortPromptHookExecutionBounds::matches($hookKey)) {
+            return false;
+        }
+
+        $finish = strtolower(trim((string) ($usage['finish_reason'] ?? '')));
+        if ($finish !== 'length' && $finish !== 'max_tokens') {
+            return false;
+        }
+
+        $text = trim($output);
+        if ($text === '' || mb_strlen($text) < 50) {
+            return false;
+        }
+
+        if (str_contains(strtolower($hookKey), 'meta_description')
+            && MetaDescriptionOutputGuard::looksLikePromptInstruction($text)
+        ) {
+            return false;
+        }
+
+        $candidate = str_contains(strtolower($hookKey), 'meta_description')
+            ? trim(MetaDescriptionOutputGuard::extractCandidate($text))
+            : $text;
+
+        return $candidate !== '' && mb_strlen($candidate) >= 50;
     }
 
     /** @param array<string, mixed> $variables */
@@ -2376,6 +2396,8 @@ PROMPT;
             return [$media['url'], $media['usage'], $media['model_used']];
         }
 
+        $options = $this->withProviderChatOptions($options, $variables, $compiled);
+
         try {
             $this->aiProviderResolver->assertTextReady((string) $connection->provider);
         } catch (RuntimeException $exception) {
@@ -2464,6 +2486,8 @@ PROMPT;
             variables: $variables,
         );
 
+        $isShortHook = ShortPromptHookExecutionBounds::matches($hookKey !== '' ? $hookKey : null);
+
         return new AiRoutingContext(
             userId: app(AiRoutingOwnerResolver::class)->resolve(
                 explicitUserId: null,
@@ -2487,6 +2511,8 @@ PROMPT;
             promptTaskType: isset($variables['_execution_stage'])
                 ? (string) $variables['_execution_stage']
                 : ($hookKey !== '' ? $hookKey : null),
+            maxAiAttempts: $isShortHook ? ShortPromptHookExecutionBounds::MAX_AI_ATTEMPTS : null,
+            maxFreeAttempts: $isShortHook ? ShortPromptHookExecutionBounds::MAX_FREE_ATTEMPTS : null,
             correlationId: isset($variables['_correlation_id'])
                 ? (string) $variables['_correlation_id']
                 : (isset($variables['correlation_id']) ? (string) $variables['correlation_id'] : null),
@@ -2504,6 +2530,7 @@ PROMPT;
             retryAttempt: isset($variables['_retry_attempt']) && is_numeric($variables['_retry_attempt'])
                 ? (int) $variables['_retry_attempt']
                 : (isset($variables['attempt']) && is_numeric($variables['attempt']) ? (int) $variables['attempt'] : null),
+            executionTransport: $isShortHook ? AiExecutionTransport::Interactive : null,
             explicitConnectionId: $explicitConnectionId > 0 ? $explicitConnectionId : null,
         );
     }
@@ -2653,7 +2680,24 @@ PROMPT;
      */
     private function assertGeneratedContentQuality(string $output, SeoPrompt $prompt, array $variables): void
     {
-        $hookKey = trim((string) ($prompt->hook_key ?? ''));
+        $hookKey = trim((string) ($prompt->hook_key ?? $variables['_hook_key'] ?? ''));
+        if (str_contains(strtolower($hookKey), 'meta_description')) {
+            $candidate = MetaDescriptionOutputGuard::extractCandidate($output);
+            $title = trim((string) ($variables['title'] ?? $variables['post_title'] ?? ''));
+            if ($candidate === ''
+                || MetaDescriptionOutputGuard::looksLikePromptInstruction($candidate)
+                || MetaDescriptionOutputGuard::looksLikeTitleRestatement($candidate, $title)
+            ) {
+                // Fail the physical route so AiModelRouter can failover — do not treat
+                // instruction echo as a successful Meta Description generation.
+                throw new PromptRunException(
+                    'Meta description output looks like prompt instructions, not SEO copy.',
+                );
+            }
+
+            return;
+        }
+
         if (! in_array($hookKey, [
             'article.content.generate',
             'article.content.improve',

@@ -1,0 +1,89 @@
+---
+description: Enforces provider-neutral AI architecture across SEO-OPS
+alwaysApply: true
+---
+
+# AI Provider Architecture
+
+Switching an API provider must not require changing Prompt, Automation, or business logic. Providers are interchangeable execution backends.
+
+## 1. Provider-neutral architecture
+
+Adding or switching Gemini, DeepSeek, OpenRouter, NVIDIA NIM, or Custom OpenAI-Compatible must not introduce provider-specific business logic.
+
+**Allowed provider differences:** auth/endpoints; protocol/request serialization; response parsing; supported API parameters; capability/context limits; provider-specific transport errors.
+
+**Not allowed:** provider-specific SEO/Automation rules; provider-specific Prompt Compiler; provider-specific Prompt Hook execution path; model-name conditionals in business workflows; bypassing validation for one provider.
+
+## 2. Single responsibility ownership
+
+Reuse canonical components — do not add parallel compilers, routers, validators, or execution services without proving the existing owner cannot support the need:
+
+| Concern | Owner |
+|---------|--------|
+| Prompt compilation | `SeoPromptPartsCompiler` |
+| Prompt representation | `CompiledPromptInstructions` |
+| Chat-role mapping | `ProviderChatMessageBuilder` |
+| Execution orchestration | `PromptRunnerService` |
+| Model selection / fallback | `AiModelRouterService` |
+| Provider health | existing health service + failure classifier |
+| Hook assembly | `PromptHookPromptAssembler` |
+| Output validation | existing output contract/normalizer/guard |
+| Automation ownership | existing workflow `promptId` |
+| Hook ownership | existing Settings Prompt Binding |
+
+## 3. Prompt semantics must be preserved
+
+- Keep System and User instructions logically separate.
+- Never silently drop `global_constraints`.
+- Never let a provider adapter rewrite business instructions.
+- Hook-specific requirements belong to the Hook/Prompt Contract layer.
+- Automation references prompts; it must not create a provider-specific prompt definition.
+- Preserve semantic instructions through retry, fallback, chain, and sub-task execution.
+
+## 4. New provider integration policy
+
+**Protocol-first:** Provider identity is not protocol identity. Reuse compatible adapters for OpenRouter, NVIDIA NIM, Custom OpenAI-Compatible, and future providers. Introduce provider-specific branches only for verified API differences.
+
+Before writing code for a new provider:
+
+1. Identify its API protocol.
+2. Reuse an existing compatible adapter where possible.
+3. Configure authentication, endpoint, and model discovery.
+4. Map capabilities through the existing capability system.
+5. Validate inference with a minimal request.
+6. Verify current Prompt Contract and routing work unchanged.
+
+**Model compatibility isolation:** Invalid model output must be classified and rejected through the existing contract/validation/fallback system (prompt compilation, model capability, token/context budget, response parsing, output validation, or provider availability). Never modify shared SEO/Automation Prompt rules solely to accommodate one model or provider.
+
+## 5. Error handling and health
+
+- Temporary failures must not permanently poison model availability.
+- Capability mismatch ≠ provider downtime; invalid output ≠ unavailable model.
+- Retry/fallback must respect execution budgets.
+- Health must be scoped to the relevant connection/model.
+- `PromptResult` must not be marked successful before mandatory validation completes.
+
+## 6. Modification constraints
+
+Before modifying AI Core, identify: canonical owner; exact existing call path; all affected execution paths; whether the change is protocol-specific or business logic.
+
+- Prefer minimal changes to existing services.
+- Do not add abstractions solely to support one provider.
+- Do not delete legacy execution paths without confirming actual callers.
+- Do not inspect Git history by default — local source/MCP is the source of truth.
+- **No workaround accumulation:** Provider/model-specific workarounds must not silently become permanent architecture. Fix issues at the canonical owner. Any unavoidable temporary exception must document scope, reason, removal condition, and regression coverage.
+
+## 7. Required regression coverage
+
+For shared AI behavior changes, verify (mock/fixture first; paid API not required for every case): Manual Prompt execution; Prompt Hooks; Automation/Workflow; Article Generation; retry/fallback; System/User instruction preservation; output validation and History — including that invalid model output is rejected via contract/validation/fallback without shared Prompt-rule edits for one model.
+
+Document and keep regression coverage for any temporary provider/model exception until its removal condition is met.
+
+Do not claim production compatibility from unit tests alone.
+
+## 8. Architectural acceptance
+
+A new API provider is successfully integrated **only if** existing Prompt IDs, Prompt content, Automation graph, and Hook bindings remain unchanged.
+
+The user must be able to change the API connection/model without a new provider-specific business workflow.

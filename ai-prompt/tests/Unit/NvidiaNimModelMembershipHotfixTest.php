@@ -110,6 +110,7 @@ final class NvidiaNimModelMembershipHotfixTest extends TestCase
         $this->assertContains(AiModelCapability::TextGenerate->value, $caps ?? []);
         $this->assertSame([], BuiltInModelCapabilityCatalog::openAiCompatibleTextCapabilitiesFor('nvidia/embed-qa-4'));
         $this->assertSame([], BuiltInModelCapabilityCatalog::openAiCompatibleTextCapabilitiesFor('nvidia/nemotron-3.5-content-safety'));
+        $this->assertSame([], BuiltInModelCapabilityCatalog::openAiCompatibleTextCapabilitiesFor('nvidia/riva-translate-4b-instruct-v2'));
 
         $conn = $this->nvidia(41);
         $registry = new ModelCapabilityRegistry();

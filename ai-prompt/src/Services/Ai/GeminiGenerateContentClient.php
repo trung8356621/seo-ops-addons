@@ -113,6 +113,16 @@ final class GeminiGenerateContentClient
             rawurlencode($model),
         );
 
+        $system = isset($options['system']) ? trim((string) $options['system']) : '';
+        $user = $prompt;
+        if (isset($options['user']) && is_string($options['user']) && trim($options['user']) !== '') {
+            $user = (string) $options['user'];
+        }
+        $text = \Omnichannel\Addons\AiPrompt\Support\ProviderChatMessageBuilder::geminiUserText(
+            $system !== '' ? $system : null,
+            $user,
+        );
+
         $response = Http::timeout(180)
             ->acceptJson()
             ->withQueryParameters(['key' => $connection->api_key])
@@ -120,7 +130,7 @@ final class GeminiGenerateContentClient
                 'contents' => [
                     [
                         'parts' => [
-                            ['text' => $prompt],
+                            ['text' => $text],
                         ],
                     ],
                 ],

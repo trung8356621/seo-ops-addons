@@ -19,6 +19,7 @@
                     routingUnsaved: @js($routingUnsaved),
                 })"
                 @ai-center-models-connection-changed.window="clearPendingOrders()"
+                @ai-center-url-sync.window="replaceUrl()"
             >
                 <header class="seo-settings-header">
                     <h1>{{ __('seo-content-ai::filament.ai_center.title') }}</h1>
@@ -106,6 +107,26 @@
                             </label>
                             <p class="seo-ai-muted">{{ __('seo-content-ai::filament.ai_center.models_connection_help') }}</p>
                         </div>
+
+                        @if ($this->autoMapConnectionDiagnostics() !== [])
+                            <div class="seo-ai-automap-diag" style="margin:0.75rem 0;padding:0.75rem 1rem;border:1px solid rgba(0,0,0,.08);border-radius:8px;">
+                                <div class="seo-ai-muted" style="font-weight:600;margin-bottom:0.35rem;">{{ __('seo-content-ai::filament.ai_center.auto_map_diagnostics_title') }}</div>
+                                @foreach ($this->autoMapConnectionDiagnostics() as $diagRow)
+                                    <p class="seo-ai-muted" style="margin:0.15rem 0;font-size:0.85rem;">
+                                        {{ $diagRow['name'] ?? $diagRow['provider'] ?? '' }}:
+                                        {{ __('seo-content-ai::filament.ai_center.auto_map_diag_line', [
+                                            'discovered' => (int) ($diagRow['discovered'] ?? 0),
+                                            'text' => (int) ($diagRow['text_compatible'] ?? 0),
+                                            'curated' => (int) ($diagRow['curated_matched'] ?? 0),
+                                            'heuristic' => (int) ($diagRow['heuristic_ranked'] ?? 0),
+                                            'enabled' => (int) ($diagRow['auto_enabled'] ?? 0),
+                                            'unknown' => (int) ($diagRow['unknown'] ?? 0),
+                                            'rejected' => (int) ($diagRow['rejected'] ?? 0),
+                                        ]) }}
+                                    </p>
+                                @endforeach
+                            </div>
+                        @endif
 
                         <nav class="seo-ai-segment seo-ai-segment--wide" aria-label="{{ __('seo-content-ai::filament.ai_center.models_page_title') }}">
                             @foreach (\Omnichannel\Addons\AiPrompt\Support\AiModelArea::uiCases() as $areaEnum)
@@ -1100,6 +1121,10 @@
                         const url = new URL(window.location.href);
                         url.searchParams.set('tab', this.activeMainTab);
                         url.searchParams.set('modelArea', this.activeCapability);
+                        const cid = Number(this.$wire.modelsConnectionId || 0);
+                        if (cid > 0) {
+                            url.searchParams.set('connectionId', String(cid));
+                        }
                         history.replaceState({}, '', url);
                     } catch (e) {}
                 },

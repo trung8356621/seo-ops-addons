@@ -23,6 +23,7 @@ use Omnichannel\Addons\AiPrompt\Support\AiFailureScope;
 use Omnichannel\Addons\AiPrompt\Support\AiLatencyDiag;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 use Omnichannel\Addons\AiPrompt\Support\FreePoolHealthState;
+use Omnichannel\Addons\AiPrompt\Support\ShortPromptHookExecutionBounds;
 use Omnichannel\Addons\Seo\Support\AiModelCategory;
 use Omnichannel\Addons\Seo\Support\GeminiModelVersionPolicy;
 use Omnichannel\Addons\Seo\Support\GoogleAiModelRegistry;
@@ -500,6 +501,12 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
         $candidatesTried = 0;
         $candidatesSkipped = 0;
         $lastException = null;
+        $shortHookDeadline = ShortPromptHookExecutionBounds::wallClockDeadline(
+            $enrichedContext->hookKey !== null ? (string) $enrichedContext->hookKey : null,
+        );
+        // Cap each provider HTTP call by remaining short-hook wall budget (not only between attempts).
+        ShortPromptHookExecutionBounds::bindDeadline($shortHookDeadline);
+        try {
         $routeRevision = null;
         $revisionStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
         if ($parsed !== null) {
@@ -756,6 +763,31 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             }
 
             if ($actualAttempts >= $maxAiAttempts) {
+                break;
+            }
+
+            // Skip when wall budget is gone OR too small to start another provider HTTP call.
+            $shortHookRemaining = $shortHookDeadline !== null
+                ? ($shortHookDeadline - microtime(true))
+                : null;
+            if ($shortHookRemaining !== null && $shortHookRemaining < 2.0) {
+                $candidatesSkipped++;
+                $routingAttempts[] = $this->attemptLog(
+                    $candidate,
+                    $candidateIndex,
+                    'skipped',
+                    'short_hook_wall_clock_exhausted',
+                    null,
+                    array_merge(
+                        $laneMeta(),
+                        [
+                            'wall_clock_seconds' => ShortPromptHookExecutionBounds::TOTAL_WALL_CLOCK_SECONDS,
+                            'remaining_seconds' => round(max(0.0, $shortHookRemaining), 3),
+                        ],
+                        array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
+                        $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes, $suppressedFreeLanes),
+                    ),
+                );
                 break;
             }
 
@@ -1164,6 +1196,9 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             previous: $lastException instanceof \Throwable ? $lastException : null,
             diagnostics: $diagnostics,
         );
+        } finally {
+            ShortPromptHookExecutionBounds::clearDeadline();
+        }
     }
 
     /**

@@ -10,6 +10,7 @@ use Omnichannel\Addons\AiPrompt\Support\AiExecutionRoutingMode;
 use Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy;
 use Omnichannel\Addons\AiPrompt\Support\ArticleModelOrderAuthority;
 use Omnichannel\Addons\AiPrompt\Support\InteractiveAiAttemptBudget;
+use Omnichannel\Addons\AiPrompt\Support\ShortPromptHookExecutionBounds;
 
 /**
  * Resolves explicit routing context BEFORE the physical-route loop.
@@ -93,6 +94,11 @@ final class AiRoutingContextResolver
                 $interactiveBudget['max_free_attempts'],
             );
         }
+
+        // Short Prompt Hooks (Meta Description, Title, …): bound attempts even when
+        // transport defaults to Background (sync HTTP Prompt Hook path).
+        $maxAiAttempts = ShortPromptHookExecutionBounds::capMaxAiAttempts($maxAiAttempts, $context->hookKey);
+        $maxFreeAttempts = ShortPromptHookExecutionBounds::capMaxFreeAttempts($maxFreeAttempts, $context->hookKey);
 
         $policyCap = $effectivePolicy->freeAttemptCap();
         if ($policyCap !== null) {

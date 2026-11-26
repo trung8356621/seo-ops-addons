@@ -19,6 +19,45 @@ import { t } from '@content-addon/utils/i18n.js';
 import GoogleSerpSnippetPreview from './GoogleSerpSnippetPreview';
 import ContextHelpButton from '@content-addon/components/ContextHelpButton.jsx';
 
+function looksLikeMetaPromptInstruction(value) {
+    const text = String(value ?? '').trim();
+    if (text === '') {
+        return false;
+    }
+    const lower = text.toLowerCase();
+    const markers = [
+        'return exactly one meta description',
+        'do not add explanations, prefixes',
+        'hook constraints',
+        'base the description on the title',
+        'if the old_description is not null',
+        'if old_description is not null',
+        'use it as context to improve',
+        'target length between',
+        'write an seo meta description',
+        'based on the following',
+        'use all punycode',
+        'stick to the title',
+        'bám sát tiêu đề',
+        '{{title}}',
+        '{{old_description}}',
+    ];
+    if (markers.some((marker) => lower.includes(marker))) {
+        return true;
+    }
+    if (/^(task|requirement|output|instruction|constraints?|note|format|prompt|stick to|write |return |viết )/i.test(text)) {
+        return true;
+    }
+    if (text.endsWith(':') && text.length < 160) {
+        return true;
+    }
+    if (text.length < 50) {
+        return true;
+    }
+    const bulletLines = text.split(/\r?\n/).filter((line) => /^\s*[-*]\s+\S/.test(line)).length;
+    return bulletLines >= 3 && lower.includes('meta description');
+}
+
 function previewTitle(preview) {
     const title = String(preview?.title ?? '').trim();
     return title !== '' ? title : t('google_serp_title_placeholder');
@@ -344,18 +383,42 @@ export default function ArticleGoogleSerpPreview({
         const seq = ++metaAiRequestRef.current;
         setMetaAiLoading(true);
 
+        // Align with ShortPromptHookExecutionBounds::TOTAL_WALL_CLOCK_SECONDS (+ small transport slack).
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const wallMs = 110_000;
+        const timer = controller
+            ? window.setTimeout(() => controller.abort(), wallMs)
+            : null;
+
+        // Prompt context only — keep local draft even when old_description is omitted.
+        const oldForPrompt = (() => {
+            if (oldDescriptionRaw === '' || oldDescriptionRaw.toLowerCase() === 'null') {
+                return null;
+            }
+            if (looksLikeMetaPromptInstruction(oldDescriptionRaw) || oldDescriptionRaw.length > 200) {
+                return null;
+            }
+            return oldDescriptionRaw;
+        })();
+
         try {
-            const result = await executePromptHookViaApi(metaHookKey, resolvedArticleId, {
-                title,
-                old_description: oldDescriptionRaw === '' ? null : oldDescriptionRaw,
-            });
+            const result = await executePromptHookViaApi(
+                metaHookKey,
+                resolvedArticleId,
+                {
+                    title,
+                    old_description: oldForPrompt,
+                },
+                controller ? { signal: controller.signal } : {},
+            );
 
             if (seq !== metaAiRequestRef.current) {
                 return;
             }
 
             const value = String(result?.data?.output?.value ?? '').trim();
-            if (value === '') {
+            if (value === '' || looksLikeMetaPromptInstruction(value)) {
+                // Keep prior draft — never write AI instructions into Meta Description.
                 throw new Error(t('prompt_hook_meta_empty'));
             }
 
@@ -388,6 +451,18 @@ export default function ArticleGoogleSerpPreview({
             if (seq !== metaAiRequestRef.current) {
                 return;
             }
+            if (error?.name === 'AbortError') {
+                window.dispatchEvent(
+                    new CustomEvent('seo-article-editor-notify', {
+                        detail: {
+                            title: t('prompt_hook_meta_failed'),
+                            body: t('prompt_hook_try_again'),
+                            status: 'danger',
+                        },
+                    }),
+                );
+                return;
+            }
             window.dispatchEvent(
                 new CustomEvent('seo-article-editor-notify', {
                     detail: {
@@ -398,6 +473,9 @@ export default function ArticleGoogleSerpPreview({
                 }),
             );
         } finally {
+            if (timer != null) {
+                window.clearTimeout(timer);
+            }
             if (seq === metaAiRequestRef.current) {
                 setMetaAiLoading(false);
             }

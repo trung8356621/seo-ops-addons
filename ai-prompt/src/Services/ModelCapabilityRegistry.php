@@ -249,12 +249,23 @@ final class ModelCapabilityRegistry
             return BuiltInModelCapabilityCatalog::deepseekCapabilitiesFor($model) ?? [];
         }
 
-        // NVIDIA NIM + other OpenAI-compatible text endpoints: chat-like ids get text
+        // NVIDIA NIM + Custom OpenAI-compatible endpoints: chat-like ids get text
         // capabilities without hard-coding every model name. Embed/image/video-looking
         // ids stay empty so Unknown ≠ auto-enabled multimedia.
         if ($provider === ApiConnectionProviders::NVIDIA
             || ApiConnectionProviders::allowsTemplateBackedText($provider)
-            || ApiConnectionProviders::isCustomOpenAiProvider($provider)) {
+            || ApiConnectionProviders::isCustomOpenAiProvider($provider)
+            || (
+                ! in_array($provider, [
+                    ApiConnectionProviders::OPENROUTER,
+                    ApiConnectionProviders::GEMINI,
+                    ApiConnectionProviders::CLAUDE,
+                    ApiConnectionProviders::DEEPSEEK,
+                ], true)
+                && ! ApiConnectionProviders::isSeo($provider)
+                && ! ApiConnectionProviders::isExternal($provider)
+                && ! ApiConnectionProviders::isBuiltinAiProvider($provider)
+            )) {
             return BuiltInModelCapabilityCatalog::openAiCompatibleTextCapabilitiesFor($model);
         }
 

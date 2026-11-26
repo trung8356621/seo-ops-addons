@@ -56,6 +56,23 @@
                             <span class="seo-ai-code seo-ai-code--{{ $row['badge_variant'] ?? 'badge-1' }}">{{ $row['short_code'] }}</span>
                         @endif
                         <span>{{ $row['model_name'] ?? $row['label'] }}</span>
+                        @if (($row['map_source'] ?? '') === 'curated' || ($row['map_source'] ?? '') === 'estimated')
+                            @php($mapSource = (string) ($row['map_source'] ?? 'estimated'))
+                            @php($mapTip = __('seo-content-ai::filament.ai_center.map_source_'.$mapSource))
+                            @if (isset($row['map_score']))
+                                @php($mapTip .= ' score '.number_format((float) $row['map_score'], 2))
+                            @endif
+                            @if (isset($row['map_confidence']))
+                                @php($mapTip .= ' conf '.number_format((float) $row['map_confidence'], 2))
+                            @endif
+                            <span class="seo-ai-muted" style="margin-left:0.35rem;font-size:0.7rem;" title="{{ $mapTip }}">
+                                @if ($mapSource === 'curated')
+                                    {{ __('seo-content-ai::filament.ai_center.map_source_curated') }}
+                                @else
+                                    {{ __('seo-content-ai::filament.ai_center.map_source_estimated') }}
+                                @endif
+                            </span>
+                        @endif
                         @if (! empty($row['is_free_pool']))
                             <span class="seo-ai-muted" style="display:block;font-size:0.75rem;margin-top:0.15rem;">
                                 {{ $row['subtitle'] ?? ('Auto managed · '.((int) ($row['free_pool_count'] ?? $row['member_count'] ?? 0)).' models') }}

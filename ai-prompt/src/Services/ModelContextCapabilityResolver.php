@@ -196,6 +196,18 @@ final class ModelContextCapabilityResolver
         if (str_contains($lower, 'deepseek')) {
             return 64_000;
         }
+        // NVIDIA NIM MiniMax M-series — catalog often omits context_length; without a
+        // heuristic we fall back to CONSERVATIVE_CONTEXT_WINDOW (4096), which caps
+        // meta DirectFit reserves and forces reasoning-truncated empty output.
+        if (str_contains($lower, 'minimax')) {
+            return 128_000;
+        }
+        // NVIDIA NIM Nemotron reasoning — same 4096 default trap; Meta DirectFit 8192
+        // reserve must fit (input + reasoning headroom) or the route is unsplittable /
+        // truncates to empty final content.
+        if (str_contains($lower, 'nemotron')) {
+            return 128_000;
+        }
 
         return null;
     }

@@ -10,9 +10,13 @@ use Omnichannel\Addons\AiPrompt\Exceptions\AiProviderTemplateException;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Support\AiProviderProtocol;
 use Omnichannel\Addons\AiPrompt\Support\AiLatencyDiag;
+use Omnichannel\Addons\AiPrompt\Support\ProviderChatMessageBuilder;
 
 final class OpenAiCompatibleProtocolAdapter
 {
+    /** Default text generation timeout (long-form / background). Short hooks override via options. */
+    public const DEFAULT_TEXT_TIMEOUT_SECONDS = 180;
+
     public function __construct(
         private readonly ProviderConnectionResolver $resolver = new ProviderConnectionResolver(),
         private readonly AiProviderSecureHttpClient $http = new AiProviderSecureHttpClient(),
@@ -93,11 +97,18 @@ final class OpenAiCompatibleProtocolAdapter
             throw new PromptRunException('Text endpoint is not configured.');
         }
 
+        $system = isset($options['system']) ? trim((string) $options['system']) : '';
+        $user = $prompt;
+        if (isset($options['user']) && is_string($options['user']) && trim($options['user']) !== '') {
+            $user = (string) $options['user'];
+        }
         $payload = [
             'model' => $model,
-            'messages' => [
-                ['role' => 'user', 'content' => $prompt],
-            ],
+            'messages' => ProviderChatMessageBuilder::openAiCompatible(
+                $system !== '' ? $system : null,
+                $user,
+                supportsSystemRole: true,
+            ),
         ];
         if (isset($options['temperature']) && is_numeric($options['temperature'])) {
             $payload['temperature'] = (float) $options['temperature'];
@@ -138,12 +149,17 @@ final class OpenAiCompatibleProtocolAdapter
             AiLatencyDiag::addAttemptMs('outbound_budget_gate_ms', (hrtime(true) - $gateStarted) / 1_000_000);
         }
 
+        $timeoutSeconds = self::DEFAULT_TEXT_TIMEOUT_SECONDS;
+        if (isset($options['http_timeout_seconds']) && is_numeric($options['http_timeout_seconds'])) {
+            $timeoutSeconds = max(1, (int) $options['http_timeout_seconds']);
+        }
+
         $response = $this->http->request(
             $template,
             'text',
             (string) $connection->api_key,
             jsonBody: $payload,
-            timeoutSeconds: 180,
+            timeoutSeconds: $timeoutSeconds,
         );
         if (! $response->successful()) {
             throw new PromptRunException(
@@ -182,12 +198,24 @@ final class OpenAiCompatibleProtocolAdapter
             $shape = data_get($json, 'choices.0.message') !== null
                 ? 'choices.message'
                 : (data_get($json, 'choices.0.text') !== null ? 'choices.text' : 'unknown');
+            $reasoning = data_get($json, 'choices.0.message.reasoning_content');
+            $hasReasoning = is_string($reasoning) && trim($reasoning) !== '';
+            $reasoningTokens = (int) data_get($json, 'usage.completion_tokens_details.reasoning_tokens', 0);
+            $emptyClass = match (true) {
+                $hasReasoning && $finishReason === 'length' => 'reasoning_truncated',
+                $hasReasoning => 'reasoning_only',
+                default => 'empty_content',
+            };
 
+            // Never promote reasoning_content to the final user-facing answer.
             throw new PromptRunException(
                 "Provider returned empty content.\n"
                 .'finish_reason='.$finishReason."\n"
                 .'content_type='.$contentType."\n"
-                .'response_shape='.$shape,
+                .'response_shape='.$shape."\n"
+                .'empty_class='.$emptyClass."\n"
+                .'has_reasoning_content='.($hasReasoning ? '1' : '0')."\n"
+                .'reasoning_tokens='.$reasoningTokens,
             );
         }
         $usage = data_get($json, 'usage');
