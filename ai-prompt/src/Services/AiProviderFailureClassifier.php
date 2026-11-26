@@ -200,6 +200,7 @@ final class AiProviderFailureClassifier
                 providerErrorCode: $providerCode,
                 requestSent: true,
                 responseReceived: $httpStatus > 0,
+                affectsRuntimeHealth: false,
             );
         }
 

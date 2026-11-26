@@ -3469,6 +3469,12 @@ class EditArticle extends SeoEditRecord
             return null;
         }
 
+        // Detect AI pending before Save clears it — force local revision when WP would skip capture.
+        $hadAiHistoryPending = $this->resolveAiHistoryPendingOnce() !== null;
+        $this->record->loadMissing('wordpressLink');
+        $forceAiRevision = $hadAiHistoryPending
+            && (int) ($this->record->wordpressLink?->wp_post_id ?? 0) > 0;
+
         $slug = Str::slug($this->articleSlug);
         $postType = ArticleWordPressPostType::normalizeEditorInput($this->articlePostType);
         $bundle = [
@@ -3504,7 +3510,8 @@ class EditArticle extends SeoEditRecord
 
         app(ArticleWordPressSyncFlagService::class)->markLocalEditPending($this->record);
         app(ArticleLastSavedTimestampService::class)->touchManualSaved($this->record);
-        $this->captureArticleRevisionAfterSave($writtenHtml);
+        // Only after successful body write. Force for WP-linked + AI pending (normal capture skips WP).
+        $this->captureArticleRevisionAfterSave($writtenHtml, force: $forceAiRevision);
 
         app(ArticleAiHistoryApplicationService::class)->commitPendingOnSave(
             $this->record,
@@ -4051,14 +4058,24 @@ class EditArticle extends SeoEditRecord
         $conflictGuard = app(ArticleContentConflictGuard::class);
         $projectRunRevision = (string) $metaMap->get('content_project_run', '');
         $aiHistoryPending = $this->resolveAiHistoryPendingBootstrap();
+        $pendingContentApply = is_array($aiHistoryPending)
+            && trim((string) ($aiHistoryPending['target'] ?? '')) === 'content'
+            && trim((string) ($aiHistoryPending['payload'] ?? '')) !== '';
         $editorDocBoot = app(\Omnichannel\Addons\Content\Services\ArticleEditor\Document\ArticleEditorDocumentWriter::class)
             ->resolveForBootstrap($this->record);
-        // Prefer repaired body from bootstrap resolver when inline mark spaces were glued in DB.
-        if (
+        // Pending AI History content must win over saved body / editorDocument JSON.
+        // Otherwise Apply appears "APPLIED" while TipTap hydrates the stale body document.
+        if ($pendingContentApply) {
+            $editorDocBoot['document'] = null;
+            $editorDocBoot['hash'] = null;
+            $editorDocBoot['source'] = 'ai_history_pending_content';
+            $editorDocBoot['inline_whitespace_repaired'] = false;
+        } elseif (
             ($editorDocBoot['inline_whitespace_repaired'] ?? false) === true
             && is_string($editorDocBoot['body_html'] ?? null)
             && trim((string) $editorDocBoot['body_html']) !== ''
         ) {
+            // Prefer repaired body from bootstrap resolver when inline mark spaces were glued in DB.
             $this->bootstrapEditorHtml = app(ArticleCtaPlaceholderService::class)->highlightBlankPlaceholdersInHtml(
                 (string) $editorDocBoot['body_html'],
                 (int) ($this->record->site_id ?? 0) > 0 ? (int) $this->record->site_id : null,
@@ -4196,9 +4213,61 @@ class EditArticle extends SeoEditRecord
 
         $target = trim((string) ($pending['target'] ?? ''));
         $payload = (string) ($pending['payload'] ?? '');
+        $payloadFormat = trim((string) ($pending['payload_format'] ?? ''));
 
-        // Content apply: bootstrap editor with pending HTML so draft session picks it up.
+        // Content apply: ensure pending is editor HTML (Generate path), once — not on every refresh.
         if ($target === 'content' && trim($payload) !== '') {
+            $pendingDirty = false;
+            $provenance = is_array($pending['provenance'] ?? null) ? $pending['provenance'] : [];
+
+            if ($payloadFormat !== 'editor_html') {
+                $prepared = app(ArticleContentFaqService::class)->prepareEditorHtmlFromAiOutput($payload);
+                $html = trim((string) ($prepared['html'] ?? ''));
+                if ($html !== '') {
+                    $payload = $html;
+                    $payloadFormat = 'editor_html';
+                    $pending['payload'] = $payload;
+                    $pending['payload_format'] = $payloadFormat;
+                    $provenance['content_import'] = [
+                        'source' => $prepared['source'] ?? 'markdown',
+                        'meta_description' => $prepared['meta_description'] ?? null,
+                        'h1_title' => $prepared['h1_title'] ?? null,
+                        'faq_count' => is_array($prepared['faqs'] ?? null) ? count($prepared['faqs']) : 0,
+                        'normalized_at' => now()->toIso8601String(),
+                    ];
+                    $pendingDirty = true;
+                }
+            }
+
+            // Legacy pending (pre-baseline Apply): snapshot current saved body once for Restore.
+            if (empty($provenance['revision_baseline_id'])) {
+                try {
+                    $baselineBody = trim((string) ($pending['previous_payload'] ?? $this->record->body ?? ''));
+                    $baseline = app(SeoArticleRevisionService::class)->ensureBaselineBeforeAiApply(
+                        $this->record,
+                        $baselineBody,
+                        trim((string) ($this->record->title ?? '')),
+                        [
+                            'slug' => trim((string) ($this->record->slug ?? '')),
+                            'artifact_ref' => (string) ($pending['artifact_ref'] ?? ''),
+                        ],
+                        auth()->id() !== null ? (int) auth()->id() : null,
+                    );
+                    if ($baseline !== null) {
+                        $provenance['revision_baseline_id'] = (int) $baseline->id;
+                        $pendingDirty = true;
+                    }
+                } catch (\Throwable) {
+                    // best-effort
+                }
+            }
+
+            if ($pendingDirty) {
+                $pending['provenance'] = $provenance;
+                app(ArticleAiHistoryPendingDraftStore::class)->put($this->record, $pending);
+                $this->aiHistoryPendingCache = $pending;
+            }
+
             $this->bootstrapEditorHtml = app(ArticleCtaPlaceholderService::class)
                 ->highlightBlankPlaceholdersInHtml(
                     $payload,
@@ -4209,6 +4278,7 @@ class EditArticle extends SeoEditRecord
         return [
             'target' => $target,
             'payload' => $payload,
+            'payload_format' => $payloadFormat !== '' ? $payloadFormat : null,
             'run_id' => $pending['run_id'] ?? null,
             'attempt' => $pending['attempt'] ?? null,
             'artifact_ref' => (string) ($pending['artifact_ref'] ?? ''),
@@ -6129,14 +6199,20 @@ class EditArticle extends SeoEditRecord
         }
     }
 
-    private function captureArticleRevisionAfterSave(string $html): void
+    private function captureArticleRevisionAfterSave(string $html, bool $force = false): void
     {
+        $seoMeta = $this->buildRevisionSeoMetaSnapshot();
+        if ($force) {
+            $seoMeta['ai_apply_save'] = true;
+        }
+
         app(SeoArticleRevisionService::class)->captureAfterSave(
             $this->record->fresh(),
             trim($this->articleTitle),
             $html,
-            $this->buildRevisionSeoMetaSnapshot(),
+            $seoMeta,
             auth()->id() !== null ? (int) auth()->id() : null,
+            force: $force,
         );
 
         $this->dispatch('article-revisions-changed');

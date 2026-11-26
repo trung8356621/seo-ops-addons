@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ArticleBodyWordCounter;
 use Omnichannel\Addons\ContentProjects\Enums\SeoProjectRunItemStatus;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
@@ -92,6 +93,7 @@ final class ContentProjectProgressReadModel
 
         $titles = $this->resolveTitles($items);
         $thumbnails = $this->resolveThumbnails($items);
+        $wordCounts = $this->resolveWordCounts($items);
 
         $playlist = [];
         $counts = [
@@ -149,6 +151,8 @@ final class ContentProjectProgressReadModel
                 'article_id' => $articleId > 0 ? $articleId : null,
                 'title' => $title,
                 'thumbnail_url' => $thumbnail,
+                // Saved article body only — never unsaved generate output / run-item snapshots.
+                'word_count' => $articleId > 0 ? ($wordCounts[$articleId] ?? null) : null,
                 'status' => $status->value,
                 'status_bucket' => $bucket,
                 'status_label' => $this->statusLabel($status, $bucket),
@@ -467,6 +471,32 @@ final class ContentProjectProgressReadModel
                 if ($url !== '') {
                     $out[(int) $article->id] = $url;
                 }
+            });
+
+        return $out;
+    }
+
+    /**
+     * Batch word counts from saved article body only (no N+1, no PromptResult).
+     *
+     * @param  Collection<int, SeoProjectRunItem>  $items
+     * @return array<int, int|null>
+     */
+    private function resolveWordCounts(Collection $items): array
+    {
+        $articleIds = $items->pluck('article_id')->map(static fn (mixed $id): int => (int) $id)->filter()->unique()->values()->all();
+        if ($articleIds === []) {
+            return [];
+        }
+
+        $out = [];
+        SeoArticle::query()
+            ->whereIn('id', $articleIds)
+            ->get(['id', 'body'])
+            ->each(static function (SeoArticle $article) use (&$out): void {
+                $out[(int) $article->id] = ArticleBodyWordCounter::countOrNull(
+                    $article->body !== null ? (string) $article->body : null,
+                );
             });
 
         return $out;

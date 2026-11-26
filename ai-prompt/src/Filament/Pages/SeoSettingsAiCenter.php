@@ -690,13 +690,19 @@ class SeoSettingsAiCenter extends Page
     {
         $this->assertManager();
         $connection = $this->ownedConnection($connectionId);
-        if ((bool) $connection->is_global) {
+        if (! AiConnectionResource::canEdit($connection)) {
             Notification::make()->title(__('seo-content-ai::filament.keyword.workspace_save_denied'))->danger()->send();
 
             return;
         }
-        $connection->status = (string) $connection->status === 'inactive' ? 'active' : 'inactive';
-        $connection->save();
+        $nextActive = (string) $connection->status === 'inactive';
+        try {
+            app(\Omnichannel\Addons\AiPrompt\Services\SetAiConnectionActive::class)->handle($connection, $nextActive);
+        } catch (\Throwable $e) {
+            Notification::make()->title($e->getMessage())->danger()->send();
+
+            return;
+        }
         $this->bustInventoryCache();
     }
 

@@ -23,10 +23,8 @@ final class SetAiConnectionActive
             throw new RuntimeException('Only AI connections support active toggle.');
         }
 
-        if ((bool) $connection->is_global) {
-            throw new RuntimeException('Global connections cannot be toggled here.');
-        }
-
+        // Global and user-owned share the same status field Edit form writes.
+        // Authorization belongs to the caller (AiConnectionResource::canEdit).
         $connection->status = $active ? 'active' : 'inactive';
         $connection->save();
         $this->inventory->forgetCache();

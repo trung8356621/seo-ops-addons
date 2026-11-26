@@ -1585,8 +1585,8 @@ function mountArticleEditorPage() {
     const bootstrap = readArticleEditorBootstrap();
     const {
         initialHtml,
-        initialEditorDocument,
-        initialEditorDocumentHash,
+        initialEditorDocument: bootEditorDocument,
+        initialEditorDocumentHash: bootEditorDocumentHash,
         initialSeo,
         editorSettings,
         initialPostImages,
@@ -1620,6 +1620,10 @@ function mountArticleEditorPage() {
         contentLifecycle,
     } = bootstrap;
 
+    // Mutable so pending AI History content can drop stale editorDocument JSON.
+    let initialEditorDocument = bootEditorDocument;
+    let initialEditorDocumentHash = bootEditorDocumentHash;
+
     // Manual AI History apply: nạp outline/content vào draft session, không gọi AI.
     if (articleId && aiHistoryPendingApply && typeof aiHistoryPendingApply === 'object') {
         const pendingTarget = String(aiHistoryPendingApply.target ?? '').trim();
@@ -1628,6 +1632,9 @@ function mountArticleEditorPage() {
             saveOutline(articleId, pendingPayload);
         }
         if (pendingTarget === 'content' && pendingPayload !== '') {
+            // Drop stale editorDocument JSON so pending HTML/markdown in `content` wins.
+            initialEditorDocument = null;
+            initialEditorDocumentHash = null;
             clearDraft(articleId, connectionHash, { siteId: Number(siteId ?? 0) || 0 });
         }
     }

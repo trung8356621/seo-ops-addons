@@ -275,6 +275,9 @@ final class AiProviderFailureClassifierTest extends TestCase
         ));
         $this->assertSame(AiFailureClass::RequestInvalid, $decision->category);
         $this->assertFalse($decision->fallbackAllowed());
+        $this->assertFalse($decision->affectsRuntimeHealth);
+        $this->assertFalse($decision->lockConnection);
+        $this->assertFalse($decision->applyCooldown);
     }
 
     public function test_http_400_relay_path_allows_connection_fallback(): void

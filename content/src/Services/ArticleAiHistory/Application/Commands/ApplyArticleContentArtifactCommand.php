@@ -7,7 +7,7 @@ namespace Omnichannel\Addons\Content\Services\ArticleAiHistory\Application\Comma
 use Omnichannel\Addons\Content\Services\ArticleAiHistory\Application\Contracts\ArticleAiHistoryCommand;
 
 /**
- * Apply một artifact article_content vào bản nháp editor (không lưu chính thức).
+ * Apply article_content via Versioned Save (parse + revision + canonical persist).
  *
  * @param  list<int>  $accessibleProjectIds
  */
@@ -19,6 +19,8 @@ final class ApplyArticleContentArtifactCommand implements ArticleAiHistoryComman
         public readonly array $accessibleProjectIds,
         public readonly int $userId,
         public readonly bool $confirmDirty = false,
+        public readonly ?string $editorHtml = null,
+        public readonly int|string|null $expectedDocumentVersion = null,
     ) {}
 
     public function name(): string

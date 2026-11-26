@@ -570,7 +570,8 @@
         .cp-ops-col-item { width: 33%; }
         .cp-ops-col-gen, .cp-ops-col-life { width: 12%; }
         .cp-ops-col-domain { width: 13%; min-width: 7rem; padding-right: 0.75rem; white-space: nowrap; }
-        .cp-ops-col-keywords { width: 16%; min-width: 7rem; padding-right: 0.75rem; }
+        .cp-ops-col-keywords { width: 14%; min-width: 7rem; padding-right: 0.75rem; }
+        .cp-ops-col-words { width: 6%; min-width: 4.5rem; white-space: nowrap; text-align: right; }
         .cp-ops-col-workflow { width: 14%; min-width: 7rem; padding-left: 0.25rem; }
         .cp-ops-col-ai-mode { width: 8%; min-width: 5.75rem; white-space: nowrap; }
         .cp-ops-ai-mode {

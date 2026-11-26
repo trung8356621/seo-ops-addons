@@ -111,6 +111,15 @@ class ListAiConnections extends ListRecords
             return;
         }
 
+        if (! AiConnectionResource::canEdit($connection)) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.keyword.workspace_save_denied'))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
         $nextActive = (string) $connection->status === 'inactive';
         try {
             $updated = app(SetAiConnectionActive::class)->handle($connection, $nextActive);
@@ -119,6 +128,7 @@ class ListAiConnections extends ListRecords
                 ->title($e->getMessage())
                 ->danger()
                 ->send();
+            $this->resetTable();
 
             return;
         }
@@ -127,6 +137,47 @@ class ListAiConnections extends ListRecords
             ->title($nextActive
                 ? __('seo-content-ai::filament.api_connections.toast_activated', ['name' => $updated->name])
                 : __('seo-content-ai::filament.api_connections.toast_deactivated', ['name' => $updated->name]))
+            ->success()
+            ->send();
+
+        $this->resetTable();
+    }
+
+    public function updateConnectionPriority(string $recordKey, mixed $priority): void
+    {
+        $connection = $this->resolveAiConnection($recordKey);
+        if ($connection === null) {
+            return;
+        }
+
+        if (! AiConnectionResource::canEdit($connection)) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.keyword.workspace_save_denied'))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $value = is_numeric($priority) ? (int) $priority : 0;
+        try {
+            app(\Omnichannel\Addons\AiPrompt\Services\AiModelPriorityService::class)
+                ->setConnectionPriority($connection, $value);
+        } catch (\Throwable $e) {
+            Notification::make()
+                ->title($e->getMessage())
+                ->danger()
+                ->send();
+            $this->resetTable();
+
+            return;
+        }
+
+        Notification::make()
+            ->title(__('seo-content-ai::filament.api_connections.toast_priority_saved', [
+                'name' => $connection->name,
+                'priority' => $value,
+            ]))
             ->success()
             ->send();
 

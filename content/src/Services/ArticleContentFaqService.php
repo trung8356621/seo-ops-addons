@@ -8,6 +8,7 @@ namespace Omnichannel\Addons\Content\Services;
 use Omnichannel\Addons\AiPrompt\Services\WorkflowParserService;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Services\ArticleEditor\ArticleEditorSessionService;
+use Omnichannel\Addons\Content\Support\ArticleMarkdownImportParser;
 use App\Models\User;
 
 /**
@@ -112,6 +113,57 @@ final class ArticleContentFaqService
             'meta_description' => $metaDescription !== '' ? $metaDescription : null,
             'h1_title' => filled($h1Title) ? trim((string) $h1Title) : null,
             'faqs' => $faqs,
+        ];
+    }
+
+    /**
+     * Canonical AI content → editor HTML for Generate persist and History Apply.
+     * Reuses {@see convertMarkdownImport}; never invents a second Markdown parser.
+     * Already-HTML editor documents are not CommonMark-parsed again.
+     *
+     * @return array{
+     *     html: string,
+     *     meta_description: string|null,
+     *     h1_title: string|null,
+     *     faqs: list<array{question: string, answer: string}>,
+     *     source: 'html'|'markdown',
+     * }
+     */
+    public function prepareEditorHtmlFromAiOutput(string $raw): array
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return [
+                'html' => '',
+                'meta_description' => null,
+                'h1_title' => null,
+                'faqs' => [],
+                'source' => 'html',
+            ];
+        }
+
+        if ((new ArticleMarkdownImportParser)->isHtmlDocument($raw)) {
+            $stripped = $this->markdownHtml->stripMetaDescriptionFromHtml($raw);
+
+            return [
+                'html' => trim((string) ($stripped['html'] ?? '')),
+                'meta_description' => filled($stripped['meta_description'] ?? null)
+                    ? trim((string) $stripped['meta_description'])
+                    : null,
+                'h1_title' => null,
+                'faqs' => [],
+                'source' => 'html',
+            ];
+        }
+
+        $import = $this->convertMarkdownImport($raw);
+
+        return [
+            'html' => (string) ($import['html'] ?? ''),
+            'meta_description' => $import['meta_description'] ?? null,
+            'h1_title' => $import['h1_title'] ?? null,
+            'faqs' => is_array($import['faqs'] ?? null) ? $import['faqs'] : [],
+            'source' => 'markdown',
         ];
     }
 

@@ -7,6 +7,10 @@
     $tid = (int) ($row['task_id'] ?? 0);
     $articleId = $row['article_id'] ?? null;
     $type = (string) ($row['type_label'] ?? '');
+    $postTypeRaw = $row['post_type'] ?? null;
+    $postTypeDisplay = is_string($postTypeRaw) && trim($postTypeRaw) !== ''
+        ? trim($postTypeRaw)
+        : '—';
     // Title → WordPress/source permalink only (internal editor stays on Actions icon).
     $publicUrl = trim((string) ($row['article_public_url'] ?? ''));
     $wpUrl = $publicUrl !== '' && filter_var($publicUrl, FILTER_VALIDATE_URL) ? $publicUrl : null;
@@ -47,6 +51,7 @@
         #{{ $tid }}
         @if ($articleId) · article {{ $articleId }} @endif
         @if ($type !== '') · {{ $type }} @endif
+        · post_type: {{ $postTypeDisplay }}
     </div>
     @if (! empty($row['suggestion_reason']))
         <div class="mt-0.5 line-clamp-1 text-[11px] text-gray-400 dark:text-gray-500" title="{{ $row['suggestion_reason'] }}">

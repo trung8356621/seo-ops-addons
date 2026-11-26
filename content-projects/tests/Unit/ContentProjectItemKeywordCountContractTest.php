@@ -20,7 +20,11 @@ final class ContentProjectItemKeywordCountContractTest extends TestCase
         self::assertStringContainsString('ArticleKeywordDistinctCounter::META_KEY', $src);
         self::assertStringContainsString('keywords_count', $src);
         self::assertStringContainsString('distinctKeywordCount', $src);
-        self::assertStringNotContainsString("\$article->body", $src);
+        // Keyword count stays meta-only; article body is reserved for word_count.
+        $kwMethodPos = strpos($src, 'function distinctKeywordCount');
+        self::assertNotFalse($kwMethodPos);
+        $kwMethod = substr($src, $kwMethodPos, 500);
+        self::assertStringNotContainsString('body', $kwMethod);
         self::assertStringNotContainsString('wp_post_content', $src);
         self::assertStringNotContainsString('strip_tags', $src);
     }

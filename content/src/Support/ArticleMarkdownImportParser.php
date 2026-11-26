@@ -378,6 +378,14 @@ final class ArticleMarkdownImportParser
         return trim($matches[1]);
     }
 
+    /**
+     * Public gate for Apply/import callers — avoid CommonMark double-parse of editor HTML.
+     */
+    public function isHtmlDocument(string $input): bool
+    {
+        return $this->looksLikeHtmlDocument($input);
+    }
+
     private function looksLikeHtmlDocument(string $input): bool
     {
         $trimmed = ltrim($input);

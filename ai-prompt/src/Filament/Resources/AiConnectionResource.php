@@ -213,6 +213,9 @@ class AiConnectionResource extends SeoPanelResource
                     ->label(__('seo-content-ai::filament.api_connections.col_status'))
                     ->view('seo-content-ai::filament.tables.columns.api-connection-status-toggle')
                     ->sortable(),
+                Tables\Columns\ViewColumn::make('routing_priority')
+                    ->label(__('seo-content-ai::filament.api_connections.col_priority'))
+                    ->view('seo-content-ai::filament.tables.columns.api-connection-priority-input'),
                 Tables\Columns\ViewColumn::make('paid_locked')
                     ->label(__('seo-content-ai::filament.api_connections.col_model_mode'))
                     ->view('seo-content-ai::filament.tables.columns.api-connection-mode-toggle'),

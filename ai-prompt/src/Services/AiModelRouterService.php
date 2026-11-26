@@ -713,7 +713,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                         $this->connectionPaidLockAttemptMeta($candidate, $healthBefore),
                     ),
                 );
-                if ($healthBefore === 'connection_locked') {
+                if ($healthBefore === 'connection_locked' || $healthBefore === 'connection_cooldown') {
                     $suppressedConnections[$connectionId] = true;
                 } elseif ($healthBefore === 'connection_paid_locked') {
                     $suppressedPaidLanes[$connectionId] = true;
@@ -977,7 +977,9 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                 $healthMutation = null;
                 if ($this->isFullConnectionSuppressDecision($decision)) {
                     $suppressedConnections[$connectionId] = true;
-                    $healthMutation = 'connection_locked';
+                    $healthMutation = $decision->lockConnection
+                        ? 'connection_locked'
+                        : ($decision->applyCooldown ? 'connection_cooldown' : 'connection_suppressed');
                 } elseif ($this->isPaidLaneSuppressDecision($decision)) {
                     $suppressedPaidLanes[$connectionId] = true;
                     $healthMutation = $decision->lockConnectionPaid
@@ -986,6 +988,12 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                 } elseif ($this->isFreeLaneSuppressDecision($decision)) {
                     $suppressedFreeLanes[$connectionId] = true;
                     $healthMutation = 'free_lane_suppressed';
+                } elseif ($decision->markModelUnavailable || $decision->category === AiFailureClass::ModelNotFound) {
+                    $healthMutation = 'model_unavailable';
+                } elseif ($decision->category === AiFailureClass::RequestInvalid) {
+                    $healthMutation = 'request_invalid';
+                } elseif ($decision->applyCooldown && $decision->scope === AiFailureScope::Model) {
+                    $healthMutation = 'model_cooldown';
                 }
 
                 if ($exception instanceof \Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\OutputTruncated

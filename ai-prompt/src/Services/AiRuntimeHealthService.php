@@ -24,6 +24,9 @@ final class AiRuntimeHealthService
 
     public const COOLDOWN_MINUTES = 3;
 
+    /** Exclusive half-open window after connection cooldown expires (shared across workers). */
+    public const CONNECTION_PROBE_SECONDS = 45;
+
     private const DEGRADED_THRESHOLD = 3;
 
     private const UNAVAILABLE_THRESHOLD = 5;
@@ -96,6 +99,12 @@ final class AiRuntimeHealthService
                     return 'connection_cooldown';
                 }
             }
+
+            // After cooldown expires: one shared probe across workers; others stay suppressed.
+            if ($this->connectionNeedsHalfOpenProbe($connectionHealth)
+                && ! $this->claimConnectionProbe($userId, $connectionId, $connectionHealth)) {
+                return 'connection_cooldown';
+            }
         }
 
         $modelId = $candidate->seoAiModelId;
@@ -142,6 +151,7 @@ final class AiRuntimeHealthService
                 $row->health_status = AiRuntimeHealthStatus::Healthy->value;
                 $row->cooldown_until = null;
             }
+            $this->clearConnectionProbeState($row);
             $this->maybeNotifyRecovery($userId, $row, $previous);
         });
 
@@ -212,11 +222,13 @@ final class AiRuntimeHealthService
             $this->incrementFailureCounters($row, $errorCode, $decision, $now);
             $this->bumpScopedConsecutiveCounters($row, $decision);
 
-            if ($decision->lockConnection
-                || (($this->scopedConsecutive($row, 'consecutive_connection') >= self::DEGRADED_THRESHOLD)
-                    && $decision->scope === AiFailureScope::Connection)) {
+            // Hard lock only when classifier requests it (credential / account). Soft
+            // connection failures (relay / gateway) stay on bounded cooldown — never escalate
+            // to ConnectionLocked via consecutive counters alone.
+            if ($decision->lockConnection) {
                 $row->health_status = AiRuntimeHealthStatus::ConnectionLocked->value;
                 $row->manual_unlock_required = true;
+                $this->clearConnectionProbeState($row);
             } elseif ($decision->lockConnectionPaid
                 || (($this->scopedConsecutive($row, 'consecutive_paid_lane') >= self::DEGRADED_THRESHOLD)
                     && $decision->lockConnectionPaid)) {
@@ -233,8 +245,14 @@ final class AiRuntimeHealthService
             } elseif ($decision->applyCooldown && $this->cooldownAppliesToConnection($decision)) {
                 // Model-scoped transient/429 must not cooldown the whole connection —
                 // sibling models on the same connection must still be tried in-route.
-                $row->cooldown_until = now()->addMinutes(self::COOLDOWN_MINUTES);
+                $minutes = self::COOLDOWN_MINUTES;
+                $consecutive = $this->scopedConsecutive($row, 'consecutive_connection');
+                if ($consecutive >= self::DEGRADED_THRESHOLD) {
+                    $minutes = min(15, self::COOLDOWN_MINUTES * $consecutive);
+                }
+                $row->cooldown_until = now()->addMinutes($minutes);
                 $row->health_status = $this->degradedOrExisting($row)->value;
+                $this->clearConnectionProbeState($row);
             }
 
             $this->maybeNotifyFailure($userId, $row, $previous, $decision);
@@ -275,7 +293,9 @@ final class AiRuntimeHealthService
 
                     if ($decision->markModelUnavailable || $decision->category === AiFailureClass::ModelNotFound) {
                         $row->health_status = AiRuntimeHealthStatus::Unavailable->value;
-                    } elseif ($decision->applyCooldown) {
+                    } elseif ($decision->applyCooldown && ! $this->cooldownAppliesToConnection($decision)) {
+                        // Connection-scoped cooldown already suppresses every model on the connection —
+                        // do not also poison the physical model (blocks half-open probe recovery).
                         $row->cooldown_until = now()->addMinutes(self::COOLDOWN_MINUTES);
                         // Soft/transient failures stay Degraded — never permanent Unavailable.
                         $row->health_status = $this->statusAfterProviderFailure($row, $decision)->value;
@@ -1043,6 +1063,98 @@ final class AiRuntimeHealthService
 
         // Paid-lane failures must not cooldown the whole connection (free lane stays usable).
         return $decision->scope === AiFailureScope::Connection;
+    }
+
+    /**
+     * Soft connection cooldown recovery: after cooldown_until passes, require one shared probe
+     * before reopening the connection to all bulk workers.
+     */
+    private function connectionNeedsHalfOpenProbe(AiRuntimeHealthState $row): bool
+    {
+        if ($row->manual_unlock_required
+            || $row->health_status === AiRuntimeHealthStatus::ConnectionLocked->value
+            || $row->health_status === AiRuntimeHealthStatus::BudgetLimited->value
+            || $row->health_status === AiRuntimeHealthStatus::Healthy->value
+            || $row->health_status === AiRuntimeHealthStatus::NoData->value) {
+            return false;
+        }
+
+        if ($this->isOnCooldown($row)) {
+            return false;
+        }
+
+        $counts = is_array($row->failure_counts) ? $row->failure_counts : [];
+        $scope = (string) ($counts['last_scope'] ?? '');
+        if ($scope !== AiFailureScope::Connection->value) {
+            return false;
+        }
+
+        // Hard-lock categories must not enter half-open via this path.
+        $category = (string) ($counts['last_category'] ?? '');
+        if (in_array($category, [
+            AiFailureClass::CredentialInvalid->value,
+            AiFailureClass::AccountRestricted->value,
+            AiFailureClass::BillingExhausted->value,
+        ], true)) {
+            return false;
+        }
+
+        return (int) ($counts['consecutive_connection'] ?? 0) > 0
+            || $row->cooldown_until !== null
+            || $row->last_failure_at !== null;
+    }
+
+    /**
+     * Atomically claim the half-open probe window. Winner returns true (eligible);
+     * other workers keep seeing connection_cooldown until probe resolves or window ends.
+     */
+    private function claimConnectionProbe(int $userId, int $connectionId, AiRuntimeHealthState $row): bool
+    {
+        $counts = is_array($row->failure_counts) ? $row->failure_counts : [];
+        $exclusiveUntil = $counts['probe_exclusive_until'] ?? null;
+        if (is_string($exclusiveUntil) && $exclusiveUntil !== '') {
+            try {
+                if (\Illuminate\Support\Carbon::parse($exclusiveUntil)->isFuture()) {
+                    return false;
+                }
+            } catch (\Throwable) {
+            }
+        }
+
+        $claimed = false;
+        $this->mutateSubject(
+            $userId,
+            AiRuntimeHealthState::SUBJECT_CONNECTION,
+            $connectionId,
+            $connectionId,
+            function (AiRuntimeHealthState $fresh) use (&$claimed): void {
+                $freshCounts = is_array($fresh->failure_counts) ? $fresh->failure_counts : [];
+                $until = $freshCounts['probe_exclusive_until'] ?? null;
+                if (is_string($until) && $until !== '') {
+                    try {
+                        if (\Illuminate\Support\Carbon::parse($until)->isFuture()) {
+                            $claimed = false;
+
+                            return;
+                        }
+                    } catch (\Throwable) {
+                    }
+                }
+                $freshCounts['probe_exclusive_until'] = now()->addSeconds(self::CONNECTION_PROBE_SECONDS)->toIso8601String();
+                $freshCounts['probe_claimed_at'] = now()->toIso8601String();
+                $fresh->failure_counts = $freshCounts;
+                $claimed = true;
+            },
+        );
+
+        return $claimed;
+    }
+
+    private function clearConnectionProbeState(AiRuntimeHealthState $row): void
+    {
+        $counts = is_array($row->failure_counts) ? $row->failure_counts : [];
+        unset($counts['probe_exclusive_until'], $counts['probe_claimed_at']);
+        $row->failure_counts = $counts;
     }
 
     /**

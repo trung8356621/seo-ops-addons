@@ -17,6 +17,7 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGene
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFreshKeywordRestart;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectTaskCanonicalInputBuilder;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectTaskPostTypeRecheckService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ContentProjectItemGenerationPolicyApplier;
 use Omnichannel\Addons\ContentProjects\Support\ProjectTaskOriginVariables;
 use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
@@ -87,6 +88,10 @@ final class TaskTestInputResolver
         ?callable $scopeArticles = null,
         bool $cleanRestart = false,
     ): TaskTestContext {
+        // Shared pre-generation hook (single/bulk/retry/resume): recheck Rewrite/Improve
+        // post_type from Article before length policy / prompt variables.
+        $task = app(ContentProjectTaskPostTypeRecheckService::class)->recheckAndPersist($task);
+
         $type = SeoProjectTask::normalizeType($task->type);
         $effectiveKeyword = ContentProjectGenerationKeyword::effective($task);
         $promptInputs = SeoProjectTask::promptInputFields(
@@ -196,6 +201,8 @@ final class TaskTestInputResolver
         if ($keyword === '') {
             throw new \InvalidArgumentException('Từ khóa tạo bài mới là bắt buộc.');
         }
+
+        $task = app(ContentProjectTaskPostTypeRecheckService::class)->recheckAndPersist($task);
 
         $type = SeoProjectTask::normalizeType($task->type);
         $siteId = (int) ($task->site_id ?? 0);

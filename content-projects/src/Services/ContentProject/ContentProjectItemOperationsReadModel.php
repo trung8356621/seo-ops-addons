@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\ContentProjects\Services\ContentProject;
 
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemAction;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
+use Omnichannel\Addons\Content\Support\ArticleBodyWordCounter;
 use Omnichannel\Addons\Content\Support\ArticleKeywordDistinctCounter;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Models\SeoArticleReview;
@@ -115,6 +116,9 @@ final class ContentProjectItemOperationsReadModel
                     ArticleWordPressSyncFlagService::META_LOCAL_EDIT_PENDING,
                     ArticleWordPressSyncFlagService::META_LOCAL_CONTENT_HASH,
                     ArticleWordPressSyncFlagService::META_PUBLISHED_CONTENT_HASH,
+                    \Omnichannel\Addons\Content\Support\ArticleContentClassification::META_CONTENT_TYPE,
+                    \Omnichannel\Addons\Content\Support\ArticleContentClassification::META_WP_POST_TYPE,
+                    \Omnichannel\Addons\Content\Support\ArticleContentClassification::META_WP_IS_TERM,
                 ]),
                 'article.wordpressLink',
                 'itemOrigin',
@@ -860,6 +864,8 @@ final class ContentProjectItemOperationsReadModel
                 SeoProjectTask::TYPE_IMPROVE => 'improve',
                 default => 'new',
             },
+            // Effective post_type: Create=planned task; Rewrite/Improve=Article-resolved.
+            'post_type' => $this->effectivePostType($task, $article instanceof SeoArticle ? $article : null),
             'primary_label' => $primary,
             'article_empty_label' => $articleEmptyLabel,
             'thumbnail_url' => $thumbnailUrl,
@@ -988,6 +994,12 @@ final class ContentProjectItemOperationsReadModel
             'in_publishing_queue' => $rowBase['in_publishing_queue'],
             'can_send_to_publishing_queue' => PublishingQueueHandoffEligibility::canSend($rowBase),
             'keywords_count' => $this->distinctKeywordCount($article),
+            // Saved article body only — never unsaved generate output / AI history.
+            'word_count' => $article instanceof SeoArticle
+                ? ArticleBodyWordCounter::countOrNull(
+                    $article->body !== null ? (string) $article->body : null,
+                )
+                : null,
             'latest_review_note' => null,
             'latest_reviewer_name' => null,
             'latest_review_at' => null,
@@ -1092,6 +1104,16 @@ final class ContentProjectItemOperationsReadModel
         $raw = $article->articleMetas->firstWhere('meta_key', ArticleKeywordDistinctCounter::META_KEY)?->meta_value;
 
         return ArticleKeywordDistinctCounter::count($raw);
+    }
+
+    /**
+     * Effective display post_type (Create=planned; Rewrite/Improve=Article).
+     * Empty/unresolvable → null (UI shows —). No title/URL guessing.
+     */
+    private function effectivePostType(SeoProjectTask $task, ?SeoArticle $article): ?string
+    {
+        return app(ContentProjectTaskPostTypeRecheckService::class)
+            ->resolveEffectiveForDisplay($task, $article);
     }
 
     /**

@@ -98,6 +98,13 @@
                                 @endif
                             </span>
                             @if (! $isPublishingQueue)
+                                <span class="tabular-nums" title="{{ __('seo-content-ai::filament.projects.ops_col_word_count') }}">
+                                    {{ \Omnichannel\Addons\Content\Support\ArticleBodyWordCounter::format(
+                                        isset($row['word_count']) && is_numeric($row['word_count'])
+                                            ? (int) $row['word_count']
+                                            : null
+                                    ) }}
+                                </span>
                                 <x-seo-content-ai::content-project-keyword-cell :row="$row" />
                             @endif
                         </div>
@@ -143,6 +150,7 @@
                             <th class="cp-ops-col-life" scope="col">Schedule</th>
                         @else
                             <th class="cp-ops-col-keywords" scope="col">{{ __('seo-content-ai::filament.projects.ops_col_keywords') }}</th>
+                            <th class="cp-ops-col-words" scope="col">{{ __('seo-content-ai::filament.projects.ops_col_word_count') }}</th>
                             <th class="cp-ops-col-workflow" scope="col">{{ __('seo-content-ai::filament.projects.ops_col_workflow') }}</th>
                             <th class="cp-ops-col-ai-mode" scope="col">AI MODE</th>
                         @endif
@@ -244,6 +252,13 @@
                             @else
                                 <td class="cp-ops-kw">
                                     <x-seo-content-ai::content-project-keyword-cell :row="$row" />
+                                </td>
+                                <td class="cp-ops-col-words tabular-nums">
+                                    {{ \Omnichannel\Addons\Content\Support\ArticleBodyWordCounter::format(
+                                        isset($row['word_count']) && is_numeric($row['word_count'])
+                                            ? (int) $row['word_count']
+                                            : null
+                                    ) }}
                                 </td>
                                 <td class="cp-ops-col-workflow">
                                     <div

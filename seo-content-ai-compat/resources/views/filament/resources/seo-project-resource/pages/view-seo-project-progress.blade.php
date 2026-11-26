@@ -131,6 +131,7 @@
             [data-cp-progress-page] table.cp-progress-playlist col.cp-col-idx { width: 3rem; }
             [data-cp-progress-page] table.cp-progress-playlist col.cp-col-article { width: auto; }
             [data-cp-progress-page] table.cp-progress-playlist col.cp-col-status { width: 8.5rem; }
+            [data-cp-progress-page] table.cp-progress-playlist col.cp-col-words { width: 5.5rem; }
             [data-cp-progress-page] table.cp-progress-playlist col.cp-col-duration { width: 9rem; }
 
             [data-cp-progress-page] .cp-progress-bar-track {
@@ -502,6 +503,7 @@
                         <col class="cp-col-idx" />
                         <col class="cp-col-article" />
                         <col class="cp-col-status" />
+                        <col class="cp-col-words" />
                         <col class="cp-col-duration" />
                     </colgroup>
                     <thead>
@@ -509,6 +511,7 @@
                             <th>#</th>
                             <th>{{ __('seo-content-ai::filament.projects.progress_col_article') }}</th>
                             <th>{{ __('seo-content-ai::filament.projects.progress_col_status') }}</th>
+                            <th>{{ __('seo-content-ai::filament.projects.progress_col_word_count') }}</th>
                             <th>{{ __('seo-content-ai::filament.projects.progress_col_duration') }}</th>
                         </tr>
                     </thead>
@@ -564,13 +567,20 @@
                                         <span class="truncate">{{ $row['status_label'] ?? $bucket }}</span>
                                     </span>
                                 </td>
+                                <td class="truncate tabular-nums text-xs text-gray-600 dark:text-gray-300">
+                                    {{ \Omnichannel\Addons\Content\Support\ArticleBodyWordCounter::format(
+                                        isset($row['word_count']) && is_numeric($row['word_count'])
+                                            ? (int) $row['word_count']
+                                            : null
+                                    ) }}
+                                </td>
                                 <td class="truncate tabular-nums text-xs text-gray-600 dark:text-gray-300" title="{{ $row['duration_label'] ?? '—' }}">
                                     {{ $row['duration_label'] ?? '—' }}
                                 </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="4" class="px-3 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                                <td colspan="5" class="px-3 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
                                     {{ __('seo-content-ai::filament.projects.progress_playlist_empty') }}
                                 </td>
                             </tr>

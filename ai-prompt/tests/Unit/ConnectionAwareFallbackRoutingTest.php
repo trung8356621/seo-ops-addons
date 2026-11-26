@@ -385,6 +385,366 @@ final class ConnectionAwareFallbackRoutingTest extends TestCase
         $this->assertSame($expected, (new AiRuntimeHealthState)->getConnectionName());
     }
 
+    public function test_openrouter_relay_skips_sibling_models_and_fails_over(): void
+    {
+        $this->seedPriorityProviders(80, [
+            [ApiConnectionProviders::OPENROUTER, 'OpenRouter', ['or/a', 'or/b', 'or/c']],
+            [ApiConnectionProviders::NVIDIA, 'NVIDIA NIM', ['nim/x']],
+            [ApiConnectionProviders::GEMINI, 'Google Gemini', ['gem/y']],
+        ]);
+        $calls = [];
+        [$output, , , , , $attempts] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextReasoning->value,
+            new AiRoutingContext(userId: 80, hookKey: 'article.outline.structure.generate'),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+                if (str_starts_with($candidate->model, 'or/')) {
+                    throw new PromptRunException('Provider API error (400): Request path cannot be relayed', 400);
+                }
+
+                return ['ok-'.$candidate->model, null];
+            },
+        );
+        $this->assertSame('ok-nim/x', $output);
+        $this->assertSame(['or/a', 'nim/x'], $calls);
+        $failed = array_values(array_filter(
+            $attempts,
+            static fn (array $row): bool => ($row['result'] ?? '') === 'failed',
+        ));
+        $this->assertCount(1, $failed);
+        $this->assertSame('connection_cooldown', $failed[0]['health_mutation'] ?? null);
+        $this->assertSame(AiFailureScope::Connection->value, $failed[0]['failure_scope'] ?? null);
+        $skipped = array_values(array_filter(
+            $attempts,
+            static fn (array $row): bool => ($row['result'] ?? '') === 'skipped'
+                && ($row['skip_reason'] ?? '') === 'connection_suppressed',
+        ));
+        $this->assertCount(2, $skipped);
+    }
+
+    public function test_request_invalid_does_not_lock_connection_or_cooldown(): void
+    {
+        $this->seedPriorityProviders(81, [
+            [ApiConnectionProviders::OPENROUTER, 'OpenRouter', ['or/a', 'or/b']],
+        ]);
+        $cands = $this->targets->eligibleCandidates(
+            81,
+            AiExecutionProfile::TextReasoning,
+            new AiRoutingContext(userId: 81),
+        );
+        $this->assertNotEmpty($cands);
+
+        try {
+            $this->router->executeWithProfile(
+                AiExecutionProfile::TextReasoning->value,
+                new AiRoutingContext(userId: 81, hookKey: 'article.outline.structure.generate'),
+                static function (): array {
+                    throw new PromptRunException('Provider API error (400): unsupported parameter temperature', 400);
+                },
+            );
+            $this->fail('Expected PromptRunException');
+        } catch (PromptRunException $e) {
+            $this->assertStringContainsString('unsupported parameter', $e->getMessage());
+        }
+
+        $this->assertNull($this->health->skipReason(81, $cands[0]));
+        foreach ($cands as $cand) {
+            $this->assertNull($this->health->skipReason(81, $cand));
+        }
+    }
+
+    public function test_transient_503_does_not_hard_disable_connection(): void
+    {
+        $this->seedPriorityProviders(82, [
+            [ApiConnectionProviders::OPENROUTER, 'OpenRouter', ['or/a', 'or/b']],
+        ]);
+        $cands = $this->targets->eligibleCandidates(
+            82,
+            AiExecutionProfile::TextReasoning,
+            new AiRoutingContext(userId: 82),
+        );
+        $calls = [];
+        [$output] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextReasoning->value,
+            new AiRoutingContext(userId: 82, hookKey: 'article.outline.structure.generate'),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+                if ($candidate->model === 'or/a') {
+                    throw new PromptRunException('Provider API error (503): temporarily unavailable', 503);
+                }
+
+                return ['ok', null];
+            },
+        );
+        $this->assertSame('ok', $output);
+        $this->assertSame(['or/a', 'or/b'], $calls);
+        $sibling = null;
+        foreach ($cands as $cand) {
+            if ($cand->model === 'or/b') {
+                $sibling = $cand;
+                break;
+            }
+        }
+        $this->assertNotNull($sibling);
+        $this->assertNull($this->health->skipReason(82, $sibling));
+        $connRow = AiRuntimeHealthState::query()
+            ->where('user_id', 82)
+            ->where('subject_type', AiRuntimeHealthState::SUBJECT_CONNECTION)
+            ->where('subject_id', (int) $cands[0]->connection->id)
+            ->first();
+        $this->assertNotSame(AiRuntimeHealthStatus::ConnectionLocked->value, $connRow?->health_status);
+        $this->assertTrue(
+            $connRow === null
+            || $connRow->cooldown_until === null
+            || ! $connRow->cooldown_until->isFuture()
+        );
+    }
+
+    public function test_parallel_jobs_share_connection_cooldown(): void
+    {
+        $this->seedPriorityProviders(83, [
+            [ApiConnectionProviders::OPENROUTER, 'OpenRouter', ['or/a', 'or/b']],
+            [ApiConnectionProviders::NVIDIA, 'NVIDIA NIM', ['nim/x']],
+        ]);
+        $job1Calls = [];
+        [$out1] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextReasoning->value,
+            new AiRoutingContext(userId: 83, hookKey: 'article.outline.structure.generate'),
+            function ($candidate) use (&$job1Calls): array {
+                $job1Calls[] = $candidate->model;
+                if (str_starts_with($candidate->model, 'or/')) {
+                    throw new PromptRunException('Provider API error (400): Request path cannot be relayed', 400);
+                }
+
+                return ['ok-job1', null];
+            },
+        );
+        $this->assertSame('ok-job1', $out1);
+        $this->assertSame(['or/a', 'nim/x'], $job1Calls);
+
+        $job2Calls = [];
+        [, , , , , $attempts2] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextReasoning->value,
+            new AiRoutingContext(userId: 83, hookKey: 'article.outline.structure.generate'),
+            function ($candidate) use (&$job2Calls): array {
+                $job2Calls[] = $candidate->model;
+
+                return ['ok-job2', null];
+            },
+        );
+        $this->assertSame(['nim/x'], $job2Calls);
+        $cooldownSkips = array_values(array_filter(
+            $attempts2,
+            static fn (array $row): bool => ($row['result'] ?? '') === 'skipped'
+                && in_array($row['skip_reason'] ?? '', ['connection_cooldown', 'connection_suppressed'], true),
+        ));
+        $this->assertGreaterThanOrEqual(2, count($cooldownSkips));
+    }
+
+    public function test_soft_connection_failures_do_not_escalate_to_hard_lock(): void
+    {
+        $this->seedPriorityProviders(84, [
+            [ApiConnectionProviders::OPENROUTER, 'OpenRouter', ['or/a']],
+        ]);
+        $cands = $this->targets->eligibleCandidates(
+            84,
+            AiExecutionProfile::TextReasoning,
+            new AiRoutingContext(userId: 84),
+        );
+        $decision = new AiFailureDecision(
+            category: AiFailureClass::TransientProvider,
+            scope: AiFailureScope::Connection,
+            recoverable: true,
+            runtimeAction: AiFailureRuntimeAction::Continue,
+            healthStatus: AiRuntimeHealthStatus::Degraded,
+            safeMessage: 'Provider relay path unavailable.',
+            httpStatus: 400,
+            applyCooldown: true,
+            lockConnection: false,
+            affectsRuntimeHealth: true,
+            failureStage: 'provider_http',
+        );
+        for ($i = 0; $i < 5; $i++) {
+            $this->health->recordFailure(84, $cands[0], $decision);
+        }
+        $this->assertSame('connection_cooldown', $this->health->skipReason(84, $cands[0]));
+        $row = AiRuntimeHealthState::query()
+            ->where('user_id', 84)
+            ->where('subject_type', AiRuntimeHealthState::SUBJECT_CONNECTION)
+            ->where('subject_id', (int) $cands[0]->connection->id)
+            ->first();
+        $this->assertNotSame(AiRuntimeHealthStatus::ConnectionLocked->value, $row?->health_status);
+        $this->assertFalse((bool) $row?->manual_unlock_required);
+    }
+
+    public function test_cooldown_expiry_allows_bounded_probe_then_suppresses_siblings(): void
+    {
+        $this->seedPriorityProviders(85, [
+            [ApiConnectionProviders::OPENROUTER, 'OpenRouter', ['or/a', 'or/b']],
+            [ApiConnectionProviders::NVIDIA, 'NVIDIA NIM', ['nim/x']],
+        ]);
+        $cands = $this->targets->eligibleCandidates(
+            85,
+            AiExecutionProfile::TextReasoning,
+            new AiRoutingContext(userId: 85),
+        );
+        $orCand = null;
+        foreach ($cands as $cand) {
+            if (str_starts_with($cand->model, 'or/')) {
+                $orCand = $cand;
+                break;
+            }
+        }
+        $this->assertNotNull($orCand);
+        $this->health->recordFailure(85, $orCand, new AiFailureDecision(
+            category: AiFailureClass::TransientProvider,
+            scope: AiFailureScope::Connection,
+            recoverable: true,
+            runtimeAction: AiFailureRuntimeAction::Continue,
+            healthStatus: AiRuntimeHealthStatus::Degraded,
+            safeMessage: 'Provider relay path unavailable.',
+            httpStatus: 400,
+            applyCooldown: true,
+            affectsRuntimeHealth: true,
+            failureStage: 'provider_http',
+        ));
+        $row = AiRuntimeHealthState::query()
+            ->where('user_id', 85)
+            ->where('subject_type', AiRuntimeHealthState::SUBJECT_CONNECTION)
+            ->where('subject_id', (int) $orCand->connection->id)
+            ->first();
+        $this->assertNotNull($row);
+        $row->cooldown_until = now()->subSecond();
+        $row->save();
+
+        $first = $this->health->skipReason(85, $orCand);
+        $this->assertNull($first);
+        $sibling = null;
+        foreach ($cands as $cand) {
+            if ((int) $cand->connection->id === (int) $orCand->connection->id
+                && $cand->model !== $orCand->model) {
+                $sibling = $cand;
+                break;
+            }
+        }
+        $this->assertNotNull($sibling);
+        $this->assertSame('connection_cooldown', $this->health->skipReason(85, $sibling));
+    }
+
+    public function test_inactive_connection_is_not_selected(): void
+    {
+        $ids = [];
+        $active = ApiConnection::query()->create([
+            'user_id' => 86,
+            'provider' => ApiConnectionProviders::NVIDIA,
+            'name' => 'NVIDIA NIM',
+            'api_key' => 'nim-key-86',
+            'status' => 'active',
+            'is_global' => false,
+            'metadata' => [],
+        ]);
+        $inactive = ApiConnection::query()->create([
+            'user_id' => 86,
+            'provider' => ApiConnectionProviders::OPENROUTER,
+            'name' => 'OpenRouter inactive',
+            'api_key' => 'or-key-86',
+            'status' => 'inactive',
+            'is_global' => false,
+            'metadata' => [],
+        ]);
+        foreach ([['or/a', $inactive], ['nim/x', $active]] as [$raw, $conn]) {
+            $model = $this->model($conn, $raw);
+            $this->grant($conn, $model);
+            $ids[] = (int) $model->id;
+        }
+        $this->priorities->appendToArea(86, AiModelArea::TextReasoning, $ids);
+
+        $calls = [];
+        [$output] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextReasoning->value,
+            new AiRoutingContext(userId: 86, hookKey: 'article.outline.structure.generate'),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+
+                return ['ok', null];
+            },
+        );
+        $this->assertSame('ok', $output);
+        $this->assertSame(['nim/x'], $calls);
+    }
+
+    public function test_connection_cooldown_does_not_change_user_priority_order(): void
+    {
+        $this->seedPriorityProviders(87, [
+            [ApiConnectionProviders::OPENROUTER, 'OpenRouter', ['or/a']],
+            [ApiConnectionProviders::NVIDIA, 'NVIDIA NIM', ['nim/x']],
+        ]);
+        $before = array_map(
+            static fn ($c) => $c->model,
+            $this->targets->eligibleCandidates(
+                87,
+                AiExecutionProfile::TextReasoning,
+                new AiRoutingContext(userId: 87),
+            ),
+        );
+        $this->assertSame(['or/a', 'nim/x'], $before);
+        $beforeIds = array_map(
+            static fn (SeoAiModel $m): int => (int) $m->id,
+            $this->priorities->effectiveAreaModels(87, AiModelArea::TextReasoning),
+        );
+        $cands = $this->targets->eligibleCandidates(
+            87,
+            AiExecutionProfile::TextReasoning,
+            new AiRoutingContext(userId: 87),
+        );
+        $this->health->recordFailure(87, $cands[0], new AiFailureDecision(
+            category: AiFailureClass::TransientProvider,
+            scope: AiFailureScope::Connection,
+            recoverable: true,
+            runtimeAction: AiFailureRuntimeAction::Continue,
+            healthStatus: AiRuntimeHealthStatus::Degraded,
+            safeMessage: 'Provider relay path unavailable.',
+            httpStatus: 400,
+            applyCooldown: true,
+            affectsRuntimeHealth: true,
+            failureStage: 'provider_http',
+        ));
+        $afterIds = array_map(
+            static fn (SeoAiModel $m): int => (int) $m->id,
+            $this->priorities->effectiveAreaModels(87, AiModelArea::TextReasoning),
+        );
+        $this->assertSame($beforeIds, $afterIds);
+        $this->assertSame('active', (string) $cands[0]->connection->fresh()->status);
+    }
+
+    /**
+     * @param  list<array{0: string, 1: string, 2: list<string>}>  $providers
+     */
+    private function seedPriorityProviders(int $userId, array $providers): void
+    {
+        $ids = [];
+        foreach ($providers as [$provider, $name, $models]) {
+            if ($models === []) {
+                continue;
+            }
+            $conn = ApiConnection::query()->create([
+                'user_id' => $userId,
+                'provider' => $provider,
+                'name' => $name,
+                'api_key' => 'test-key-'.$userId.'-'.$provider,
+                'status' => 'active',
+                'is_global' => false,
+                'metadata' => [],
+            ]);
+            foreach ($models as $raw) {
+                $model = $this->model($conn, $raw);
+                $this->grant($conn, $model);
+                $ids[] = (int) $model->id;
+            }
+        }
+        $this->priorities->appendToArea($userId, AiModelArea::TextReasoning, $ids);
+    }
+
     /**
      * Two distinct OpenRouter API connections — validates connection-id suppress (not model-only).
      *

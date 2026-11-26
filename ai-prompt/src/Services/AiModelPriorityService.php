@@ -206,7 +206,7 @@ final class AiModelPriorityService
         return $this->connectionsMemo[$userId] = $this->sortConnections($out);
     }
 
-    private function storedConnectionPriority(ApiConnection $connection): ?int
+    public function storedConnectionPriority(ApiConnection $connection): ?int
     {
         if (Schema::hasColumn($connection->getTable(), 'routing_priority')
             && $connection->getAttribute('routing_priority') !== null) {
@@ -218,6 +218,18 @@ final class AiModelPriorityService
         }
 
         return null;
+    }
+
+    /**
+     * Persist connection routing priority (1 = highest). Does not touch model priority.
+     */
+    public function setConnectionPriority(ApiConnection $connection, int $priority): void
+    {
+        if ($priority < 1) {
+            throw new \InvalidArgumentException('Connection priority must be a positive integer (1 = highest).');
+        }
+        $this->writeConnectionPriority($connection, $priority);
+        $this->forgetMemo();
     }
 
     private function writeConnectionPriority(ApiConnection $connection, int $priority): void

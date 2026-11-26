@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Services\ArticleAiHistory;
 
+use Omnichannel\Addons\AiPrompt\Models\PromptResult;
 use Omnichannel\Addons\ContentProjects\Enums\WorkflowArtifactType;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Models\SeoArticleAiHistoryApply;
@@ -40,6 +41,9 @@ final class ArticleAiHistoryListService
 
         $tombstones = $this->tombstonesByRef($articleId);
         $applyStats = $this->applyStatsByRef($articleId);
+        // History cards intentionally omit `result` body for payload size — load outputs
+        // once so classification/apply eligibility is not decided on an empty string.
+        $outputByResultId = $this->loadOutputsForGroups($groups);
 
         $enrichedGroups = [];
         foreach ($groups as $group) {
@@ -51,7 +55,13 @@ final class ArticleAiHistoryListService
                     continue;
                 }
 
-                $enriched = $this->enrichPrompt($prompt, (int) ($group['run_id'] ?? 0) ?: null, $tombstones, $applyStats);
+                $enriched = $this->enrichPrompt(
+                    $prompt,
+                    (int) ($group['run_id'] ?? 0) ?: null,
+                    $tombstones,
+                    $applyStats,
+                    $outputByResultId,
+                );
 
                 if (! $includeDeleted && $enriched['is_deleted']) {
                     continue;
@@ -171,50 +181,47 @@ final class ArticleAiHistoryListService
     /**
      * @param  array<string, mixed>  $prompt
      * @param  array<string, SeoArticleAiHistoryTombstone>  $tombstones
-     * @param  array<string, array{count: int, last_applied_at: mixed}>  $applyStats
+     * @param  array<string, array{count: int, committed_count: int, pending_count: int, last_applied_at: mixed}>  $applyStats
+     * @param  array<int, string>  $outputByResultId
      * @return array<string, mixed>
      */
-    private function enrichPrompt(array $prompt, ?int $groupRunId, array $tombstones, array $applyStats): array
-    {
+    private function enrichPrompt(
+        array $prompt,
+        ?int $groupRunId,
+        array $tombstones,
+        array $applyStats,
+        array $outputByResultId = [],
+    ): array {
         $artifactRef = $this->computeArtifactRef($prompt);
+        $classifyOutput = $this->resolveClassifyOutput($prompt, $outputByResultId);
 
         $classification = $this->classifier->classify([
             'hook_key' => $prompt['hook_key'] ?? null,
             'execution_role' => $prompt['execution_role'] ?? null,
             'artifact_type' => $prompt['artifact_type'] ?? null,
-            'output' => (string) ($prompt['result'] ?? ''),
+            'output' => $classifyOutput,
             'outline_markdown' => $prompt['outline_markdown'] ?? null,
             'status' => $prompt['status'] ?? null,
             'persists_as_outline' => (bool) ($prompt['persists_as_outline'] ?? false),
             'outline_subtask' => $prompt['outline_subtask'] ?? null,
-        ], (string) ($prompt['result'] ?? ''));
+        ], $classifyOutput);
 
         $tombstone = $tombstones[$artifactRef] ?? null;
         $applyStat = $applyStats[$artifactRef] ?? null;
         $applyCount = (int) ($applyStat['count'] ?? 0);
+        $committedCount = (int) ($applyStat['committed_count'] ?? 0);
+        $pendingCount = (int) ($applyStat['pending_count'] ?? 0);
 
         $prompt['artifact_ref'] = $artifactRef;
         $prompt['artifact_type'] = $classification['artifact_type'];
         $prompt['classification'] = $classification['classification'];
         $prompt['classification_reason'] = $classification['reason'];
         $prompt['normalized_artifact'] = $classification['normalized_payload'];
+        // Fail-closed: never force can_apply_* when classifier rejects the payload.
         $prompt['can_apply_outline'] = $classification['can_apply']
             && $classification['artifact_type'] === WorkflowArtifactType::ArticleOutline->value;
         $prompt['can_apply_content'] = $classification['can_apply']
             && $classification['artifact_type'] === WorkflowArtifactType::ArticleContent->value;
-
-        $status = strtolower(trim((string) ($prompt['status'] ?? '')));
-        $hook = strtolower(trim((string) ($prompt['hook_key'] ?? $prompt['execution_role'] ?? '')));
-        $succeeded = in_array($status, ['success', 'succeeded', 'completed'], true);
-        if ($succeeded && ! $prompt['can_apply_outline'] && ! $prompt['can_apply_content']) {
-            if (str_contains($hook, 'article.outline') && ! str_contains($hook, 'vocabulary')) {
-                $prompt['can_apply_outline'] = true;
-                $prompt['artifact_type'] = $prompt['artifact_type'] ?: WorkflowArtifactType::ArticleOutline->value;
-            } elseif (str_contains($hook, 'article.content') && ! str_contains($hook, 'section')) {
-                $prompt['can_apply_content'] = true;
-                $prompt['artifact_type'] = $prompt['artifact_type'] ?: WorkflowArtifactType::ArticleContent->value;
-            }
-        }
 
         $prompt['apply_block_reason'] = $this->applyBlockReason($prompt, $classification);
         $prompt['has_raw_prompt'] = (int) ($prompt['prompt_version_id'] ?? 0) > 0
@@ -228,10 +235,10 @@ final class ArticleAiHistoryListService
         );
         $prompt['has_normalized_artifact'] = trim((string) $classification['normalized_payload']) !== '';
         $prompt['apply_count'] = $applyCount;
+        $prompt['apply_committed_count'] = $committedCount;
+        $prompt['apply_pending_count'] = $pendingCount;
         $prompt['last_applied_at'] = $applyStat['last_applied_at'] ?? null;
-        $prompt['applied_label'] = $applyCount > 0
-            ? sprintf('Đã áp dụng %d lần', $applyCount)
-            : null;
+        $prompt['applied_label'] = $this->buildAppliedLabel($applyCount, $committedCount, $pendingCount);
         $prompt['is_deleted'] = $tombstone instanceof SeoArticleAiHistoryTombstone;
         $prompt['deleted_at'] = $tombstone?->deleted_at;
         $prompt['run_id'] = $prompt['run_id'] ?? $groupRunId;
@@ -242,7 +249,7 @@ final class ArticleAiHistoryListService
         if ($children !== []) {
             $prompt['children'] = array_map(
                 fn (mixed $child): array => is_array($child)
-                    ? $this->enrichPrompt($child, $groupRunId, $tombstones, $applyStats)
+                    ? $this->enrichPrompt($child, $groupRunId, $tombstones, $applyStats, $outputByResultId)
                     : [],
                 $children,
             );
@@ -257,7 +264,7 @@ final class ArticleAiHistoryListService
         if ($attempts !== []) {
             $prompt['attempts'] = array_map(
                 fn (mixed $attempt): array => is_array($attempt)
-                    ? $this->enrichPrompt($attempt, $groupRunId, $tombstones, $applyStats)
+                    ? $this->enrichPrompt($attempt, $groupRunId, $tombstones, $applyStats, $outputByResultId)
                     : [],
                 $attempts,
             );
@@ -303,13 +310,18 @@ final class ArticleAiHistoryListService
     }
 
     /**
-     * @return array<string, array{count: int, last_applied_at: mixed}>
+     * @return array<string, array{count: int, committed_count: int, pending_count: int, last_applied_at: mixed}>
      */
     private function applyStatsByRef(int $articleId): array
     {
         $rows = SeoArticleAiHistoryApply::query()
             ->where('article_id', $articleId)
-            ->selectRaw('artifact_ref, COUNT(*) as apply_count, MAX(applied_at) as last_applied_at')
+            ->selectRaw(
+                'artifact_ref, COUNT(*) as apply_count, '
+                .'SUM(CASE WHEN committed = 1 THEN 1 ELSE 0 END) as committed_count, '
+                .'SUM(CASE WHEN committed = 0 THEN 1 ELSE 0 END) as pending_count, '
+                .'MAX(applied_at) as last_applied_at'
+            )
             ->groupBy('artifact_ref')
             ->get();
 
@@ -317,11 +329,94 @@ final class ArticleAiHistoryListService
         foreach ($rows as $row) {
             $stats[(string) $row->artifact_ref] = [
                 'count' => (int) $row->apply_count,
+                'committed_count' => (int) $row->committed_count,
+                'pending_count' => (int) $row->pending_count,
                 'last_applied_at' => $row->last_applied_at,
             ];
         }
 
         return $stats;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $groups
+     * @return array<int, string>
+     */
+    private function loadOutputsForGroups(array $groups): array
+    {
+        $ids = [];
+        $collect = function (mixed $node) use (&$collect, &$ids): void {
+            if (! is_array($node)) {
+                return;
+            }
+            $resultId = (int) ($node['result_id'] ?? 0);
+            if ($resultId > 0 && trim((string) ($node['result'] ?? '')) === '') {
+                $ids[$resultId] = true;
+            }
+            foreach (['children', 'attempts', 'prompts'] as $key) {
+                foreach ((array) ($node[$key] ?? []) as $child) {
+                    $collect($child);
+                }
+            }
+        };
+        foreach ($groups as $group) {
+            $collect($group);
+            foreach ((array) ($group['prompts'] ?? []) as $prompt) {
+                $collect($prompt);
+            }
+        }
+
+        if ($ids === []) {
+            return [];
+        }
+
+        return PromptResult::query()
+            ->whereIn('id', array_keys($ids))
+            ->get(['id', 'output_text'])
+            ->mapWithKeys(static fn (PromptResult $row): array => [
+                (int) $row->id => trim((string) ($row->output_text ?? '')),
+            ])
+            ->all();
+    }
+
+    /**
+     * @param  array<string, mixed>  $prompt
+     * @param  array<int, string>  $outputByResultId
+     */
+    private function resolveClassifyOutput(array $prompt, array $outputByResultId): string
+    {
+        $inline = trim((string) ($prompt['result'] ?? ''));
+        if ($inline !== '') {
+            return $inline;
+        }
+
+        $resultId = (int) ($prompt['result_id'] ?? 0);
+        if ($resultId > 0 && isset($outputByResultId[$resultId])) {
+            return trim((string) $outputByResultId[$resultId]);
+        }
+
+        return '';
+    }
+
+    private function buildAppliedLabel(int $applyCount, int $committedCount, int $pendingCount): ?string
+    {
+        if ($applyCount <= 0) {
+            return null;
+        }
+
+        if ($committedCount > 0 && $pendingCount > 0) {
+            return sprintf(
+                'Đã lưu vào bài %d lần · còn bản nháp chưa lưu',
+                $committedCount,
+            );
+        }
+
+        if ($committedCount > 0) {
+            return sprintf('Đã lưu vào bài %d lần', $committedCount);
+        }
+
+        // Pending-only apply rows mean editor draft — not proof body was persisted.
+        return sprintf('Đã đưa vào bản nháp editor %d lần (chưa lưu body)', $pendingCount > 0 ? $pendingCount : $applyCount);
     }
 
     /**
@@ -346,12 +441,15 @@ final class ArticleAiHistoryListService
         }
 
         $reason = (string) ($classification['reason'] ?? '');
+        $payload = trim((string) ($classification['normalized_payload'] ?? ''));
 
         return match (true) {
             str_contains($reason, 'status_not_succeeded') => 'Bước không thành công (skipped/failed) — không thể áp dụng.',
-            str_contains($reason, 'content_payload_invalid'),
             str_contains($reason, 'outline_marker') => 'Output có marker dàn ý / không phải article_content hợp lệ — không ghi vào body.',
-            str_contains($reason, 'outline_payload_invalid') => 'Dàn ý không parse được — không thể áp dụng.',
+            str_contains($reason, 'content_payload_invalid') && $payload === '' => 'Output bài viết trống trong lịch sử — không thể áp dụng.',
+            str_contains($reason, 'content_payload_invalid') => 'Output không phải article_content hợp lệ — không ghi vào body.',
+            str_contains($reason, 'outline_payload_invalid'),
+            str_contains($reason, 'outline_payload_not_usable') => 'Dàn ý không parse được — không thể áp dụng.',
             default => $isContentHook
                 ? 'Chưa classify được article_content hợp lệ — chỉ xem/xóa.'
                 : 'Chưa classify được article_outline hợp lệ — chỉ xem/xóa.',

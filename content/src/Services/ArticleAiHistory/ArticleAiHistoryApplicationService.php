@@ -85,14 +85,28 @@ final class ArticleAiHistoryApplicationService
     /**
      * @param  list<int>  $accessibleProjectIds
      */
+    /**
+     * @param  list<int>  $accessibleProjectIds
+     * @param  string|null  $editorHtml  Optional unsaved editor HTML from the browser.
+     */
     public function applyContent(
         SeoArticle $article,
         string $artifactRef,
         array $accessibleProjectIds,
         int $userId,
         bool $confirmDirty = false,
+        ?string $editorHtml = null,
+        int|string|null $expectedDocumentVersion = null,
     ): ArticleAiHistoryActionResult {
-        return $this->applyService->applyContent($article, $artifactRef, $accessibleProjectIds, $userId, $confirmDirty);
+        return $this->applyService->applyContent(
+            $article,
+            $artifactRef,
+            $accessibleProjectIds,
+            $userId,
+            $confirmDirty,
+            $editorHtml,
+            $expectedDocumentVersion,
+        );
     }
 
     /**

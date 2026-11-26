@@ -19,6 +19,8 @@ enum ContentProjectErrorCode: string
     case ArticleAlreadyLinked = 'CONTENT_PROJECT_ARTICLE_ALREADY_LINKED';
     /** Local article exists but article.site_id !== task.site_id. */
     case ArticleSiteMismatch = 'CONTENT_PROJECT_ARTICLE_SITE_MISMATCH';
+    /** Linked article lacks content_type / wp_post_type classification evidence. */
+    case ArticlePostTypeUnresolved = 'CONTENT_PROJECT_ARTICLE_POST_TYPE_UNRESOLVED';
     case RunItemNotFound = 'CONTENT_PROJECT_RUN_ITEM_NOT_FOUND';
     case ExternalWorkflowFailed = 'CONTENT_PROJECT_EXTERNAL_WORKFLOW_FAILED';
     case ArchiveMirrorFailed = 'CONTENT_PROJECT_ARCHIVE_MIRROR_FAILED';

@@ -36,7 +36,7 @@ final class SeoArticleRevisionService
         bool $force = false,
     ): ?SeoArticleRevision {
         // Sau khi bài đã có trên WordPress: lịch sử chỉnh sửa do WP Revision quản lý.
-        // Pipeline rerun vẫn force snapshot tạm để rollback AI.
+        // Pipeline rerun / AI History Apply baseline vẫn force snapshot tạm để rollback.
         if (! $force && (int) ($article->wordpressLink?->wp_post_id ?? 0) > 0) {
             return null;
         }
@@ -52,6 +52,70 @@ final class SeoArticleRevisionService
         $this->pruneOldRevisions((int) $article->id);
 
         return $revision;
+    }
+
+    /**
+     * Before AI History Apply overwrites editor draft: ensure current saved body is
+     * recoverable via Version History. Dedupes by content hash — duplicate Apply
+     * of the same PromptResult does not create extra baselines.
+     *
+     * Uses force=true so WP-linked articles (normally WP-revision-owned) still get
+     * a local baseline for Restore. Does not write articles.body.
+     *
+     * @param  array<string, mixed>  $seoMeta
+     */
+    public function ensureBaselineBeforeAiApply(
+        SeoArticle $article,
+        string $currentBody,
+        string $title = '',
+        array $seoMeta = [],
+        ?int $userId = null,
+    ): ?SeoArticleRevision {
+        $currentBody = trim($currentBody);
+        if ($currentBody === '') {
+            return null;
+        }
+
+        if ($this->hasRevisionWithContent($article, $currentBody)) {
+            return null;
+        }
+
+        $meta = array_merge($seoMeta, [
+            'ai_apply_baseline' => true,
+            'document_version' => max(1, (int) ($article->document_version ?? 1)),
+        ]);
+
+        return $this->captureAfterSave(
+            $article,
+            $title !== '' ? $title : trim((string) ($article->title ?? '')),
+            $currentBody,
+            $meta,
+            $userId,
+            force: true,
+        );
+    }
+
+    public function hasRevisionWithContent(SeoArticle $article, string $content): bool
+    {
+        $content = trim($content);
+        if ($content === '') {
+            return false;
+        }
+
+        $fingerprint = hash('sha256', $content);
+        $rows = SeoArticleRevision::query()
+            ->where('article_id', (int) $article->id)
+            ->orderByDesc('id')
+            ->limit(self::MAX_REVISIONS_PER_ARTICLE)
+            ->get(['id', 'content']);
+
+        foreach ($rows as $row) {
+            if (hash('sha256', trim((string) ($row->content ?? ''))) === $fingerprint) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
