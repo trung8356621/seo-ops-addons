@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject;
 
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemAction;
+use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Content\Support\ArticleBodyWordCounter;
 use Omnichannel\Addons\Content\Support\ArticleKeywordDistinctCounter;
@@ -33,6 +34,8 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectStat
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunEngineFeature;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunRecoverableState;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectTransientAiRetryPolicy;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\SitePlanningActiveUnitAggregator;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\Publishing\Support\PublishingQueue\PublishingQueueHandoffEligibility;
 use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -289,6 +292,267 @@ final class ContentProjectItemOperationsReadModel
             'rows' => $slice,
             'paginator' => $paginator,
         ];
+    }
+
+    /**
+     * Domain × planning_month virtual project ops — same task scope as Monthly Planning matrix
+     * ({@see SitePlanningActiveUnitAggregator::forSiteMonth()} with excludeGlobalLegacy).
+     * No working-set filter; rows mapped against each task's real project.
+     *
+     * @param  array<string, mixed>  $filters  Same shape as {@see forProject()}; `editor_return_url` optional.
+     * @return array<string, mixed>
+     */
+    public function forSiteMonth(int $siteId, string $planningMonth, array $filters = []): array
+    {
+        $month = ContentProjectMonthContext::normalize($planningMonth);
+        $scope = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month, true);
+        $planningTotal = (int) ($scope['planned'] ?? 0);
+        $taskIds = is_array($scope['task_ids'] ?? null) ? $scope['task_ids'] : [];
+
+        $viewerUserId = max(0, (int) ($filters['viewer_user_id'] ?? 0));
+        $editorReturnUrl = trim((string) ($filters['editor_return_url'] ?? ''));
+
+        if ($taskIds === []) {
+            $perPage = max(10, min(100, (int) ($filters['per_page'] ?? 30)));
+            $page = max(1, (int) ($filters['page'] ?? LengthAwarePaginator::resolveCurrentPage()));
+            $paginator = new LengthAwarePaginator([], 0, $perPage, $page, [
+                'path' => LengthAwarePaginator::resolveCurrentPath(),
+                'query' => request()->query(),
+            ]);
+            $stats = self::normalizeSummaryStats([
+                'planning_total' => 0,
+                'total_items' => 0,
+                'working_set' => 0,
+                'publishing_queue' => 0,
+                'normal' => 0,
+            ]);
+
+            return [
+                'site_id' => $siteId,
+                'planning_month' => $month,
+                'planning_total' => 0,
+                'stats' => $stats,
+                'last_execution_at' => null,
+                'last_execution_status' => null,
+                'run_terminal_reason' => null,
+                'run_recoverable_reason' => null,
+                'run_is_recoverable' => false,
+                'active_runtime' => null,
+                'should_poll_runtime' => false,
+                'rows' => [],
+                'paginator' => $paginator,
+            ];
+        }
+
+        $tasks = SeoProjectTask::query()
+            ->whereIn('id', $taskIds)
+            ->where('site_id', $siteId)
+            ->with([
+                'project.user',
+                'project.site',
+                'article.articleMetas' => static fn ($q) => $q->whereIn('meta_key', [
+                    'wp_featured_image_url',
+                    'wp_permalink',
+                    ArticleKeywordDistinctCounter::META_KEY,
+                    ArticleWordPressSyncFlagService::META_LOCAL_EDIT_PENDING,
+                    ArticleWordPressSyncFlagService::META_LOCAL_CONTENT_HASH,
+                    ArticleWordPressSyncFlagService::META_PUBLISHED_CONTENT_HASH,
+                    \Omnichannel\Addons\Content\Support\ArticleContentClassification::META_CONTENT_TYPE,
+                    \Omnichannel\Addons\Content\Support\ArticleContentClassification::META_WP_POST_TYPE,
+                    \Omnichannel\Addons\Content\Support\ArticleContentClassification::META_WP_IS_TERM,
+                ]),
+                'article.wordpressLink',
+                'itemOrigin',
+                'site:id,domain',
+            ])
+            ->orderBy('id')
+            ->get();
+
+        $rows = [];
+        $index = 0;
+        foreach ($tasks->groupBy('project_id') as $projectTasks) {
+            /** @var SeoProject|null $project */
+            $project = $projectTasks->first()?->project;
+            if (! $project instanceof SeoProject) {
+                continue;
+            }
+
+            $projectId = (int) $project->getKey();
+            $projectTaskIds = $projectTasks
+                ->map(static fn (SeoProjectTask $t): int => (int) $t->id)
+                ->all();
+
+            $latestRun = SeoProjectRun::query()
+                ->where('project_id', $projectId)
+                ->orderByDesc('id')
+                ->first();
+            $activeDispatch = null;
+            if ($latestRun instanceof SeoProjectRun) {
+                $settings = is_array($latestRun->settings) ? $latestRun->settings : [];
+                $engine = is_array($settings[ContentProjectRunEngine::SETTINGS_ENGINE_KEY] ?? null)
+                    ? $settings[ContentProjectRunEngine::SETTINGS_ENGINE_KEY]
+                    : [];
+                $activeDispatch = is_array($engine['active_dispatch'] ?? null) ? $engine['active_dispatch'] : null;
+            }
+
+            $evidence = $this->runItemEvidenceByTaskIds(
+                $projectTaskIds,
+                $activeDispatch,
+                $latestRun instanceof SeoProjectRun ? (int) $latestRun->id : null,
+            );
+            $latestExecutionByTask = $evidence['latest_execution_by_task'];
+            $currentMembershipByTask = $evidence['current_membership_by_task'];
+
+            $viewedByTask = $this->generationReadStates->viewedCompletedAtByItemIds(
+                $viewerUserId,
+                $projectId,
+                $projectTaskIds,
+            );
+            $preview = $this->generationClassifier->preview($project);
+            $generatePendingRunnable = array_fill_keys($preview->runnableTaskIds(), true);
+            $keywordDirtyByTask = [];
+            foreach ($preview->decisions as $decision) {
+                if ($decision->reason === ContentProjectGenerationKeyword::REASON_DIRTY) {
+                    $keywordDirtyByTask[$decision->taskId] = true;
+                }
+            }
+
+            $runtimeContext = $this->runtimeRunContext($latestRun, $currentMembershipByTask);
+
+            $articleIds = $projectTasks
+                ->map(static fn (SeoProjectTask $t): int => (int) ($t->article_id ?? 0))
+                ->filter(static fn (int $id): bool => $id > 0)
+                ->unique()
+                ->values()
+                ->all();
+            $latestReviewByArticle = $this->latestHumanReviewsByArticleIds($articleIds);
+
+            foreach ($projectTasks as $task) {
+                if (! $task instanceof SeoProjectTask) {
+                    continue;
+                }
+                $index++;
+                $tid = (int) $task->id;
+                $viewed = $viewedByTask[$tid] ?? null;
+                $articleId = (int) ($task->article_id ?? 0);
+                $row = $this->mapRow(
+                    $project,
+                    $task,
+                    $index,
+                    $latestExecutionByTask[$tid] ?? null,
+                    $currentMembershipByTask[$tid] ?? null,
+                    $viewed?->toIso8601String(),
+                    isset($generatePendingRunnable[$tid]),
+                    isset($keywordDirtyByTask[$tid]),
+                    $runtimeContext,
+                );
+
+                $latestReview = $articleId > 0 ? ($latestReviewByArticle[$articleId] ?? null) : null;
+                if (is_array($latestReview)) {
+                    $row['latest_review_note'] = $latestReview['note'];
+                    $row['latest_reviewer_name'] = $latestReview['reviewer_name'];
+                    $row['latest_review_at'] = $latestReview['created_at'];
+                    $row['latest_review_at_relative'] = $latestReview['created_at_relative'];
+                }
+                $row['hide_review_reviewer_name'] = (int) ($project->user_id ?? 0) > 0;
+                $row['project_id'] = $projectId;
+                $row['project_name'] = (string) ($project->name ?? '');
+                $row['project_url'] = \Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource::getUrl('view', ['record' => $projectId]);
+                $row['writer_name'] = (string) ($project->user?->name ?? '—');
+
+                if ($editorReturnUrl !== '' && is_string($row['article_edit_url'] ?? null)) {
+                    $row['article_edit_url'] = $this->appendReturnUrl((string) $row['article_edit_url'], $editorReturnUrl);
+                }
+
+                $rows[] = $row;
+            }
+        }
+
+        usort($rows, static fn (array $a, array $b): int => ((int) ($a['task_id'] ?? 0)) <=> ((int) ($b['task_id'] ?? 0)));
+
+        $publishingQueueCount = SeoProjectTask::query()
+            ->whereIn('id', $taskIds)
+            ->whereNotNull('publishing_queued_at')
+            ->count();
+
+        $contentManager = $this->viewerIsContentManager($viewerUserId);
+        $operationalRows = self::contentManagerOperationalRows($rows);
+        $planningSummary = ContentProjectOpsStateClassifier::countSummary($rows);
+        $stats = $planningSummary;
+        if ($contentManager) {
+            $generated = (int) ($planningSummary['generated'] ?? 0);
+            $stats = ContentProjectOpsStateClassifier::countSummary($operationalRows);
+            $stats['generated'] = $generated;
+        }
+        $stats += self::runtimeSummary($rows, null);
+        $stats['runtime_revision'] = 'virtual:'.$siteId.':'.$month;
+        $stats['planning_total'] = $planningTotal;
+        $stats['total_items'] = $planningTotal;
+        $stats['working_set'] = $planningTotal;
+        $stats['publishing_queue'] = $publishingQueueCount;
+        $stats['normal'] = $contentManager ? count($operationalRows) : $planningTotal;
+
+        $listRows = $contentManager ? $operationalRows : $rows;
+        $filtered = $this->applyFilters(collect($listRows), $filters);
+        $generationFilter = trim((string) ($filters['generation'] ?? ''));
+        if ($generationFilter === ContentProjectRecentlyCompletedDefinition::FILTER) {
+            $filtered = collect(
+                ContentProjectRecentlyCompletedDefinition::sortNewestFirst($filtered->values()->all()),
+            );
+        }
+
+        $perPage = max(10, min(100, (int) ($filters['per_page'] ?? 30)));
+        $page = max(1, (int) ($filters['page'] ?? LengthAwarePaginator::resolveCurrentPage()));
+        $total = $filtered->count();
+        $slice = $this->aiModes->apply($filtered->forPage($page, $perPage)->values()->all());
+
+        $paginator = new LengthAwarePaginator(
+            $slice,
+            $total,
+            $perPage,
+            $page,
+            [
+                'path' => LengthAwarePaginator::resolveCurrentPath(),
+                'query' => request()->query(),
+            ],
+        );
+
+        return [
+            'site_id' => $siteId,
+            'planning_month' => $month,
+            'planning_total' => $planningTotal,
+            'stats' => $stats,
+            'last_execution_at' => null,
+            'last_execution_status' => null,
+            'run_terminal_reason' => null,
+            'run_recoverable_reason' => null,
+            'run_is_recoverable' => false,
+            'active_runtime' => self::activeRuntimeRow($rows),
+            'should_poll_runtime' => (bool) ($stats['should_poll_runtime'] ?? false),
+            'rows' => $slice,
+            'paginator' => $paginator,
+        ];
+    }
+
+    private function appendReturnUrl(string $url, string $returnUrl): string
+    {
+        $fragment = '';
+        $base = $url;
+        if (str_contains($url, '#')) {
+            [$base, $fragment] = explode('#', $url, 2);
+        }
+
+        $query = [];
+        if (str_contains($base, '?')) {
+            [$base, $queryString] = explode('?', $base, 2);
+            parse_str($queryString, $query);
+        }
+
+        $query['cp_return'] = $returnUrl;
+
+        $built = $base.'?'.http_build_query($query);
+
+        return $fragment !== '' ? $built.'#'.$fragment : $built;
     }
 
     /**
@@ -1156,6 +1420,8 @@ final class ContentProjectItemOperationsReadModel
                     (string) ($row['article_slug'] ?? ''),
                     (string) $row['task_id'],
                     (string) ($row['article_id'] ?? ''),
+                    (string) ($row['project_name'] ?? ''),
+                    (string) ($row['writer_name'] ?? ''),
                 ]));
                 if (! str_contains($hay, $search)) {
                     return false;

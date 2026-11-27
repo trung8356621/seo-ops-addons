@@ -6,6 +6,7 @@
     $paginator = $payload['paginator'] ?? null;
     $activeRuntime = $payload['active_runtime'] ?? null;
     $project = $this->project;
+    $virtualDomainMonth = (bool) ($this->virtualDomainMonth ?? false);
     $totalItems = (int) ($stats['total_items'] ?? 0);
     $activeCard = $this->activeSummaryCard;
     $selectedCount = $this->selectedCount;
@@ -17,7 +18,7 @@
     $onNeedsReviewFilter = $this->workflowFilter === \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectRecentlyCompletedDefinition::FILTER
         || $this->generationFilter === \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectRecentlyCompletedDefinition::FILTER
         || $this->reportingFilter === \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectRecentlyCompletedDefinition::FILTER;
-    $projectId = (int) ($project?->getKey() ?? 0);
+    $projectId = $virtualDomainMonth ? 0 : (int) ($project?->getKey() ?? 0);
     $transitionMap = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectOpsCounterTransitionMap::all();
     $cmOps = \Omnichannel\Addons\Seo\Support\SeoAccessControl::usesContentManagerOpsPresentation();
     $canDebugLifecycle = \Omnichannel\Addons\Seo\Support\SeoAccessControl::canDebugContentProjectLifecycle();
@@ -43,12 +44,45 @@
         .fi-header > div:first-child { flex: 1 1 18rem; min-width: 0; }
         .fi-header > div:last-child { max-width: 100%; flex-wrap: wrap; }
     </style>
-    <div class="mb-0 flex justify-end [&>div]:mb-0">
-        @include('seo-content-ai::filament.resources.seo-project-resource.pages.partials.content-project-mode-tabs', [
-            'project' => $project,
-            'activeMode' => 'details',
-        ])
-    </div>
+    @if ($virtualDomainMonth)
+        @php
+            $domainOptions = method_exists($this, 'getVirtualDomainOptions') ? $this->getVirtualDomainOptions() : [];
+            $monthNav = method_exists($this, 'getVirtualMonthNavigation') ? $this->getVirtualMonthNavigation() : ['prev' => null, 'next' => null, 'current' => ''];
+        @endphp
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-gray-900">
+            <div class="flex min-w-0 flex-wrap items-center gap-2">
+                <label class="sr-only" for="cp-virtual-domain">{{ __('seo-content-ai::filament.projects.virtual_domain_select') }}</label>
+                <select
+                    id="cp-virtual-domain"
+                    class="max-w-[14rem] rounded-md border-gray-300 text-sm dark:border-white/10 dark:bg-gray-950"
+                    onchange="if (this.value) { window.location.href = this.value; }"
+                >
+                    @foreach ($domainOptions as $opt)
+                        <option value="{{ $opt['url'] ?? '' }}" @selected(! empty($opt['is_current']))>
+                            {{ $opt['domain'] ?? '' }}
+                        </option>
+                    @endforeach
+                </select>
+                <div class="inline-flex items-center gap-1">
+                    @if (! empty($monthNav['prev']))
+                        <a href="{{ $monthNav['prev'] }}" class="rounded-md px-2 py-1 text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/5" aria-label="{{ __('seo-content-ai::filament.projects.virtual_month_prev') }}">‹</a>
+                    @endif
+                    <span class="font-medium text-gray-900 dark:text-white">{{ $monthNav['current'] ?? '' }}</span>
+                    @if (! empty($monthNav['next']))
+                        <a href="{{ $monthNav['next'] }}" class="rounded-md px-2 py-1 text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/5" aria-label="{{ __('seo-content-ai::filament.projects.virtual_month_next') }}">›</a>
+                    @endif
+                </div>
+            </div>
+            <p class="text-xs text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.virtual_domain_month_hint') }}</p>
+        </div>
+    @else
+        <div class="mb-0 flex justify-end [&>div]:mb-0">
+            @include('seo-content-ai::filament.resources.seo-project-resource.pages.partials.content-project-mode-tabs', [
+                'project' => $project,
+                'activeMode' => 'details',
+            ])
+        </div>
+    @endif
     <div
         class="space-y-4"
         data-ops-summary="{{ json_encode($summarySnapshot, JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT | JSON_HEX_TAG) }}"
@@ -890,7 +924,7 @@
         x-on:open-restart-with-keyword.window="openRestartWithKeywordModal($event.detail || {})"
         x-on:close-restart-with-keyword.window="closeRestartWithKeywordModal()"
     >
-        @if ($this->settingsOpen)
+        @if (! $virtualDomainMonth && $this->settingsOpen)
             <div class="rounded-xl border border-gray-200 bg-white p-4 text-sm dark:border-gray-700 dark:bg-gray-900">
                 <p class="text-gray-600 dark:text-gray-300">{{ $project?->description ?: '—' }}</p>
                 @if ($payload['last_execution_at'] ?? null)
@@ -904,7 +938,7 @@
             </div>
         @endif
 
-        @if ($project?->isDraftPlanning())
+        @if (! $virtualDomainMonth && $project?->isDraftPlanning())
             <div class="flex flex-wrap items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-100">
                 <span class="inline-flex items-center rounded-md bg-sky-600 px-2 py-0.5 text-xs font-semibold text-white">
                     {{ __('seo-content-ai::filament.projects.suggestions_draft_badge') }}
@@ -925,7 +959,7 @@
                 $missingAssignee = $project instanceof \Omnichannel\Addons\ContentProjects\Models\SeoProject
                     && \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectWriterAssignment::isUnassigned($project);
             @endphp
-            @if ($missingAssignee)
+            @if (! $virtualDomainMonth && $missingAssignee)
                 <div
                     class="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"
                     data-project-no-assignee="1"
@@ -936,7 +970,7 @@
                     <span>{{ __('seo-content-ai::filament.projects.project_no_assignee_banner') }}</span>
                 </div>
             @endif
-            @if ($sourceDraft)
+            @if (! $virtualDomainMonth && $sourceDraft)
                 <div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:border-white/10 dark:bg-gray-900/40 dark:text-gray-300">
                     {{ __('seo-content-ai::filament.projects.created_from_draft', ['name' => (string) $sourceDraft->name]) }}
                     —
@@ -946,6 +980,7 @@
                     >{{ __('seo-content-ai::filament.projects.open_source_draft') }}</a>
                 </div>
             @endif
+            @if (! $virtualDomainMonth)
             <div
                 class="inline-flex rounded-lg border border-gray-200 bg-white p-1 dark:border-white/10 dark:bg-gray-900"
                 role="tablist"
@@ -978,9 +1013,10 @@
                     {{ __('seo-content-ai::filament.projects.workspace_tab_suggestions') }}
                 </button>
             </div>
+            @endif
         @endif
 
-        @if (! ($project?->isDraftPlanning()) && $this->workspaceTab === 'suggestions')
+        @if (! $virtualDomainMonth && ! ($project?->isDraftPlanning()) && $this->workspaceTab === 'suggestions')
             <x-seo-content-ai::content-project-seo-audit-planner :show-full-planner-link="true" />
         @else
 

@@ -4,6 +4,7 @@ import {
     blockHasOutlineHeading,
     buildEditorSections,
     createEmptyTextBlock,
+    ensureH2SectionsHaveEditableBody,
     dispatchActiveBlockContext,
     findBlockIdForOutlineHeading,
     getBlocksInRange,
@@ -18,7 +19,7 @@ import { applyMergeParagraphBlocks } from '../utils/editorCommands/mergeSelected
 import { extractOutlineHeadingFromBlock, normalizeOutlineHeadingText } from '../utils/articleEditorClientOutline';
 import { normalizeBlocks } from '@media-addon/utils/blockImageUtils.js';
 import { persistBlockHtmlFromEditor } from '../utils/editorHtmlUtils';
-import { reorderBlockWithinSection } from '../utils/articleEditorBlockReorder';
+import { reorderBlockWithinSection, swapAdjacentEditorSections } from '../utils/articleEditorBlockReorder';
 import { t } from '../utils/i18n';
 import { useCallback, useEffect } from 'react';
 
@@ -510,28 +511,13 @@ export default function useArticleEditorInsertAndSections({ activeBlockId, activ
             }
 
             const sections = editorSections;
-            const currentIndex = sections.findIndex((section) => section.id === sectionId);
-            if (currentIndex < 0) {
-                return;
-            }
-
-            const section = sections[currentIndex];
-            if (section?.isIntro) {
+            const section = sections.find((item) => item.id === sectionId);
+            if (!section || section.isIntro) {
                 return;
             }
 
             const headingBlock = blocksRef.current.find((block) => block.id === section.blockIds[0]);
             if (!isSectionHeadingBlock(headingBlock, section)) {
-                return;
-            }
-
-            const targetIndex = direction === 'prev' ? currentIndex - 1 : currentIndex + 1;
-            if (targetIndex < 0 || targetIndex >= sections.length) {
-                return;
-            }
-
-            const targetSection = sections[targetIndex];
-            if (targetSection?.isIntro) {
                 return;
             }
 
@@ -556,29 +542,13 @@ export default function useArticleEditorInsertAndSections({ activeBlockId, activ
                     );
                 }
 
-                const fromBlocks = section.blockIds
-                    .map((blockId) => working.find((block) => block.id === blockId))
-                    .filter(Boolean);
-                if (fromBlocks.length !== section.blockIds.length) {
-                    return prev;
-                }
+                const result = swapAdjacentEditorSections(working, {
+                    sections,
+                    sectionId,
+                    direction,
+                });
 
-                const withoutMoved = working.filter((block) => !section.blockIds.includes(block.id));
-                const targetStart = withoutMoved.findIndex((block) => block.id === targetSection.blockIds[0]);
-                if (targetStart < 0) {
-                    return prev;
-                }
-
-                const insertAt =
-                    direction === 'prev'
-                        ? targetStart
-                        : targetStart + targetSection.blockIds.length;
-
-                return [
-                    ...withoutMoved.slice(0, insertAt),
-                    ...fromBlocks,
-                    ...withoutMoved.slice(insertAt),
-                ];
+                return result.ok ? result.blocks : prev;
             });
 
             setActiveBlockId(section.blockIds.find((blockId) => !sectionHeadingBlockIds.has(blockId)) ?? section.blockIds[0] ?? null);
@@ -631,7 +601,9 @@ export default function useArticleEditorInsertAndSections({ activeBlockId, activ
 
             setBlocks((prev) => {
                 const next = prev.filter((block) => !idsToRemove.has(block.id));
-                return next.length > 0 ? normalizeBlocks(next) : prev;
+                return next.length > 0
+                    ? ensureH2SectionsHaveEditableBody(normalizeBlocks(next))
+                    : prev;
             });
 
             outlineAppendDoneRef.current.delete(headingBlockId);
@@ -671,6 +643,17 @@ export default function useArticleEditorInsertAndSections({ activeBlockId, activ
                 return null;
             }
 
+            const preferredBlockId = String(node.block_id ?? '').trim();
+            if (preferredBlockId !== '') {
+                const byBlock = editorSections.find((item) => item.blockIds[0] === preferredBlockId) ?? null;
+                if (byBlock && !byBlock.isIntro) {
+                    const heading = blocksRef.current.find((item) => item.id === preferredBlockId);
+                    if (isSectionHeadingBlock(heading, byBlock)) {
+                        return byBlock;
+                    }
+                }
+            }
+
             for (const section of editorSections) {
                 if (section.isIntro) {
                     continue;
@@ -678,7 +661,10 @@ export default function useArticleEditorInsertAndSections({ activeBlockId, activ
 
                 const blockId = section.blockIds[0];
                 const headingId = outlineHeadingIdsByBlockIdRef.current.get(blockId);
-                if (headingId != null && Number(headingId) === Number(node.id)) {
+                if (headingId == null) {
+                    continue;
+                }
+                if (String(headingId) === String(node.id) || Number(headingId) === Number(node.id)) {
                     return section;
                 }
             }
@@ -763,43 +749,18 @@ export default function useArticleEditorInsertAndSections({ activeBlockId, activ
 
     const handleOutlineMoveHeading = useCallback(
         (node, direction) => {
-            if (!node) {
+            if (!node || Number(node.level ?? 0) !== 2) {
                 return;
             }
 
-            const level = Number(node.level ?? 0);
-
-            if (level === 2) {
-                const section = resolveSectionForOutlineNode(node);
-                if (section) {
-                    moveSection(section.id, direction);
-                }
-
-                return;
-            }
-
-            const blockId = findBlockIdForOutlineHeading(
-                blocksRef.current,
-                level,
-                String(node.heading_text ?? ''),
-            );
-            if (!blockId) {
-                return;
-            }
-
-            const section = editorSections.find((item) => item.blockIds[0] === blockId) ?? null;
-            if (!section || section.isIntro) {
-                return;
-            }
-
-            const block = blocksRef.current.find((item) => item.id === blockId);
-            if (!isSectionHeadingBlock(block, section)) {
+            const section = resolveSectionForOutlineNode(node);
+            if (!section) {
                 return;
             }
 
             moveSection(section.id, direction);
         },
-        [editorSections, moveSection, resolveSectionForOutlineNode],
+        [moveSection, resolveSectionForOutlineNode],
     );
 
     const handleOutlineDeleteHeading = useCallback(

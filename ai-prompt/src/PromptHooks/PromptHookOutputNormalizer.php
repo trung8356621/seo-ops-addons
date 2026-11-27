@@ -133,7 +133,8 @@ final class PromptHookOutputNormalizer
         array $input,
     ): ?array {
         // Improve / hooks không full-generation → bỏ qua.
-        if ($definition->key === 'article.content.improve') {
+        if ($definition->key === 'article.content.improve'
+            || $definition->key === 'article.featured_snippet.optimize') {
             return null;
         }
 

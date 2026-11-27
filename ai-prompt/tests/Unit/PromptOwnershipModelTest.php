@@ -57,6 +57,7 @@ final class PromptOwnershipModelTest extends TestCase
         self::assertContains('article.content.translate', $keys);
         self::assertContains('article.faq.generate', $keys);
         self::assertContains('article.featured_snippet.generate', $keys);
+        self::assertContains('article.featured_snippet.optimize', $keys);
         self::assertNotContains('article.outline.generate', $keys);
         self::assertContains('article.outline.structure.generate', $keys);
         self::assertContains('article.vocabulary.generate', $keys);

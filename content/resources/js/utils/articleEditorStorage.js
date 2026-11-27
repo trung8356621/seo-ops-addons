@@ -1,5 +1,6 @@
 ﻿import { cleanBlockHtmlForEditorDisplay, stripEmptyParagraphsFromHtml } from './editorHtmlUtils';
 import { pruneEmptyTextBlocks } from '@media-addon/utils/blockImageUtils.js';
+import { ensureH2SectionsHaveEditableBody } from './contentDocumentHelpers';
 
 /** Schema version for the local draft (v3+: TipTap editor_document canonical + HTML compat). */
 export const ARTICLE_EDITOR_DRAFT_VERSION = 3;
@@ -159,7 +160,7 @@ export function sanitizeBlocksForEditor(blocks) {
         return blocks;
     }
 
-    return pruneEmptyTextBlocks(blocks.map(sanitizeEditorBlock));
+    return ensureH2SectionsHaveEditableBody(pruneEmptyTextBlocks(blocks.map(sanitizeEditorBlock)));
 }
 
 function sanitizeHistorySnapshot(snapshot) {

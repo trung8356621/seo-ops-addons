@@ -1,8 +1,9 @@
 ﻿import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, createContext } from 'react';
-import { AlertTriangle, Check, ChevronRight, Copy, Loader2, MoreHorizontal, Pencil, Plus } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronRight, Copy, Loader2, MoreHorizontal, Pencil, Plus } from 'lucide-react';
 import { csrfToken, seoArticleApiHeaders } from '@seo-addon/utils/seoArticleApi.js';
 import { isPersistedOutlineHeadingId } from '../utils/contentDocumentHelpers';
 import { findLocalDuplicateHeadingKeys, localDuplicateHeadingKey } from '../utils/articleEditorClientOutline';
+import { outlineH2MoveAvailability } from '../utils/articleEditorBlockReorder';
 import { formatOutlineSubtreePlainText } from '../utils/outlinePlainTextCopy';
 import { writeTextToClipboard } from '../utils/sectionPlainTextCopy';
 import { t } from '../utils/i18n';
@@ -205,41 +206,45 @@ function replaceTreeNodeId(nodes, oldId, newNode) {
     });
 }
 
-function swapSiblingInTree(nodes, nodeId, direction) {
+function outlineNodeIdsEqual(left, right) {
+    const a = String(left ?? '');
+    const b = String(right ?? '');
+    if (a === '' || b === '') {
+        return false;
+    }
+    if (a === b) {
+        return true;
+    }
+
+    const na = Number(a);
+    const nb = Number(b);
+
+    return Number.isFinite(na) && Number.isFinite(nb) && na === nb;
+}
+
+/** Optimistic H2 root sibling swap only — H3/H4 never reorder via Outline. */
+function swapH2SiblingInTree(nodes, nodeId, direction) {
     if (!Array.isArray(nodes) || nodes.length === 0) {
         return nodes;
     }
 
-    const index = nodes.findIndex((node) => Number(node.id) === Number(nodeId));
-    if (index >= 0) {
-        const targetIndex = direction === 'prev' ? index - 1 : index + 1;
-        if (targetIndex < 0 || targetIndex >= nodes.length) {
-            return nodes;
-        }
-
-        const next = [...nodes];
-        [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
-
-        return next;
+    const index = nodes.findIndex((node) => Number(node?.level) === 2 && outlineNodeIdsEqual(node.id, nodeId));
+    if (index < 0) {
+        return nodes;
     }
 
-    let changed = false;
-    const nextNodes = nodes.map((node) => {
-        if (!Array.isArray(node.children) || node.children.length === 0) {
-            return node;
-        }
+    const targetIndex = direction === 'prev' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= nodes.length) {
+        return nodes;
+    }
+    if (Number(nodes[targetIndex]?.level) !== 2) {
+        return nodes;
+    }
 
-        const nextChildren = swapSiblingInTree(node.children, nodeId, direction);
-        if (nextChildren === node.children) {
-            return node;
-        }
+    const next = [...nodes];
+    [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
 
-        changed = true;
-
-        return { ...node, children: nextChildren };
-    });
-
-    return changed ? nextNodes : nodes;
+    return next;
 }
 
 const OutlineMenuContext = createContext({
@@ -622,6 +627,38 @@ function HeadingBlock({
                                 <AlertTriangle size={12} strokeWidth={1.75} />
                             </span>
                         ) : null}
+                        {Number(node.level) === 2 && canMoveUp ? (
+                            <button
+                                type="button"
+                                className="seo-outline-block__hover-btn seo-outline-block__move-btn"
+                                title={t('outline_move_up')}
+                                aria-label={t('outline_move_up')}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (!isBusy) {
+                                        onMoveUp?.(node);
+                                    }
+                                }}
+                            >
+                                <ArrowUp size={13} strokeWidth={1.75} />
+                            </button>
+                        ) : null}
+                        {Number(node.level) === 2 && canMoveDown ? (
+                            <button
+                                type="button"
+                                className="seo-outline-block__hover-btn seo-outline-block__move-btn"
+                                title={t('outline_move_down')}
+                                aria-label={t('outline_move_down')}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (!isBusy) {
+                                        onMoveDown?.(node);
+                                    }
+                                }}
+                            >
+                                <ArrowDown size={13} strokeWidth={1.75} />
+                            </button>
+                        ) : null}
                         <button
                             type="button"
                             className="seo-outline-block__copy-btn"
@@ -794,8 +831,10 @@ function OutlineTree({
                 const isSectionFocused =
                     node.level <= 2 &&
                     activeHeadingId === node.id;
-                const canMoveUp = index > 0;
-                const canMoveDown = index < nodes.length - 1;
+                const isH2 = Number(node.level) === 2;
+                const moveAvailability = isH2
+                    ? outlineH2MoveAvailability(index, nodes.length)
+                    : { canMoveUp: false, canMoveDown: false };
 
                 return (
                     <div
@@ -819,15 +858,15 @@ function OutlineTree({
                             onJumpToEditor={onJumpToEditor}
                             onSaveText={onSaveText}
                             onSaveHtml={onSaveHtml}
-                            onMoveUp={(headingNode) => onMoveHeading?.(headingNode, 'prev')}
-                            onMoveDown={(headingNode) => onMoveHeading?.(headingNode, 'next')}
+                            onMoveUp={isH2 ? ((headingNode) => onMoveHeading?.(headingNode, 'prev')) : undefined}
+                            onMoveDown={isH2 ? ((headingNode) => onMoveHeading?.(headingNode, 'next')) : undefined}
                             onDelete={onDeleteHeading}
                             onAddNode={onAddNode}
                             onConvert={onConvert}
                             onDeleteWithContent={onDeleteWithContent}
                             onToggleVisible={onToggleVisible}
-                            canMoveUp={canMoveUp}
-                            canMoveDown={canMoveDown}
+                            canMoveUp={moveAvailability.canMoveUp}
+                            canMoveDown={moveAvailability.canMoveDown}
                             canDelete
                             resolveHeadingInnerHtml={resolveHeadingInnerHtml}
                             busyHeadingId={busyHeadingId}
@@ -1370,7 +1409,11 @@ export default function ArticleOutlineTab({
 
     const handleMoveHeading = useCallback(
         (node, direction) => {
-            setTree((prev) => swapSiblingInTree(prev, node.id, direction));
+            if (Number(node?.level ?? 0) !== 2) {
+                return;
+            }
+
+            setTree((prev) => swapH2SiblingInTree(prev, node.id, direction));
             onOutlineMoveHeading?.(node, direction);
         },
         [onOutlineMoveHeading],

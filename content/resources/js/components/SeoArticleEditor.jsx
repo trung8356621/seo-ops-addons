@@ -280,7 +280,7 @@ import {
     stripEditorTransientMarkup,
 } from '../utils/articleEditorTransientMarkup';
 import FaqAccordionPreview from './FaqAccordionPreview';
-import { Undo2, Redo2, Plus, ChevronDown, ChevronRight, ImageIcon, Table, Link2, AlertTriangle, Search, ListPlus, ListCollapse, Trash2, BarChart3, Star, Copy, Check, ImagePlus, Loader2 } from 'lucide-react';
+import { Undo2, Redo2, Plus, ChevronDown, ChevronRight, ImageIcon, Table, AlertTriangle, Search, ListCollapse, Trash2, BarChart3, Star, Copy, Check, ImagePlus, Loader2, MoreHorizontal } from 'lucide-react';
 import { extractSelectedBlocksPlainText, extractSectionPlainText, writeTextToClipboard } from '../utils/sectionPlainTextCopy';
 import { detectFaqPairsFromSection, findLegacyFaqSection, sectionHtml } from '../utils/legacyFaqDetection';
 import {
@@ -321,7 +321,6 @@ import {
     createEmptyTextBlock,
     createEmptyImageBlock,
     createFaqShortcodeBlock,
-    createEmptySectionBlock,
     articleHasFaqShortcode,
     stripLeadingH1FromHtml,
     requiresClassicInlineRegroup,
@@ -335,7 +334,6 @@ import {
     flattenOutlineHeadingKeys,
     outlineHeadingKey,
     isSectionHeadingBlock,
-    sectionHasOnlyEmptyHeadingBody,
     INTRO_SECTION_ID,
     buildEditorSections,
     introSectionHasImageBlock,
@@ -948,6 +946,28 @@ export default function SeoArticleEditor({
     }, [blocks]);
 
     const [copiedSectionId, setCopiedSectionId] = useState(null);
+    const [sectionMenuOpenId, setSectionMenuOpenId] = useState(null);
+    useEffect(() => {
+        if (!sectionMenuOpenId) {
+            return undefined;
+        }
+
+        const onPointerDown = (event) => {
+            const target = event.target;
+            if (!(target instanceof Element)) {
+                setSectionMenuOpenId(null);
+                return;
+            }
+            if (target.closest('[data-seo-section-menu-root]')) {
+                return;
+            }
+            setSectionMenuOpenId(null);
+        };
+
+        document.addEventListener('pointerdown', onPointerDown, true);
+
+        return () => document.removeEventListener('pointerdown', onPointerDown, true);
+    }, [sectionMenuOpenId]);
     const [legacyFaqNotice, setLegacyFaqNotice] = useState(null);
     const [legacyFaqTransferring, setLegacyFaqTransferring] = useState(false);
     const legacyFaqRestoreRef = useRef(null);
@@ -1474,7 +1494,7 @@ export default function SeoArticleEditor({
         const { mergedDisplay, saveLabel } = useArticleEditorExternalEventsBridge({ activeBlockId, activeBlockIdRef, analyzedBlocksRef, applyCompletedMediaToPlaceholder, applyCompletedMediaToProductGallery, applySeoAnalysisResult, articleId, articleTitle, assertNoLocalSlugFixBeforeWpSync, assertWritableDocumentNotWhitespaceCorrupted, blockEditorsRef, blockFlushRef, blockOutsideClickGuardUntilRef, blocks, blocksRef, clearAwaitingClientImagePlaceholders, clearMediaPolling, clearOutlineFocus, clearTempMerge, connectionHashRef, dismissedEditorImageMediaIdsRef, editorHostActionsRef, faqsCanonicalKnownRef, findImageBlockByMediaId, generateImageTargetRef, getExportHtml, globalEditor, initialPostImages, insertImageAfterBlock, insertVideoAfterBlock, isDismissedEditorImageMedia, lastSeoAnalysisRef, mediaPollTimersRef, networkRecovering, networkUnavailable, outlineHasSavedHeadings, panelFaqsRef, patchImageInBlocks, pendingAiMediaRef, placeProcessingImagePlaceholder, postImagesRef, publishEditorImagesCatalogRef, reconcileImagesTabWithBlocks, requestAnalyze, requestGenerateArticleImage, resolveAiRefBlockId, resolveArticleFaqsSnapshot, runLocalSeoAnalysis, saveStatus, scheduleAutosave, markSeoStale, sectionByBlockId, seoDomain, seoMetaRef, setActiveBlockId, setArticleType, setBlocks, setFaqCount, setGlobalEditor, setImagesReloadKey, setInsertMenu, setPanelFaqs, setSaveStatus, setSavedSeoScore, setSeoStale, setSupportsProductGallery, skipNextAutosave, startMediaStatusPolling, supplementalImagesRef, tempMerge, tempMergeRef, updateBlockContent });
 
     // Sync text heading t? tab Outline v? block tuong ?ng trong editor ch�nh.
-        const { addOutlineNode, addSection, addSectionAfter, applyOutlineHeadingHtml, applyOutlineHeadingText, changeOutlineHeadingLevel, collapseAllSections, confirmFeaturedSnippetPromptInsert, convertOutlineHeading, deleteOutlineHeadingKeepContent, deleteOutlineHeadingWithContent, focusOutlineFromSectionHeader, handleOutlineHeadingFromEditor, handleOutlineLoaded, insertFeaturedSnippetAsNewSectionAfter, jumpToOutlineHeading, requestGenerateFeaturedSnippetAfterSection, resolveHeadingInnerHtml, runFeaturedSnippetPromptGenerate, saveSectionTitleFromHeader, toggleOutlineHeadingVisible, toggleSectionCollapse, updateOutlineHeadingTitle } = useArticleEditorOutline({ activeBlockId, activateBlock, articleId, articleTitle, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFeaturedSnippet, collapseSectionsExcept, commitActiveBlock, editorSections, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetTargetRef, focusImageBlock, focusKeyword, focusedOutlineHeadingRef, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineRailRef, markSeoStale, sectionByBlockId, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setClientOutline, setCollapsedSectionIds, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptOpen, setGlobalEditor, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingKeys, setOutlineJumpTarget, setOutlineTreeSync, setSectionTitleEditRequest, syncOutlineFocusFromBlock, tempMergeRef });
+        const { addOutlineNode, addSection, applyOutlineHeadingHtml, applyOutlineHeadingText, changeOutlineHeadingLevel, collapseAllSections, confirmFeaturedSnippetPromptInsert, convertOutlineHeading, deleteOutlineHeadingKeepContent, deleteOutlineHeadingWithContent, focusOutlineFromSectionHeader, handleOutlineHeadingFromEditor, handleOutlineLoaded, insertFeaturedSnippetAsNewSectionAfter, jumpToOutlineHeading, resolveHeadingInnerHtml, runFeaturedSnippetPromptGenerate, saveSectionTitleFromHeader, toggleOutlineHeadingVisible, toggleSectionCollapse, updateOutlineHeadingTitle } = useArticleEditorOutline({ activeBlockId, activateBlock, articleId, articleTitle, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFeaturedSnippet, collapseSectionsExcept, commitActiveBlock, editorSections, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetTargetRef, focusImageBlock, focusKeyword, focusedOutlineHeadingRef, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineRailRef, markSeoStale, sectionByBlockId, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setClientOutline, setCollapsedSectionIds, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptOpen, setGlobalEditor, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingKeys, setOutlineJumpTarget, setOutlineTreeSync, setSectionTitleEditRequest, syncOutlineFocusFromBlock, tempMergeRef });
 
         editorHostActionsRef.current.jumpToOutlineHeading = jumpToOutlineHeading;
 
@@ -1713,6 +1733,15 @@ export default function SeoArticleEditor({
             canGenerateFaq: canGenerateFaq && !syncRequired,
             canGenerateFeaturedSnippet: canGenerateFeaturedSnippet && !syncRequired,
         },
+        tables: {
+            blocks,
+            canOptimize: Boolean(editorSettings?.can_optimize_featured_snippet) && !syncRequired,
+            onReplaceBlocks: (updater) => {
+                commitActiveBlock?.();
+                setBlocks((prev) => (typeof updater === 'function' ? updater(prev) : updater));
+            },
+            onMarkSeoStale: markSeoStale,
+        },
         ai: {
             debug: editorSettings?.ai_debug ?? null,
             canGenerateImage: !sessionReadOnly
@@ -1783,6 +1812,9 @@ export default function SeoArticleEditor({
         syncRequired,
         canGenerateFaq,
         canGenerateFeaturedSnippet,
+        editorSettings?.can_optimize_featured_snippet,
+        commitActiveBlock,
+        markSeoStale,
         imagesReloadKey,
         blocks,
         unifiedImageRows,
@@ -2177,8 +2209,7 @@ export default function SeoArticleEditor({
                                         linkCount: 0,
                                         wordCount: 0,
                                     };
-                                const canQuickDeleteEmptySection =
-                                    !section.isIntro && sectionHasOnlyEmptyHeadingBody(section, blockById);
+                                const sectionMenuOpen = sectionMenuOpenId === section.id;
 
                                 return (
                                     <section
@@ -2186,175 +2217,156 @@ export default function SeoArticleEditor({
                                         data-seo-section-id={section.id}
                                         className="rounded-lg border border-gray-200 bg-white/80 dark:border-gray-700 dark:bg-slate-900/40"
                                     >
-                                        <header className="flex items-center justify-between gap-3 border-b border-gray-100 px-3 py-2 dark:border-gray-700">
-                                            <div className="flex min-w-0 items-center gap-2">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => toggleSectionCollapse(section.id)}
-                                                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-gray-300 text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-slate-700"
-                                                    title={isCollapsed ? t('editor_expand_section') : t('editor_collapse_section')}
-                                                >
-                                                    {isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
-                                                </button>
-                                                {section.isIntro ? (
-                                                    <h3 className="truncate text-sm font-semibold text-gray-700 dark:text-gray-200">
-                                                        {t('editor_intro')}
-                                                    </h3>
-                                                ) : (
-                                                    <SectionHeaderTitle
-                                                        sectionNumber={sectionNumber}
-                                                        title={section.title}
-                                                        onSave={(nextTitle) => saveSectionTitleFromHeader(section, nextTitle)}
-                                                        onFocusOutline={() => focusOutlineFromSectionHeader(section)}
-                                                        autoEditToken={
-                                                            sectionTitleEditRequest?.sectionId === section.id
-                                                                ? sectionTitleEditRequest.token
-                                                                : 0
+                                        <header className="seo-section-header border-b border-gray-100 px-3 py-2 dark:border-gray-700">
+                                            <div className="seo-section-header__primary">
+                                                <div className="seo-section-header__title-row min-w-0">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => toggleSectionCollapse(section.id)}
+                                                        className="seo-section-header-icon-btn shrink-0 border-gray-300 text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-slate-700"
+                                                        title={isCollapsed ? t('editor_expand_section') : t('editor_collapse_section')}
+                                                    >
+                                                        {isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+                                                    </button>
+                                                    {section.isIntro ? (
+                                                        <h3 className="min-w-0 truncate text-sm font-semibold text-gray-700 dark:text-gray-200">
+                                                            {t('editor_intro')}
+                                                        </h3>
+                                                    ) : (
+                                                        <SectionHeaderTitle
+                                                            sectionNumber={sectionNumber}
+                                                            title={section.title}
+                                                            onSave={(nextTitle) => saveSectionTitleFromHeader(section, nextTitle)}
+                                                            onFocusOutline={() => focusOutlineFromSectionHeader(section)}
+                                                            autoEditToken={
+                                                                sectionTitleEditRequest?.sectionId === section.id
+                                                                    ? sectionTitleEditRequest.token
+                                                                    : 0
+                                                            }
+                                                        />
+                                                    )}
+                                                </div>
+                                                <div className="seo-section-header__actions shrink-0">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => copySectionText(section)}
+                                                        className="seo-section-header-icon-btn border-gray-300 bg-white text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:bg-slate-800 dark:text-gray-200 dark:hover:bg-slate-700"
+                                                        title={
+                                                            copiedSectionId === section.id
+                                                                ? t('editor_copy_section_done')
+                                                                : t('editor_copy_section')
                                                         }
-                                                    />
-                                                )}
+                                                        aria-label={
+                                                            copiedSectionId === section.id
+                                                                ? t('editor_copy_section_done')
+                                                                : t('editor_copy_section')
+                                                        }
+                                                    >
+                                                        {copiedSectionId === section.id ? (
+                                                            <Check size={12} />
+                                                        ) : (
+                                                            <Copy size={12} />
+                                                        )}
+                                                    </button>
+                                                    {!section.isIntro ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => deleteSection(section)}
+                                                            className="seo-section-header-icon-btn border-gray-300 bg-white text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:bg-slate-800 dark:text-gray-200 dark:hover:bg-slate-700"
+                                                            title={t('editor_delete_section')}
+                                                            aria-label={t('editor_delete_section')}
+                                                        >
+                                                            <Trash2 size={12} />
+                                                        </button>
+                                                    ) : null}
+                                                    {!section.isIntro ? (
+                                                        <div className="seo-section-header__menu" data-seo-section-menu-root>
+                                                            <button
+                                                                type="button"
+                                                                className="seo-section-header-icon-btn border-gray-300 bg-white text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:bg-slate-800 dark:text-gray-200 dark:hover:bg-slate-700"
+                                                                title={t('editor_section_more_actions')}
+                                                                aria-label={t('editor_section_more_actions')}
+                                                                aria-expanded={sectionMenuOpen}
+                                                                onClick={(event) => {
+                                                                    event.stopPropagation();
+                                                                    setSectionMenuOpenId(sectionMenuOpen ? null : section.id);
+                                                                }}
+                                                            >
+                                                                <MoreHorizontal size={12} />
+                                                            </button>
+                                                            {sectionMenuOpen ? (
+                                                                <div
+                                                                    className="seo-section-header__menu-panel"
+                                                                    role="menu"
+                                                                    onClick={(event) => event.stopPropagation()}
+                                                                >
+                                                                    <button
+                                                                        type="button"
+                                                                        role="menuitem"
+                                                                        onClick={() => {
+                                                                            setSectionMenuOpenId(null);
+                                                                            extractLegacyFaqSection(section, 'manual');
+                                                                        }}
+                                                                    >
+                                                                        {t('editor_section_mark_faq')}
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        role="menuitem"
+                                                                        onClick={() => {
+                                                                            setSectionMenuOpenId(null);
+                                                                            quickGenerateImageForSection(section);
+                                                                        }}
+                                                                    >
+                                                                        {t('ai_visual')}
+                                                                    </button>
+                                                                </div>
+                                                            ) : null}
+                                                        </div>
+                                                    ) : null}
+                                                </div>
                                             </div>
-                                            <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
-                                                {!section.isIntro ? (
-                                                    <span
-                                                        className={
-                                                            'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] ' +
-                                                            (stats.imageCount === 0
-                                                                ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-500/60 dark:bg-red-900/40 dark:text-red-200'
-                                                                : 'border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-600 dark:bg-slate-800/60 dark:text-gray-200')
-                                                        }
-                                                        title={t('editor_section_image_count')}
-                                                    >
-                                                        <ImageIcon size={11} />
-                                                        <span>{stats.imageCount}</span>
-                                                    </span>
-                                                ) : null}
-
-                                                {stats.hasTable ? (
-                                                    <span
-                                                        className="ml-1 inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-800 dark:border-amber-500/60 dark:bg-amber-900/40 dark:text-amber-200"
-                                                        title={t('editor_section_has_table')}
-                                                    >
-                                                        <Table size={11} />
-                                                        <span>{stats.tableCount}</span>
-                                                    </span>
-                                                ) : null}
-
-                                                {stats.linkCount > 0 ? (
-                                                    <span
-                                                        className="ml-1 inline-flex items-center gap-1 rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-800 dark:border-emerald-500/60 dark:bg-emerald-900/40 dark:text-emerald-200"
-                                                        title={t('editor_section_link_count')}
-                                                    >
-                                                        <Link2 size={11} />
-                                                        <span>{stats.linkCount}</span>
-                                                    </span>
-                                                ) : null}
-
+                                            <div className="seo-section-header__stats">
                                                 <span
-                                                    className="ml-1 inline-flex items-center gap-1 rounded border border-indigo-300 bg-indigo-50 px-1.5 py-0.5 text-[11px] text-indigo-800 dark:border-indigo-500/60 dark:bg-indigo-900/40 dark:text-indigo-200"
+                                                    className={
+                                                        'seo-section-header__stat seo-section-header__stat--words' +
+                                                        (stats.wordCount === 0 ? ' is-zero' : '')
+                                                    }
                                                     title={t('editor_section_word_count')}
                                                 >
-                                                    <span>W</span>
-                                                    <span>{stats.wordCount}</span>
+                                                    <span className="seo-section-header__stat-prefix">W</span>
+                                                    {stats.wordCount}
                                                 </span>
-
-                                                <button
-                                                    type="button"
-                                                    onClick={() => copySectionText(section)}
-                                                    className="seo-section-header-icon-btn ml-1 border-gray-300 bg-white text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:bg-slate-800 dark:text-gray-200 dark:hover:bg-slate-700"
-                                                    title={
-                                                        copiedSectionId === section.id
-                                                            ? t('editor_copy_section_done')
-                                                            : t('editor_copy_section')
+                                                <span
+                                                    className={
+                                                        'seo-section-header__stat seo-section-header__stat--images' +
+                                                        (stats.imageCount === 0 ? ' is-zero' : '')
                                                     }
-                                                    aria-label={
-                                                        copiedSectionId === section.id
-                                                            ? t('editor_copy_section_done')
-                                                            : t('editor_copy_section')
-                                                    }
+                                                    title={t('editor_section_image_count')}
                                                 >
-                                                    {copiedSectionId === section.id ? (
-                                                        <Check size={12} />
-                                                    ) : (
-                                                        <Copy size={12} />
-                                                    )}
-                                                </button>
-
-                                                {!section.isIntro ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => extractLegacyFaqSection(section, 'manual')}
-                                                        className="seo-section-header-icon-btn ml-1 border-teal-300 bg-teal-50 px-1.5 text-[11px] font-semibold text-teal-700 hover:bg-teal-100 dark:border-teal-500/70 dark:bg-teal-900/30 dark:text-teal-200"
-                                                        title="Đánh dấu section này là FAQ"
-                                                        aria-label="Đánh dấu section này là FAQ"
-                                                    >
-                                                        FAQ
-                                                    </button>
-                                                ) : null}
-
-                                                {!section.isIntro ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => quickGenerateImageForSection(section)}
-                                                        className="seo-section-header-icon-btn ml-1 border-sky-300 bg-sky-50 text-sky-700 hover:bg-sky-100 dark:border-sky-500/70 dark:bg-sky-900/30 dark:text-sky-200"
-                                                        title={t('ai_visual_section')}
-                                                        aria-label={t('ai_visual')}
-                                                    >
-                                                        <ImagePlus size={12} />
-                                                    </button>
-                                                ) : null}
-
-                                                {!section.isIntro ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => addSectionAfter(section)}
-                                                        className="seo-section-header-icon-btn ml-1 border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-500/70 dark:bg-violet-900/30 dark:text-violet-200"
-                                                        title={t('editor_add_section_after')}
-                                                        aria-label={t('editor_add_section_after')}
-                                                    >
-                                                        <ListPlus size={12} />
-                                                    </button>
-                                                ) : null}
-
-                                                {canQuickDeleteEmptySection ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => deleteSection(section, { skipConfirm: true })}
-                                                        className="seo-section-header-icon-btn ml-1 border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 dark:border-rose-500/70 dark:bg-rose-900/30 dark:text-rose-200"
-                                                        title={t('editor_delete_empty_section_hint')}
-                                                        aria-label={t('editor_delete_empty_section')}
-                                                    >
-                                                        <Trash2 size={12} />
-                                                    </button>
-                                                ) : null}
-
-                                                {!section.isIntro && canGenerateFeaturedSnippet ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => requestGenerateFeaturedSnippetAfterSection(section)}
-                                                        disabled={featuredSnippetGenerating}
-                                                        className="seo-section-header-icon-btn ml-1 border-fuchsia-300 bg-fuchsia-50 text-fuchsia-700 hover:bg-fuchsia-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-fuchsia-500/70 dark:bg-fuchsia-900/30 dark:text-fuchsia-200"
-                                                        title={t('editor_generate_featured_snippet')}
-                                                        aria-label={t('editor_generate_featured_snippet')}
-                                                    >
-                                                        <Star size={12} />
-                                                    </button>
-                                                ) : null}
-
+                                                    <ImageIcon size={11} aria-hidden="true" />
+                                                    {stats.imageCount}
+                                                </span>
+                                                <span
+                                                    className={
+                                                        'seo-section-header__stat seo-section-header__stat--tables' +
+                                                        (stats.tableCount === 0 ? ' is-zero' : '')
+                                                    }
+                                                    title={t('editor_section_has_table')}
+                                                >
+                                                    <Table size={11} aria-hidden="true" />
+                                                    {stats.tableCount}
+                                                </span>
                                                 {!section.isIntro && stats.hasEmptyImageSrc ? (
                                                     <span
-                                                        className="ml-2 inline-flex items-center gap-1 rounded border border-rose-300 bg-rose-50 px-1.5 py-0.5 text-[11px] font-medium text-rose-700 dark:border-rose-500/70 dark:bg-rose-900/30 dark:text-rose-200"
+                                                        className="seo-section-header__stat-warning"
                                                         title={t('editor_section_has_empty_src')}
                                                     >
-                                                        <AlertTriangle size={11} />
-                                                        <span>{t('editor_empty_src_count', { count: stats.emptyImageSrcCount })}</span>
+                                                        <AlertTriangle size={11} aria-hidden="true" />
+                                                        {t('editor_empty_src_count', { count: stats.emptyImageSrcCount })}
                                                     </span>
                                                 ) : null}
-
-                                                <span className="ml-2 inline-block align-middle">
-                                                    {visibleBlockIds.length} block
-                                                </span>
-                                            </span>
+                                            </div>
                                         </header>
 
                                         {!isCollapsed ? (

@@ -17,8 +17,9 @@ import {
 import { executeEditorCommand } from '../utils/editorCommands';
 import {
     buildEditorSections,
-    createEmptySectionBlock,
+    createEmptySectionBlocks,
     createEmptyTextBlock,
+    ensureH2SectionsHaveEditableBody,
     findBlockIdForOutlineHeading,
     flattenOutlineHeadingKeys,
     flattenOutlineNodes,
@@ -31,7 +32,7 @@ import {
 import { isCanonicalLockedHeadingHtml } from '../utils/editorHtmlUtils';
 import { callEditArticleLivewire } from '../utils/articleEditorLivewire';
 import { scrollEditorTargetIntoView } from '../utils/ctaSectionNavigator';
-import { normalizeBlocks, parseFeaturedSnippetNewSectionBlocks } from '@media-addon/utils/blockImageUtils.js';
+import { parseFeaturedSnippetNewSectionBlocks } from '@media-addon/utils/blockImageUtils.js';
 import { setArticleAutosaveLock } from '../utils/articleAutosaveLock';
 import { t } from '../utils/i18n';
 import { useCallback, useEffect, useRef } from 'react';
@@ -817,15 +818,15 @@ export default function useArticleEditorOutline({ activeBlockId, activateBlock =
 
         commitActiveBlock();
 
-        const newSectionBlock = createEmptySectionBlock();
-        const sectionId = `section-${newSectionBlock.id}`;
+        const [headingBlock, bodyBlock] = createEmptySectionBlocks();
+        const sectionId = `section-${headingBlock.id}`;
         const sections = buildEditorSections(blocksRef.current);
         const lastSection = [...sections].reverse().find((item) => !item.isIntro) ?? null;
         const afterHeadingId = lastSection ? resolveOutlineHeadingIdForSection(lastSection) : null;
 
-        setBlocks((prev) => normalizeBlocks([...prev, newSectionBlock]));
+        setBlocks((prev) => ensureH2SectionsHaveEditableBody([...prev, headingBlock, bodyBlock]));
         setInsertMenu(null);
-        setActiveBlockId(null);
+        setActiveBlockId(bodyBlock.id);
         setGlobalEditor(null);
         blockFlushRef.current = null;
         setCollapsedSectionIds((prev) => ({
@@ -833,7 +834,7 @@ export default function useArticleEditorOutline({ activeBlockId, activateBlock =
             [sectionId]: false,
         }));
 
-        syncOutlineForNewSectionBlock(newSectionBlock, afterHeadingId, { focusEdit: true });
+        syncOutlineForNewSectionBlock(headingBlock, afterHeadingId, { focusEdit: true });
         focusNewSectionHeader(sectionId);
     }, [
         commitActiveBlock,
@@ -851,8 +852,8 @@ export default function useArticleEditorOutline({ activeBlockId, activateBlock =
             commitActiveBlock();
 
             const lastBlockId = section.blockIds[section.blockIds.length - 1];
-            const newSectionBlock = createEmptySectionBlock();
-            const sectionId = `section-${newSectionBlock.id}`;
+            const [headingBlock, bodyBlock] = createEmptySectionBlocks();
+            const sectionId = `section-${headingBlock.id}`;
 
             setBlocks((prev) => {
                 const index = prev.findIndex((b) => b.id === lastBlockId);
@@ -861,12 +862,12 @@ export default function useArticleEditorOutline({ activeBlockId, activateBlock =
                 }
 
                 const next = [...prev];
-                next.splice(index + 1, 0, newSectionBlock);
+                next.splice(index + 1, 0, headingBlock, bodyBlock);
 
-                return normalizeBlocks(next);
+                return ensureH2SectionsHaveEditableBody(next);
             });
             setInsertMenu(null);
-            setActiveBlockId(null);
+            setActiveBlockId(bodyBlock.id);
             setGlobalEditor(null);
             blockFlushRef.current = null;
             setCollapsedSectionIds((prev) => ({
@@ -875,7 +876,7 @@ export default function useArticleEditorOutline({ activeBlockId, activateBlock =
             }));
 
             const afterHeadingId = resolveOutlineHeadingIdForSection(section);
-            syncOutlineForNewSectionBlock(newSectionBlock, afterHeadingId, { focusEdit: true });
+            syncOutlineForNewSectionBlock(headingBlock, afterHeadingId, { focusEdit: true });
             focusNewSectionHeader(sectionId);
         },
         [
@@ -910,9 +911,8 @@ export default function useArticleEditorOutline({ activeBlockId, activateBlock =
             );
             const insertBlocks = [headingBlock, ...contentBlocks];
             const sectionUiId = `section-${headingBlock.id}`;
-            const lastBlockId =
-                contentBlocks.length > 0 ? contentBlocks[contentBlocks.length - 1].id : headingBlock.id;
 
+            let focusedBlockId = null;
             setBlocks((prev) => {
                 const index = prev.findIndex((b) => b.id === pending.anchorLastBlockId);
                 if (index < 0) {
@@ -921,33 +921,35 @@ export default function useArticleEditorOutline({ activeBlockId, activateBlock =
 
                 const next = [...prev];
                 next.splice(index + 1, 0, ...insertBlocks);
+                const ensured = ensureH2SectionsHaveEditableBody(next);
+                const section = buildEditorSections(ensured).find((item) => item.id === sectionUiId);
+                focusedBlockId =
+                    section?.blockIds?.find((blockId) => blockId !== headingBlock.id)
+                    ?? contentBlocks[contentBlocks.length - 1]?.id
+                    ?? headingBlock.id;
 
-                return next;
+                return ensured;
             });
 
             setInsertMenu(null);
-            setActiveBlockId(lastBlockId);
+            setActiveBlockId(focusedBlockId);
             setGlobalEditor(null);
             setCollapsedSectionIds((prev) => ({
                 ...prev,
                 [sectionUiId]: false,
             }));
 
-            if (outlineHasSavedHeadings && anchorSection) {
-                const meta = extractOutlineHeadingFromBlock(headingBlock);
-                if (meta) {
-                    const afterHeadingId = resolveOutlineHeadingIdForSection(anchorSection);
-                    await appendOutlineHeadingForBlock(headingBlock.id, meta, { afterHeadingId });
-                }
-            }
+            const afterHeadingId = anchorSection
+                ? resolveOutlineHeadingIdForSection(anchorSection)
+                : null;
+            syncOutlineForNewSectionBlock(headingBlock, afterHeadingId);
         },
         [
-            appendOutlineHeadingForBlock,
             articleTitle,
             commitActiveBlock,
             focusKeyword,
-            outlineHasSavedHeadings,
             resolveOutlineHeadingIdForSection,
+            syncOutlineForNewSectionBlock,
         ],
     );
 
@@ -1012,17 +1014,32 @@ export default function useArticleEditorOutline({ activeBlockId, activateBlock =
     const confirmFeaturedSnippetPromptInsert = useCallback(() => {
         const pending = featuredSnippetTargetRef.current;
         const html = String(featuredSnippetPreviewHtml || pending?.previewHtml || '').trim();
-        if (!html || !pending?.anchorLastBlockId) {
+        if (!html) {
             return;
         }
+
+        let anchorSectionId = pending?.anchorSectionId ?? null;
+        let anchorLastBlockId = pending?.anchorLastBlockId ?? null;
+        if (!anchorLastBlockId) {
+            const sections = buildEditorSections(blocksRef.current);
+            const anchorSection = [...sections].reverse().find((item) => !item.isIntro) ?? sections[0] ?? null;
+            anchorSectionId = anchorSection?.id ?? null;
+            anchorLastBlockId = anchorSection?.blockIds?.[anchorSection.blockIds.length - 1]
+                ?? blocksRef.current[blocksRef.current.length - 1]?.id
+                ?? null;
+        }
+        if (!anchorLastBlockId) {
+            return;
+        }
+
         featuredSnippetTargetRef.current = null;
         setFeaturedSnippetPromptOpen(false);
         setFeaturedSnippetGenerating(true);
         void insertFeaturedSnippetAsNewSectionAfter(
             {
                 mode: 'new-section-after',
-                anchorSectionId: pending.anchorSectionId,
-                anchorLastBlockId: pending.anchorLastBlockId,
+                anchorSectionId,
+                anchorLastBlockId,
             },
             html,
         ).finally(() => {

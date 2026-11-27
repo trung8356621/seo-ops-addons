@@ -21,6 +21,12 @@ use Illuminate\Support\Str;
 /**
  * Sinh Featured Snippet bằng prompt cấu hình tại SEO → Tùy chỉnh → Quy trình.
  * Biến {{input}} = từ khóa chính của bài.
+ *
+ * Markdown → editor HTML uses the canonical import path
+ * ({@see ArticleContentFaqService::prepareEditorHtmlFromAiOutput}) so fenced
+ * ## H2 + Markdown tables become real headings/tables for Insert-as-new-section.
+ * Does not use {@see ArticleMarkdownToHtmlService::toFeaturedSnippetEditorHtml}
+ * (heading downgrade is for inline-only insert).
  */
 final class ArticleFeaturedSnippetGeneratorService
 {
@@ -29,7 +35,7 @@ final class ArticleFeaturedSnippetGeneratorService
         private readonly SeoPromptSettingsService $promptSettings,
         private readonly SeoAnalyzerService $seoAnalyzer,
         private readonly PromptRunnerService $promptRunner,
-        private readonly ArticleMarkdownToHtmlService $markdownHtml,
+        private readonly ArticleContentFaqService $contentFaq,
         private readonly SiteDomainPromptContextService $sitePromptContext,
         private readonly PromptResultLinkService $promptResultLinks,
     ) {}
@@ -82,7 +88,17 @@ final class ArticleFeaturedSnippetGeneratorService
             );
         }
 
-        $html = trim($this->markdownHtml->toHtml($output));
+        return $this->convertOutputToEditorHtml($output);
+    }
+
+    /**
+     * Canonical Markdown/HTML → editor HTML for Featured Snippet preview + Insert.
+     * Preserves H2 (section heading) and Markdown tables. Unwraps outer fences.
+     */
+    public function convertOutputToEditorHtml(string $output): string
+    {
+        $prepared = $this->contentFaq->prepareEditorHtmlFromAiOutput($output);
+        $html = trim((string) ($prepared['html'] ?? ''));
         if ($html === '') {
             throw new \InvalidArgumentException(
                 'Không chuyển được kết quả Featured Snippet sang HTML cho editor.',

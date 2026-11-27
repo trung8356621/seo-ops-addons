@@ -53,6 +53,7 @@ final class PromptSplitStrategyRegistry
             'article.title_suggestion' => 256,
             'article.faq.generate' => 800,
             'article.featured_snippet.generate' => 512,
+            'article.featured_snippet.optimize' => 512,
             'article.comment.generate' => 400,
             // Atomic seeding utility — unsplittable short JSON text batch.
             'seeding.comment_generate' => 1024,

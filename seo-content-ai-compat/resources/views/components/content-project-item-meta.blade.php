@@ -65,6 +65,9 @@
             @else
                 {{ $row['project_name'] }}
             @endif
+            @if (! empty($row['writer_name']))
+                <span> · {{ $row['writer_name'] }}</span>
+            @endif
         </div>
     @endif
     @if (! empty($message))

@@ -5,39 +5,29 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject;
 
 use App\Models\Site;
-use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
-use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectItemOrigin;
+use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectTaskPlanningAttribution;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
-use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\SplitDraftContentProjectService;
-use Omnichannel\Addons\ContentProjects\Services\ContentProject\McpPlanning\McpPlanningMetaStore;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\PlanningMonthBackfill;
-use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService;
-use Omnichannel\Addons\ContentProjects\Services\SeoProjectArticleOwnerSyncService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemStateResolver;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 
 /**
  * Preview + apply horizontal “Balance months” for one site across selected planning months.
  *
- * Ownership boundary (strict):
- * - Balance Months = NOT-generated (pre-generation) workload only.
- * - Compact done articles = generator_done compaction.
- * - Generated tasks are OUTSIDE the Balance domain (excluded from current/fixed/target/moves).
+ * Ownership boundary:
+ * - Balance Months redistributes planning_month for all non-archived items.
+ * - Generate / Review / Publishing status does not exclude items.
+ * - Project / writer / article / publish schedule ownership stays unchanged.
+ * - Apply stamps planning_month (+ attribution sync); never relocates project_id.
  *
- * Invariant after apply for movable execution tasks:
- *   task.planning_month == destination month
- *   AND task.project.month == destination month (when in a monthly execution project)
- *
- * Draft-planning tasks: planning_month only (stay in draft container).
- *
- * Relocate packing uses {@see ContentProjectExecutionPackingService::planPackForBalanceMonth}
- * (month-wide free capacity; writer affinity ignored for Balance only).
+ * Concurrent worker safety: apply uses lockForUpdate; eligibility does not permanently
+ * freeze items that happen to be mid-worker at preview time.
  */
 final class ContentProjectMonthBalanceService
 {
@@ -45,11 +35,6 @@ final class ContentProjectMonthBalanceService
         private readonly ContentProjectMonthBalancePlanner $planner = new ContentProjectMonthBalancePlanner,
         private readonly ContentProjectMonthBalanceEligibility $eligibility = new ContentProjectMonthBalanceEligibility,
         private readonly ?ContentProjectItemStateResolver $stateResolver = null,
-        private readonly ?ContentProjectExecutionPackingService $packing = null,
-        private readonly ?SplitDraftContentProjectService $splitNaming = null,
-        private readonly ?SeoProjectArticleOwnerSyncService $articleOwnerSync = null,
-        private readonly ?McpPlanningMetaStore $mcpMeta = null,
-        private readonly ?ContentProjectWriterMonthlyCapacityService $writerCapacity = null,
     ) {}
 
     public function lockKey(int $siteId, array $months): string
@@ -125,8 +110,6 @@ final class ContentProjectMonthBalanceService
             $snapshot['movable'],
             $mode,
         );
-        $plan = $this->constrainPlanByCapacity($snapshot, $plan);
-
         return $this->presentPreview($siteId, $snapshot, $plan);
     }
 
@@ -195,8 +178,6 @@ final class ContentProjectMonthBalanceService
                 $snapshot['movable'],
                 $mode,
             );
-            $plan = $this->constrainPlanByCapacity($snapshot, $plan);
-
             if ($expectedFingerprint !== null && $expectedFingerprint !== ''
                 && ! hash_equals($expectedFingerprint, (string) $plan['fingerprint'])
             ) {
@@ -222,6 +203,8 @@ final class ContentProjectMonthBalanceService
     }
 
     /**
+     * Stamp planning_month only — never relocate project_id / article / publish fields.
+     *
      * @param  array<string, mixed>  $snapshot
      * @param  array<string, mixed>  $plan
      */
@@ -229,15 +212,9 @@ final class ContentProjectMonthBalanceService
     {
         $allocation = is_array($plan['allocation'] ?? null) ? $plan['allocation'] : [];
         $tasksById = $snapshot['tasks_by_id'] ?? [];
-        $packing = $this->packing ?? app(ContentProjectExecutionPackingService::class);
-        $naming = $this->splitNaming ?? app(SplitDraftContentProjectService::class);
-        $ownerSync = $this->articleOwnerSync ?? app(SeoProjectArticleOwnerSyncService::class);
-        $mcp = $this->mcpMeta ?? app(McpPlanningMetaStore::class);
-
-        /** @var array<string, list<int>> $relocateByMonth YYYY-MM => task ids */
-        $relocateByMonth = [];
-        $planningOnly = [];
-        $touchedProjectIds = [];
+        $movedCount = 0;
+        $attributionReady = Schema::connection('omi_seo_ai')
+            ->hasTable('seo_content_project_task_planning_attributions');
 
         foreach ($allocation as $taskId => $destMonth) {
             $taskId = (int) $taskId;
@@ -253,237 +230,20 @@ final class ContentProjectMonthBalanceService
             /** @var SeoProjectTask $task */
             $task = $meta['task'];
             $project = $meta['project'] instanceof SeoProject ? $meta['project'] : null;
-            $fromMonth = (string) $meta['planning_month'];
-
-            $destDate = ContentProjectMonthContext::toDateString($destMonth);
-            $needsPlanningStamp = ContentProjectMonthContext::normalize((string) ($task->planning_month ?? '')) !== $destMonth
-                || $task->planning_month === null;
-
-            if ($project instanceof SeoProject && $project->isDraftPlanning()) {
-                if ($needsPlanningStamp || $fromMonth !== $destMonth) {
-                    $task->forceFill(['planning_month' => $destDate])->save();
-                    $planningOnly[] = $taskId;
-                }
+            $fromMonth = ContentProjectMonthContext::normalize((string) ($meta['planning_month'] ?? ''));
+            if ($destMonth === null || $fromMonth === $destMonth) {
                 continue;
             }
 
-            $projectMonth = $project instanceof SeoProject
-                ? ContentProjectMonthContext::parseOrNull($project->month)
-                : null;
-
-            $needsRelocate = $project instanceof SeoProject
-                && ! $project->isDraftPlanning()
-                && $projectMonth !== null
-                && $projectMonth !== $destMonth;
-
-            if ($needsRelocate) {
-                $relocateByMonth[$destMonth] ??= [];
-                $relocateByMonth[$destMonth][] = $taskId;
-                continue;
-            }
-
-            if ($needsPlanningStamp || $fromMonth !== $destMonth) {
-                $payload = ['planning_month' => $destDate];
-                if ($projectMonth === $destMonth && $project instanceof SeoProject) {
-                    $day = Carbon::parse((string) ($task->target_date ?? $destDate))->day;
-                    $payload['target_date'] = Carbon::parse($destDate)->startOfMonth()
-                        ->addDays(min(max($day, 1), 28) - 1)
-                        ->format('Y-m-d');
-                }
-                $task->forceFill($payload)->save();
-                $planningOnly[] = $taskId;
-                if ($project instanceof SeoProject) {
-                    $touchedProjectIds[(int) $project->getKey()] = true;
-                }
-            }
-        }
-
-        $movedCount = count($planningOnly);
-
-        foreach ($relocateByMonth as $destMonth => $taskIds) {
-            $destMonth = ContentProjectMonthContext::normalize((string) $destMonth);
-            $destCarbon = Carbon::parse(ContentProjectMonthContext::toDateString($destMonth));
-            $taskIds = array_values(array_unique(array_map('intval', $taskIds)));
-            $newProjectUserId = $this->preferWriterForNewBalanceProject($taskIds, $tasksById, $destCarbon);
-
-            SeoProject::query()
-                ->activeProjects()
-                ->whereDate('month', $destCarbon->format('Y-m-d'))
-                ->where('status', '!=', SeoProject::STATUS_DRAFT)
-                ->lockForUpdate()
-                ->get(['id']);
-
-            $bins = $packing->planPackForBalanceMonth($destCarbon, $taskIds, $newProjectUserId);
-            /** @var list<string> $reservedNames */
-            $reservedNames = [];
-            $sourceMetaByTask = [];
-
-            foreach ($taskIds as $tid) {
-                $meta = $tasksById[$tid] ?? null;
-                $srcProject = is_array($meta) && ($meta['project'] ?? null) instanceof SeoProject
-                    ? $meta['project']
-                    : null;
-                if ($srcProject instanceof SeoProject) {
-                    foreach ($mcp->items($srcProject) as $entry) {
-                        if ((int) ($entry['project_item_id'] ?? 0) === $tid) {
-                            $sourceMetaByTask[$tid] = $entry;
-                        }
-                    }
-                }
-            }
-
-            foreach ($bins as $bin) {
-                $chunkIds = array_values(array_map('intval', $bin['task_ids'] ?? []));
-                if ($chunkIds === []) {
-                    continue;
-                }
-
-                $projectId = isset($bin['project_id']) ? (int) $bin['project_id'] : 0;
-                $binUserId = (int) ($bin['user_id'] ?? 0);
-                if ($projectId > 0) {
-                    $execution = SeoProject::query()->whereKey($projectId)->lockForUpdate()->first();
-                    if (! $execution instanceof SeoProject || ! $packing->canAcceptMoreItems($execution)) {
-                        throw ValidationException::withMessages([
-                            'balance' => __('seo-content-ai::filament.projects.balance_months_pack_failed'),
-                        ]);
-                    }
-                } else {
-                    $createUserId = $binUserId > 0 ? $binUserId : $newProjectUserId;
-                    if ($createUserId <= 0) {
-                        throw ValidationException::withMessages([
-                            'balance' => __('seo-content-ai::filament.projects.balance_months_pack_failed'),
-                        ]);
-                    }
-                    $name = $naming->nextExecutionProjectName($createUserId, $destCarbon, $reservedNames);
-                    $reservedNames[] = $name;
-                    $sourceDraftId = null;
-                    foreach ($chunkIds as $tid) {
-                        $meta = $tasksById[$tid] ?? null;
-                        $src = is_array($meta) ? ($meta['project'] ?? null) : null;
-                        if ($src instanceof SeoProject && (int) ($src->source_draft_project_id ?? 0) > 0) {
-                            $sourceDraftId = (int) $src->source_draft_project_id;
-                            break;
-                        }
-                    }
-                    $execution = SeoProject::query()->create([
-                        'name' => $name,
-                        'site_id' => null,
-                        'month' => $destCarbon->format('Y-m-d'),
-                        'status' => SeoProject::STATUS_PENDING,
-                        'kind' => SeoProject::KIND_MONTHLY,
-                        'user_id' => $createUserId,
-                        'total_tasks' => 0,
-                        'description' => null,
-                        'source_draft_project_id' => $sourceDraftId,
-                        'meta' => null,
-                    ]);
-                }
-
-                $this->relocateTasksPreservingState($execution, $chunkIds, $destCarbon);
-                $execution->syncTotalTasksCounter();
-                $ownerSync->syncProjectArticles($execution->fresh() ?? $execution);
-
-                $chunkMeta = [];
-                foreach ($chunkIds as $tid) {
-                    if (isset($sourceMetaByTask[$tid])) {
-                        $chunkMeta[] = $sourceMetaByTask[$tid];
-                    }
-                }
-                if ($chunkMeta !== []) {
-                    $mcp->upsertItems($execution, $chunkMeta);
-                }
-
-                $touchedProjectIds[(int) $execution->getKey()] = true;
-                foreach ($chunkIds as $tid) {
-                    $meta = $tasksById[$tid] ?? null;
-                    $src = is_array($meta) ? ($meta['project'] ?? null) : null;
-                    if ($src instanceof SeoProject) {
-                        $touchedProjectIds[(int) $src->getKey()] = true;
-                        $mcp->removeItems($src, [$tid]);
-                    }
-                }
-
-                $movedCount += count($chunkIds);
-            }
-        }
-
-        foreach (array_keys($touchedProjectIds) as $projectId) {
-            $project = SeoProject::query()->whereKey((int) $projectId)->first();
-            if ($project instanceof SeoProject) {
-                $project->syncTotalTasksCounter();
-            }
-        }
-
-        return $movedCount;
-    }
-
-    /**
-     * Prefer a writer already present among relocating tasks; else any writer with
-     * projects in the destination month (for rare empty-month creates).
-     *
-     * @param  list<int>  $taskIds
-     * @param  array<int, array<string, mixed>>  $tasksById
-     */
-    private function preferWriterForNewBalanceProject(array $taskIds, array $tasksById, Carbon $destMonth): int
-    {
-        foreach ($taskIds as $taskId) {
-            $meta = $tasksById[$taskId] ?? null;
-            $project = is_array($meta) ? ($meta['project'] ?? null) : null;
-            if ($project instanceof SeoProject) {
-                $writerId = (int) ($project->user_id ?? 0);
-                if ($writerId > 0) {
-                    return $writerId;
-                }
-            }
-        }
-
-        $existing = SeoProject::query()
-            ->activeProjects()
-            ->whereDate('month', $destMonth->format('Y-m-d'))
-            ->where('status', '!=', SeoProject::STATUS_DRAFT)
-            ->where('user_id', '>', 0)
-            ->orderBy('id')
-            ->value('user_id');
-
-        return (int) ($existing ?? 0);
-    }
-
-    /**
-     * @param  list<int>  $taskIds
-     */
-    private function relocateTasksPreservingState(SeoProject $execution, array $taskIds, Carbon $month): void
-    {
-        $executionId = (int) $execution->getKey();
-        $packing = $this->packing ?? app(ContentProjectExecutionPackingService::class);
-        $tasks = SeoProjectTask::query()
-            ->whereIn('id', $taskIds)
-            ->with(['article', 'project'])
-            ->lockForUpdate()
-            ->get()
-            ->keyBy(static fn (SeoProjectTask $t): int => (int) $t->id);
-
-        $monthStart = $month->copy()->startOfMonth();
-        $dayIndex = $packing->activeItemCount($execution);
-        $planningDate = $monthStart->format('Y-m-d');
-
-        foreach ($taskIds as $taskId) {
-            $task = $tasks->get($taskId);
-            if (! $task instanceof SeoProjectTask) {
-                throw ValidationException::withMessages([
-                    'balance' => __('seo-content-ai::filament.projects.balance_months_pack_failed'),
-                ]);
-            }
-
-            $sourceProject = $task->relationLoaded('project')
-                ? $task->project
-                : SeoProject::query()->whereKey((int) ($task->project_id ?? 0))->first();
-            $article = $task->relationLoaded('article') && $task->article instanceof \Omnichannel\Addons\Content\Models\SeoArticle
+            // Re-check eligibility under row lock (concurrency; not a permanent gate).
+            $article = $task->relationLoaded('article')
+                && $task->article instanceof \Omnichannel\Addons\Content\Models\SeoArticle
                 ? $task->article
                 : null;
             $state = ($this->stateResolver ?? app(ContentProjectItemStateResolver::class))->resolve($task, $article);
             $gate = $this->eligibility->classify(
                 $task,
-                $sourceProject instanceof SeoProject ? $sourceProject : null,
+                $project instanceof SeoProject ? $project : null,
                 $state,
                 $article,
             );
@@ -493,24 +253,19 @@ final class ContentProjectMonthBalanceService
                 ]);
             }
 
-            $payload = [
-                'project_id' => $executionId,
-                'target_date' => $monthStart->copy()->addDays(min($dayIndex, 27))->format('Y-m-d'),
-                'planning_month' => $planningDate,
-            ];
-            $siteId = (int) ($task->site_id ?? 0);
-            if ($siteId > 0) {
-                $payload['site_id'] = $siteId;
+            $destDate = ContentProjectMonthContext::toDateString($destMonth);
+            $task->forceFill(['planning_month' => $destDate])->save();
+
+            if ($attributionReady) {
+                SeoContentProjectTaskPlanningAttribution::query()
+                    ->where('project_task_id', $taskId)
+                    ->update(['planning_month' => $destMonth]);
             }
 
-            $task->forceFill($payload)->save();
-
-            SeoContentProjectItemOrigin::query()
-                ->where('project_task_id', $taskId)
-                ->update(['project_id' => $executionId]);
-
-            $dayIndex++;
+            $movedCount++;
         }
+
+        return $movedCount;
     }
 
     /**
@@ -579,7 +334,7 @@ final class ContentProjectMonthBalanceService
                 $article,
             );
 
-            // Generated / out-of-domain: outside Balance pool entirely (not fixed load).
+            // Archived / out-of-domain: outside Balance pool entirely.
             if (! ($gate['in_domain'] ?? true)) {
                 $excludedTotal++;
                 $reason = (string) ($gate['reason'] ?? 'excluded');
@@ -622,207 +377,6 @@ final class ContentProjectMonthBalanceService
             'fixed_total' => array_sum($fixedByMonth),
             'movable_total' => count($movable),
         ];
-    }
-
-    /**
-     * Cap execution relocates by real writer monthly capacity; draft planning stamps stay uncapped.
-     * Overflow keeps its source month (left in place).
-     *
-     * @param  array<string, mixed>  $snapshot
-     * @param  array<string, mixed>  $plan
-     * @return array<string, mixed>
-     */
-    private function constrainPlanByCapacity(array $snapshot, array $plan): array
-    {
-        $allocation = is_array($plan['allocation'] ?? null) ? $plan['allocation'] : [];
-        $tasksById = is_array($snapshot['tasks_by_id'] ?? null) ? $snapshot['tasks_by_id'] : [];
-        $months = is_array($plan['months'] ?? null) ? $plan['months'] : [];
-        if ($allocation === [] || $months === []) {
-            $plan['capacity_blocked'] = 0;
-            $plan['capacity_blocked_reasons'] = [];
-
-            return $plan;
-        }
-
-        /** @var array<string, list<int>> $incomingByDest */
-        $incomingByDest = [];
-        foreach ($allocation as $taskId => $destMonth) {
-            $taskId = (int) $taskId;
-            $destMonth = ContentProjectMonthContext::normalize((string) $destMonth);
-            $meta = $tasksById[$taskId] ?? null;
-            if (! is_array($meta) || ! ($meta['movable'] ?? false)) {
-                continue;
-            }
-            $fromMonth = ContentProjectMonthContext::normalize((string) ($meta['planning_month'] ?? ''));
-            if ($fromMonth === null || $destMonth === null || $fromMonth === $destMonth) {
-                continue;
-            }
-
-            $project = ($meta['project'] ?? null) instanceof SeoProject ? $meta['project'] : null;
-            if ($project instanceof SeoProject && $project->isDraftPlanning()) {
-                continue; // draft: planning_month only, no writer capacity
-            }
-
-            $projectMonth = $project instanceof SeoProject
-                ? ContentProjectMonthContext::parseOrNull($project->month)
-                : null;
-            $needsRelocate = $project instanceof SeoProject
-                && ! $project->isDraftPlanning()
-                && $projectMonth !== null
-                && $projectMonth !== $destMonth;
-            if (! $needsRelocate) {
-                continue;
-            }
-
-            $incomingByDest[$destMonth] ??= [];
-            $incomingByDest[$destMonth][] = $taskId;
-        }
-
-        $blocked = 0;
-        $blockedReasons = [];
-        $packing = $this->packing ?? app(ContentProjectExecutionPackingService::class);
-
-        foreach ($incomingByDest as $destMonth => $taskIds) {
-            sort($taskIds);
-            $capacity = $this->destinationIntakeSlots($destMonth, $taskIds, $tasksById, $packing);
-            if ($capacity >= count($taskIds)) {
-                continue;
-            }
-            $overflow = array_slice($taskIds, max(0, $capacity));
-            foreach ($overflow as $taskId) {
-                $from = ContentProjectMonthContext::normalize((string) ($tasksById[$taskId]['planning_month'] ?? ''));
-                if ($from === null) {
-                    continue;
-                }
-                $allocation[$taskId] = $from;
-                $blocked++;
-                $blockedReasons['writer_capacity'] = ($blockedReasons['writer_capacity'] ?? 0) + 1;
-            }
-        }
-
-        $fixed = is_array($plan['fixed_by_month'] ?? null) ? $plan['fixed_by_month'] : [];
-        $target = [];
-        $targetMovable = [];
-        $currentMovable = [];
-        foreach ($months as $month) {
-            $month = (string) $month;
-            $fixed[$month] = max(0, (int) ($fixed[$month] ?? 0));
-            $currentMovable[$month] = 0;
-            $targetMovable[$month] = 0;
-        }
-        foreach ($tasksById as $taskId => $meta) {
-            if (! is_array($meta) || ! ($meta['movable'] ?? false)) {
-                continue;
-            }
-            $from = ContentProjectMonthContext::normalize((string) ($meta['planning_month'] ?? ''));
-            if ($from !== null && isset($currentMovable[$from])) {
-                $currentMovable[$from]++;
-            }
-            $to = ContentProjectMonthContext::normalize((string) ($allocation[$taskId] ?? $from ?? ''));
-            if ($to !== null && isset($targetMovable[$to])) {
-                $targetMovable[$to]++;
-            }
-        }
-        foreach ($months as $month) {
-            $month = (string) $month;
-            $target[$month] = $fixed[$month] + $targetMovable[$month];
-        }
-
-        $moves = [];
-        foreach ($allocation as $taskId => $destMonth) {
-            $taskId = (int) $taskId;
-            $meta = $tasksById[$taskId] ?? null;
-            if (! is_array($meta)) {
-                continue;
-            }
-            $from = ContentProjectMonthContext::normalize((string) ($meta['planning_month'] ?? ''));
-            $to = ContentProjectMonthContext::normalize((string) $destMonth);
-            if ($from !== null && $to !== null && $from !== $to) {
-                $moves[] = ['task_id' => $taskId, 'from' => $from, 'to' => $to];
-            }
-        }
-
-        $fingerprintPayload = [
-            'mode' => (string) ($plan['mode'] ?? ContentProjectMonthBalancePlanner::DEFAULT_MODE),
-            'months' => $months,
-            'fixed' => $fixed,
-            'movable' => array_map(
-                static function (array $row): array {
-                    return ['id' => (int) $row['id'], 'month' => (string) $row['month']];
-                },
-                is_array($snapshot['movable'] ?? null) ? $snapshot['movable'] : [],
-            ),
-            'allocation' => $allocation,
-            'capacity_blocked' => $blocked,
-        ];
-
-        $plan['allocation'] = $allocation;
-        $plan['moves'] = $moves;
-        $plan['move_count'] = count($moves);
-        $plan['target_by_month'] = $target;
-        $plan['target_movable_by_month'] = $targetMovable;
-        $plan['movable_by_month'] = $currentMovable;
-        $plan['imbalance_after'] = $target === [] ? 0 : (max($target) - min($target));
-        $plan['fingerprint'] = hash('sha256', json_encode($fingerprintPayload, JSON_THROW_ON_ERROR));
-        $plan['capacity_blocked'] = $blocked;
-        $plan['capacity_blocked_reasons'] = $blockedReasons;
-
-        return $plan;
-    }
-
-    /**
-     * How many execution relocates the destination month can absorb under writer capacity.
-     *
-     * @param  list<int>  $taskIds
-     * @param  array<int, array<string, mixed>>  $tasksById
-     */
-    private function destinationIntakeSlots(
-        string $destMonth,
-        array $taskIds,
-        array $tasksById,
-        ContentProjectExecutionPackingService $packing,
-    ): int {
-        $destCarbon = Carbon::parse(ContentProjectMonthContext::toDateString($destMonth));
-        $preferWriter = $this->preferWriterForNewBalanceProject($taskIds, $tasksById, $destCarbon);
-
-        $projects = $packing->listAppendableProjectsForMonth($destCarbon);
-        $writerIds = [];
-        foreach ($projects as $project) {
-            $uid = (int) ($project->user_id ?? 0);
-            if ($uid > 0) {
-                $writerIds[$uid] = true;
-            }
-        }
-        if ($preferWriter > 0) {
-            $writerIds[$preferWriter] = true;
-        }
-        $ids = array_map('intval', array_keys($writerIds));
-        if ($ids === []) {
-            return 0;
-        }
-
-        $capacity = $this->writerCapacity ?? app(ContentProjectWriterMonthlyCapacityService::class);
-        $remaining = $capacity->remainingByUserId($ids, $destCarbon);
-        foreach ($remaining as $uid => $slots) {
-            $remaining[(int) $uid] = max(0, (int) $slots);
-        }
-
-        $intake = 0;
-        foreach ($projects as $project) {
-            $uid = (int) ($project->user_id ?? 0);
-            $free = min($packing->freeSlots($project), (int) ($remaining[$uid] ?? 0));
-            if ($free < 1) {
-                continue;
-            }
-            $intake += $free;
-            $remaining[$uid] = max(0, (int) ($remaining[$uid] ?? 0) - $free);
-        }
-
-        if ($preferWriter > 0) {
-            $intake += max(0, (int) ($remaining[$preferWriter] ?? 0));
-        }
-
-        return $intake;
     }
 
     /**

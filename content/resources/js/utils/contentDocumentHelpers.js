@@ -80,9 +80,56 @@ export const createEmptySectionBlock = () => {
         type: 'text',
         isWp: false,
         prefix: '',
-        content: `<h2>${headingText}</h2><p></p>`,
+        content: `<h2>${headingText}</h2>`,
         suffix: '',
     };
+};
+
+/** H2 heading + sibling empty paragraph (section body must be editable). */
+export const createEmptySectionBlocks = () => {
+    const heading = createEmptySectionBlock();
+
+    return [heading, createEmptyTextBlock()];
+};
+
+/**
+ * Every non-intro H2 section must keep at least one editable body block.
+ * Idempotent: does not insert when body already exists; preserves existing ids.
+ *
+ * @param {Array<object>} blocks
+ * @returns {Array<object>}
+ */
+export const ensureH2SectionsHaveEditableBody = (blocks) => {
+    if (!Array.isArray(blocks) || blocks.length === 0) {
+        return Array.isArray(blocks) ? blocks : [];
+    }
+
+    const sections = buildEditorSections(blocks);
+    const insertAfterIds = new Set();
+
+    for (const section of sections) {
+        if (section?.isIntro || !section?.blockIds?.length) {
+            continue;
+        }
+        if (section.blockIds.length >= 2) {
+            continue;
+        }
+        insertAfterIds.add(section.blockIds[0]);
+    }
+
+    if (insertAfterIds.size === 0) {
+        return blocks;
+    }
+
+    const next = [];
+    for (const block of blocks) {
+        next.push(block);
+        if (block?.id && insertAfterIds.has(block.id)) {
+            next.push(createEmptyTextBlock());
+        }
+    }
+
+    return next;
 };
 
 export const articleHasFaqShortcode = (blocks) =>
@@ -1049,8 +1096,10 @@ export const parseHtmlToBlocks = (html) => {
         if (textAfter.trim()) blocks.push(...splitClassic(textAfter));
     }
 
-    return peelSectionHeadingTrailingBlocks(
-        hoistInlineImagesFromTextBlocks(regroupParsedBlocksByH2(normalizeBlocks(blocks))),
+    return ensureH2SectionsHaveEditableBody(
+        peelSectionHeadingTrailingBlocks(
+            hoistInlineImagesFromTextBlocks(regroupParsedBlocksByH2(normalizeBlocks(blocks))),
+        ),
     );
 };
 

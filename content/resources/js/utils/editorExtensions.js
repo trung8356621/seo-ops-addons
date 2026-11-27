@@ -234,7 +234,26 @@ export const articleEditorExtensions = [
     Color,
     SeoEditorLink,
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
-    Table.configure({ resizable: true }),
+    Table.extend({
+        addAttributes() {
+            return {
+                ...this.parent?.(),
+                seoPrimary: {
+                    default: null,
+                    parseHTML: (element) => (
+                        element.getAttribute('data-seo-primary-table') === '1' ? '1' : null
+                    ),
+                    renderHTML: (attributes) => {
+                        if (attributes.seoPrimary !== '1') {
+                            return {};
+                        }
+
+                        return { 'data-seo-primary-table': '1' };
+                    },
+                },
+            };
+        },
+    }).configure({ resizable: true }),
     TableRow,
     TableHeader,
     TableCell,

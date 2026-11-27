@@ -46,6 +46,15 @@
     $previewLabel = __('seo-content-ai::filament.article_list.page_action_preview_label');
     $historyUrl = route('seo.articles.revisions.compare', ['article' => $record->getKey()]);
     $promptsUrl = \Omnichannel\Addons\Content\Filament\Resources\ArticleResource::getUrl('prompts', ['record' => $record]);
+    $cpReturnRaw = trim((string) request()->query('cp_return', ''));
+    $cpReturnUrl = null;
+    if ($cpReturnRaw !== '') {
+        $path = parse_url($cpReturnRaw, PHP_URL_PATH);
+        $path = is_string($path) ? $path : '';
+        if ($path !== '' && str_contains($path, '/content-projects/domain/')) {
+            $cpReturnUrl = $cpReturnRaw;
+        }
+    }
 @endphp
 
 @once
@@ -145,12 +154,32 @@
                     return this.reviewActions[0] ?? null;
                 },
 
-                // "Toggle reverse" actions (reopen/unapprove) hiển thị như một nút trạng thái
-                // đã bấm (is-active) thay vì split-button hành động tiến tới.
+                // Reverse actions stay in a menu — status badge shows "Đã duyệt" / "Hoàn tất".
                 reviewIsToggleAction() {
                     const type = this.reviewPrimaryAction()?.type;
 
                     return type === 'reopen' || type === 'unapprove';
+                },
+
+                reviewIsForwardAction() {
+                    return Boolean(this.reviewPrimaryAction()) && ! this.reviewIsToggleAction();
+                },
+
+                // Amber CTA only for pending approve / submit — archive stays quieter next to "Đã duyệt".
+                reviewIsPendingCta() {
+                    const type = this.reviewPrimaryAction()?.type;
+
+                    return type === 'approve' || type === 'submit_review';
+                },
+
+                reviewCtaLabel() {
+                    const action = this.reviewPrimaryAction();
+                    if (! action) {
+                        return '';
+                    }
+
+                    // Prefer full label ("Duyệt bài") over quick_label ("Duyệt nhanh").
+                    return action.label || action.quick_label || '';
                 },
 
                 reviewToggleLabel() {
@@ -172,6 +201,10 @@
 
                 reviewBadgeLabelText() {
                     return this.reviewBadgeMap[this.reviewStatus] ?? this.reviewStatus;
+                },
+
+                reviewShowsStatusBadge() {
+                    return Boolean(this.reviewStatus) && this.reviewStatus !== 'draft';
                 },
 
                 reviewLatestTooltip() {
@@ -510,33 +543,51 @@
             </div>
         </div>
 
-        <div class="seo-editor-review-cluster seo-editor-page-actions__desktop-only" data-seo-page-action="review">
-            {{-- Toggle reverse (reopen/unapprove): 1 nút trạng thái đã bấm (is-active), chevron mở dropdown "kèm ghi chú" tuỳ chọn --}}
-            <template x-if="reviewPrimaryAction() && reviewIsToggleAction()">
+        <div class="seo-editor-review-cluster" data-seo-page-action="review">
+            {{-- Status always visible when not draft (canonical review_status from bootstrap/API). --}}
+            <template x-if="reviewShowsStatusBadge()">
+                <span
+                    class="seo-editor-review-badge"
+                    x-bind:data-status="reviewStatus"
+                    x-bind:title="reviewLatestTooltip()"
+                    data-seo-page-action="review-badge"
+                >
+                    <span x-text="reviewBadgeLabelText()"></span>
+                </span>
+            </template>
+
+            {{-- Forward CTA (submit_review / approve / archive): prominent label + note menu --}}
+            <template x-if="reviewIsForwardAction()">
                 <div
-                    class="seo-editor-preview-split"
-                    x-bind:class="{ 'is-open': reviewMenuOpen, 'is-disabled': reviewLoading }"
+                    class="seo-editor-preview-split seo-editor-review-split"
+                    x-bind:class="{
+                        'is-open': reviewMenuOpen,
+                        'is-disabled': reviewLoading,
+                        'is-pending-cta': reviewIsPendingCta(),
+                    }"
                 >
                     <button
                         type="button"
-                        class="seo-editor-toolbar-btn seo-editor-toolbar-btn--success seo-editor-toolbar-btn--labeled is-active seo-editor-preview-split__main"
+                        class="seo-editor-toolbar-btn seo-editor-toolbar-btn--labeled seo-editor-preview-split__main"
+                        x-bind:class="{ 'seo-editor-toolbar-btn--review-cta': reviewIsPendingCta() }"
                         x-bind:disabled="reviewLoading"
                         x-on:click="submitReviewAction(reviewPrimaryAction()?.type, null)"
                         x-bind:title="reviewPrimaryAction()?.label"
-                        x-bind:aria-label="reviewToggleLabel()"
-                        data-seo-page-action="review-toggle"
+                        x-bind:aria-label="reviewCtaLabel()"
+                        data-seo-page-action="review-cta"
                     >
                         <span class="seo-editor-toolbar-btn__inner" x-show="! reviewLoading">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                             </svg>
-                            <span class="seo-editor-toolbar-btn__label" x-text="reviewToggleLabel()"></span>
+                            <span class="seo-editor-toolbar-btn__label" x-text="reviewCtaLabel()"></span>
                         </span>
                         <span class="seo-editor-toolbar-btn__spinner" x-show="reviewLoading" aria-hidden="true"></span>
                     </button>
                     <button
                         type="button"
-                        class="seo-editor-toolbar-btn seo-editor-toolbar-btn--success is-active seo-editor-preview-split__chevron"
+                        class="seo-editor-toolbar-btn seo-editor-preview-split__chevron"
+                        x-bind:class="{ 'seo-editor-toolbar-btn--review-cta': reviewIsPendingCta() }"
                         x-bind:disabled="reviewLoading"
                         x-bind:aria-expanded="reviewMenuOpen"
                         x-on:click.stop="reviewMenuOpen = ! reviewMenuOpen; moreOpen = false; previewOpen = false"
@@ -563,25 +614,26 @@
                 </div>
             </template>
 
-            {{-- Split button "tiến tới" (submit_review / approve / archive): main = quick, chevron mở dropdown kèm ghi chú --}}
-            <template x-if="reviewPrimaryAction() && ! reviewIsToggleAction()">
+            {{-- Reverse (unapprove/reopen): menu only — do not make status look like a reverse CTA --}}
+            <template x-if="reviewPrimaryAction() && reviewIsToggleAction()">
                 <div
-                    class="seo-editor-preview-split"
+                    class="seo-editor-preview-split seo-editor-review-split"
                     x-bind:class="{ 'is-open': reviewMenuOpen, 'is-disabled': reviewLoading }"
                 >
                     <button
                         type="button"
-                        class="seo-editor-toolbar-btn seo-editor-toolbar-btn--success seo-editor-toolbar-btn--labeled seo-editor-preview-split__main"
+                        class="seo-editor-toolbar-btn seo-editor-toolbar-btn--labeled seo-editor-preview-split__main"
                         x-bind:disabled="reviewLoading"
                         x-on:click="submitReviewAction(reviewPrimaryAction()?.type, null)"
                         x-bind:title="reviewPrimaryAction()?.label"
-                        x-bind:aria-label="reviewPrimaryAction()?.quick_label"
+                        x-bind:aria-label="reviewPrimaryAction()?.label"
+                        data-seo-page-action="review-toggle"
                     >
                         <span class="seo-editor-toolbar-btn__inner" x-show="! reviewLoading">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" />
                             </svg>
-                            <span class="seo-editor-toolbar-btn__label" x-text="reviewPrimaryAction()?.quick_label"></span>
+                            <span class="seo-editor-toolbar-btn__label" x-text="reviewPrimaryAction()?.label"></span>
                         </span>
                         <span class="seo-editor-toolbar-btn__spinner" x-show="reviewLoading" aria-hidden="true"></span>
                     </button>
@@ -612,17 +664,6 @@
                         </button>
                     </div>
                 </div>
-            </template>
-
-            <template x-if="! reviewPrimaryAction() && reviewStatus !== 'draft'">
-                <span
-                    class="seo-editor-review-badge"
-                    x-bind:data-status="reviewStatus"
-                    x-bind:title="reviewLatestTooltip()"
-                    data-seo-page-action="review-badge"
-                >
-                    <span x-text="reviewBadgeLabelText()"></span>
-                </span>
             </template>
         </div>
     </div>
@@ -725,52 +766,7 @@
                 </button>
             @endif
 
-            <template x-if="reviewActions.length > 0">
-                <button
-                    type="button"
-                    class="seo-editor-menu-item seo-editor-page-actions__compact-only"
-                    role="menuitem"
-                    x-bind:disabled="reviewLoading"
-                    x-bind:title="reviewPrimaryAction()?.label"
-                    data-seo-page-action="review"
-                    x-on:click="moreOpen = false; submitReviewAction(reviewPrimaryAction()?.type, null)"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                    </svg>
-                    <span x-text="reviewIsToggleAction() ? reviewToggleLabel() : reviewPrimaryAction()?.quick_label"></span>
-                </button>
-            </template>
-            <template x-if="reviewActions.length > 0">
-                <button
-                    type="button"
-                    class="seo-editor-menu-item seo-editor-page-actions__compact-only"
-                    role="menuitem"
-                    x-bind:disabled="reviewLoading"
-                    x-bind:title="reviewPrimaryAction()?.note_label"
-                    data-seo-page-action="review-with-note"
-                    x-on:click="openReviewModal(reviewPrimaryAction())"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
-                    </svg>
-                    <span x-text="reviewPrimaryAction()?.note_label"></span>
-                </button>
-            </template>
-            <template x-if="reviewActions.length === 0 && reviewStatus && reviewStatus !== 'draft'">
-                <div
-                    class="seo-editor-menu-item is-disabled seo-editor-page-actions__compact-only"
-                    role="menuitem"
-                    aria-disabled="true"
-                    x-bind:title="reviewLatestTooltip()"
-                    data-seo-page-action="review-badge"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                    </svg>
-                    <span x-text="reviewBadgeLabelText()"></span>
-                </div>
-            </template>
+            {{-- Review stays in the primary toolbar (not overflow) so Writers always see status/CTA. --}}
 
             <div class="seo-editor-menu-divider seo-editor-page-actions__compact-only" aria-hidden="true"></div>
 
@@ -803,6 +799,21 @@
                 </svg>
                 <span>{{ __('seo-content-ai::filament.article_ai_history.menu') }}</span>
             </a>
+
+            @if (filled($cpReturnUrl))
+                <a
+                    href="{{ $cpReturnUrl }}"
+                    class="seo-editor-menu-item"
+                    role="menuitem"
+                    data-seo-page-action="cp-return-virtual"
+                    x-on:click="moreOpen = false"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" />
+                    </svg>
+                    <span>{{ __('seo-content-ai::filament.projects.virtual_back_to_domain_month') }}</span>
+                </a>
+            @endif
 
             @if ($inContentProject && filled($contentProjectUrl))
                 <a

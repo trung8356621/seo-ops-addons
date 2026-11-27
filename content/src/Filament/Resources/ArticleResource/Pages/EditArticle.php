@@ -4325,6 +4325,7 @@ class EditArticle extends SeoEditRecord
             'show_link_widgets' => true,
             'allow_wp_sync' => ! SeoAccessControl::isContentManager(),
             'can_generate_featured_snippet' => $this->canGenerateFeaturedSnippet(),
+            'can_optimize_featured_snippet' => $this->canOptimizeFeaturedSnippet(),
             'can_generate_outline_heading' => $this->canGenerateOutlineHeading(),
             'can_generate_image' => $this->canGenerateEditorImage(),
             'can_generate_video' => $this->canGenerateEditorVideo(),
@@ -4461,6 +4462,7 @@ class EditArticle extends SeoEditRecord
             'show_link_widgets' => true,
             'allow_wp_sync' => ! SeoAccessControl::isContentManager(),
             'can_generate_featured_snippet' => $this->canGenerateFeaturedSnippet(),
+            'can_optimize_featured_snippet' => $this->canOptimizeFeaturedSnippet(),
             'can_generate_outline_heading' => $this->canGenerateOutlineHeading(),
             'can_generate_image' => $this->canGenerateEditorImage(),
             'can_generate_video' => $this->canGenerateEditorVideo(),
@@ -4525,6 +4527,48 @@ class EditArticle extends SeoEditRecord
     public function canGenerateFeaturedSnippet(): bool
     {
         return app(SeoCreateArticleSettingsService::class)->getFeaturedSnippetPromptId() !== null;
+    }
+
+    public function canOptimizeFeaturedSnippet(): bool
+    {
+        return app(\Omnichannel\Addons\AiPrompt\Services\PromptOwnership\PromptBindingResolver::class)
+            ->isSettingsHookConfigured(
+                \Omnichannel\Addons\Content\Services\ArticleTableOptimizeService::HOOK_KEY,
+            );
+    }
+
+    /**
+     * Preview-only AI Optimize for one selected table. Apply is client-side (no second AI call).
+     *
+     * @return array{
+     *   success: bool,
+     *   message: string,
+     *   original_html: string,
+     *   optimized_html: string,
+     *   thresholds: array<string, int>,
+     *   original_score: array<string, mixed>,
+     *   optimized_score: array<string, mixed>,
+     *   prompt_result_id: int|null,
+     * }
+     */
+    public function optimizeFeaturedSnippetTableFromEditor(string $tableHtml): array
+    {
+        if (! $this->canOptimizeFeaturedSnippet()) {
+            return [
+                'success' => false,
+                'message' => 'Chưa gắn Prompt Settings cho article.featured_snippet.optimize.',
+                'original_html' => trim($tableHtml),
+                'optimized_html' => '',
+                'thresholds' => app(\Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService::class)
+                    ->getFeaturedSnippetThresholds(),
+                'original_score' => ['tier' => 'none', 'passed' => false, 'points' => 0, 'message' => ''],
+                'optimized_score' => ['tier' => 'none', 'passed' => false, 'points' => 0, 'message' => ''],
+                'prompt_result_id' => null,
+            ];
+        }
+
+        return app(\Omnichannel\Addons\Content\Services\ArticleTableOptimizeService::class)
+            ->optimizePreview($this->record, $tableHtml);
     }
 
     public function canGenerateOutlineHeading(): bool

@@ -147,6 +147,18 @@
             font-size: 0.75rem;
             color: rgb(107 114 128);
         }
+        .cp-list-monthly-planning__cell-link {
+            color: inherit;
+            font-weight: inherit;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
+        .cp-list-monthly-planning__cell-link:hover {
+            color: rgb(37 99 235);
+        }
+        .dark .cp-list-monthly-planning__cell-link:hover {
+            color: rgb(147 197 253);
+        }
     </style>
 @endonce
 
@@ -199,6 +211,7 @@
                     @foreach ($rows as $row)
                         @php
                             $domain = (string) ($row['domain'] ?? '');
+                            $siteId = (int) ($row['site_id'] ?? 0);
                             $cells = is_array($row['months'] ?? null) ? $row['months'] : [];
                         @endphp
                         <tr>
@@ -209,9 +222,24 @@
                                 @php
                                     $isActive = (bool) ($cell['is_current'] ?? false)
                                         || \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::normalize($cell['planning_month'] ?? $cell['key'] ?? null) === $activeMonth;
+                                    $planned = (int) ($cell['planned'] ?? 0);
+                                    $planningMonth = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::normalize(
+                                        $cell['planning_month'] ?? $cell['key'] ?? null,
+                                    );
+                                    $virtualUrl = ($siteId > 0 && $planned > 0 && $planningMonth !== '')
+                                        ? \Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource::getDomainMonthlyVirtualUrl($siteId, $planningMonth)
+                                        : null;
                                 @endphp
                                 <td @class(['is-active' => $isActive])>
-                                    {{ (int) ($cell['planned'] ?? 0) }}
+                                    @if ($virtualUrl)
+                                        <a
+                                            href="{{ $virtualUrl }}"
+                                            class="font-semibold text-primary-600 hover:underline dark:text-primary-400"
+                                            title="{{ __('seo-content-ai::filament.projects.virtual_domain_month_open') }}"
+                                        >{{ $planned }}</a>
+                                    @else
+                                        {{ $planned }}
+                                    @endif
                                 </td>
                             @endforeach
                         </tr>

@@ -88,7 +88,7 @@ export default function FeaturedSnippetPromptModal({
                     ) : null}
                 </div>
 
-                <div className="seo-fs-prompt-modal__actions flex flex-wrap justify-end gap-2">
+                <div className="seo-fs-prompt-modal__actions">
                     <button type="button" className="rounded px-3 py-1.5 text-sm" onClick={onClose}>
                         {t('cancel')}
                     </button>
@@ -106,6 +106,7 @@ export default function FeaturedSnippetPromptModal({
                         className="rounded bg-emerald-600 px-3 py-1.5 text-sm text-white disabled:opacity-50"
                         disabled={!previewHtml || generating}
                         onClick={onConfirmInsert}
+                        data-seo-fs-insert="1"
                     >
                         {t('featured_snippet_prompt_insert')}
                     </button>

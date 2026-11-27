@@ -2508,12 +2508,24 @@ class WorkflowParserService
             return [];
         }
 
-        $metricsList = [];
+        $topLevel = [];
         foreach ($root->getElementsByTagName('table') as $table) {
-            if (! $table instanceof DOMElement || ! $this->isTopLevelHtmlTable($table)) {
-                continue;
+            if ($table instanceof DOMElement && $this->isTopLevelHtmlTable($table)) {
+                $topLevel[] = $table;
             }
+        }
 
+        $primary = null;
+        foreach ($topLevel as $table) {
+            if ($table->getAttribute('data-seo-primary-table') === '1') {
+                $primary = $table;
+                break;
+            }
+        }
+        $candidates = $primary instanceof DOMElement ? [$primary] : $topLevel;
+
+        $metricsList = [];
+        foreach ($candidates as $table) {
             $metrics = $this->htmlTableFeaturedSnippetMetrics($table, $minCols, $maxCols);
             if ($metrics !== null) {
                 $metricsList[] = $metrics;

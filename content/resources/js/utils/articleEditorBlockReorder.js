@@ -1,6 +1,7 @@
 /**
- * Pure reorder of one section-level block within its section.
- * Does not cross section boundaries. Preserves block object identity (no clone).
+ * Pure reorder of one section-level block within its section,
+ * plus adjacent H2 section swap for Outline Move Up/Down.
+ * Preserves block object identity (no clone).
  */
 
 export const BLOCK_WITHIN_SECTION_CODES = Object.freeze({
@@ -11,6 +12,15 @@ export const BLOCK_WITHIN_SECTION_CODES = Object.freeze({
     SECTION_MISMATCH: 'section_mismatch',
     SECTION_MISSING: 'section_missing',
     INVALID_DIRECTION: 'invalid_direction',
+});
+
+export const SECTION_SWAP_CODES = Object.freeze({
+    MOVED: 'moved',
+    SECTION_MISSING: 'section_missing',
+    TARGET_MISSING: 'target_section_missing',
+    INTRO_PROTECTED: 'intro_protected',
+    INVALID_DIRECTION: 'invalid_direction',
+    BLOCKS_MISMATCH: 'blocks_mismatch',
 });
 
 /**
@@ -155,6 +165,120 @@ export function withinSectionMoveAvailability(sectionBlockIds, blockId) {
     };
 }
 
+/**
+ * Swap one H2 editor section with the adjacent non-intro section.
+ * Moves the whole contiguous block slice (H2 + children) without cloning blocks.
+ *
+ * @param {Array<{ id: string }>} blocks
+ * @param {{
+ *   sections: Array<{ id: string, isIntro?: boolean, blockIds?: string[] }>,
+ *   sectionId: string,
+ *   direction: 'prev'|'next',
+ * }} opts
+ * @returns {{
+ *   ok: boolean,
+ *   code: string,
+ *   blocks: Array<{ id: string }>,
+ *   sectionId: string|null,
+ *   targetSectionId: string|null,
+ *   fromIndex: number,
+ *   toIndex: number,
+ * }}
+ */
+export function swapAdjacentEditorSections(blocks, opts = {}) {
+    const list = Array.isArray(blocks) ? blocks : [];
+    const sections = Array.isArray(opts.sections) ? opts.sections : [];
+    const sectionId = String(opts.sectionId ?? '').trim();
+    const direction = String(opts.direction ?? '').trim().toLowerCase();
+
+    if (direction !== 'prev' && direction !== 'next') {
+        return sectionSwapFail(SECTION_SWAP_CODES.INVALID_DIRECTION, list, sectionId, null);
+    }
+    if (!sectionId) {
+        return sectionSwapFail(SECTION_SWAP_CODES.SECTION_MISSING, list, null, null);
+    }
+
+    const currentIndex = sections.findIndex((section) => String(section?.id ?? '') === sectionId);
+    if (currentIndex < 0) {
+        return sectionSwapFail(SECTION_SWAP_CODES.SECTION_MISSING, list, sectionId, null);
+    }
+
+    const section = sections[currentIndex];
+    if (section?.isIntro) {
+        return sectionSwapFail(SECTION_SWAP_CODES.INTRO_PROTECTED, list, sectionId, null, currentIndex, currentIndex);
+    }
+
+    const targetIndex = direction === 'prev' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= sections.length) {
+        return sectionSwapFail(SECTION_SWAP_CODES.TARGET_MISSING, list, sectionId, null, currentIndex, currentIndex);
+    }
+
+    const targetSection = sections[targetIndex];
+    if (targetSection?.isIntro) {
+        return sectionSwapFail(SECTION_SWAP_CODES.INTRO_PROTECTED, list, sectionId, targetSection.id, currentIndex, targetIndex);
+    }
+
+    const movedIds = (section.blockIds ?? []).map((id) => String(id ?? '').trim()).filter(Boolean);
+    const targetIds = (targetSection.blockIds ?? []).map((id) => String(id ?? '').trim()).filter(Boolean);
+    if (movedIds.length === 0 || targetIds.length === 0) {
+        return sectionSwapFail(SECTION_SWAP_CODES.BLOCKS_MISMATCH, list, sectionId, targetSection.id, currentIndex, targetIndex);
+    }
+
+    const movedIdSet = new Set(movedIds);
+    const fromBlocks = movedIds
+        .map((blockId) => list.find((block) => String(block?.id ?? '') === blockId))
+        .filter(Boolean);
+    if (fromBlocks.length !== movedIds.length) {
+        return sectionSwapFail(SECTION_SWAP_CODES.BLOCKS_MISMATCH, list, sectionId, targetSection.id, currentIndex, targetIndex);
+    }
+
+    const withoutMoved = list.filter((block) => !movedIdSet.has(String(block?.id ?? '')));
+    const targetStart = withoutMoved.findIndex((block) => String(block?.id ?? '') === targetIds[0]);
+    if (targetStart < 0) {
+        return sectionSwapFail(SECTION_SWAP_CODES.TARGET_MISSING, list, sectionId, targetSection.id, currentIndex, targetIndex);
+    }
+
+    const insertAt = direction === 'prev'
+        ? targetStart
+        : targetStart + targetIds.length;
+
+    const nextBlocks = [
+        ...withoutMoved.slice(0, insertAt),
+        ...fromBlocks,
+        ...withoutMoved.slice(insertAt),
+    ];
+
+    return {
+        ok: true,
+        code: SECTION_SWAP_CODES.MOVED,
+        blocks: nextBlocks,
+        sectionId,
+        targetSectionId: String(targetSection.id),
+        fromIndex: currentIndex,
+        toIndex: targetIndex,
+    };
+}
+
+/**
+ * Outline H2 Move Up/Down availability among root H2 siblings (Intro excluded).
+ *
+ * @param {number} index
+ * @param {number} count
+ * @returns {{ canMoveUp: boolean, canMoveDown: boolean }}
+ */
+export function outlineH2MoveAvailability(index, count) {
+    const i = Number(index);
+    const n = Number(count);
+    if (!Number.isFinite(i) || !Number.isFinite(n) || i < 0 || n <= 0) {
+        return { canMoveUp: false, canMoveDown: false };
+    }
+
+    return {
+        canMoveUp: i > 0,
+        canMoveDown: i < n - 1,
+    };
+}
+
 function emptyFail(code, list, blockId, sectionId) {
     return {
         ok: false,
@@ -167,8 +291,23 @@ function emptyFail(code, list, blockId, sectionId) {
     };
 }
 
+function sectionSwapFail(code, list, sectionId, targetSectionId, fromIndex = -1, toIndex = -1) {
+    return {
+        ok: false,
+        code,
+        blocks: list,
+        sectionId,
+        targetSectionId,
+        fromIndex,
+        toIndex,
+    };
+}
+
 export default {
     BLOCK_WITHIN_SECTION_CODES,
+    SECTION_SWAP_CODES,
     reorderBlockWithinSection,
     withinSectionMoveAvailability,
+    swapAdjacentEditorSections,
+    outlineH2MoveAvailability,
 };

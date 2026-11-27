@@ -203,7 +203,7 @@ final class SeoScoringEngine
         $dom = new DOMDocument;
         libxml_use_internal_errors(true);
         $dom->loadHTML(
-            mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8'),
+            '<?xml encoding="utf-8" ?><div id="omi-snippet-root">'.$html.'</div>',
             LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD,
         );
         libxml_clear_errors();
@@ -218,11 +218,26 @@ final class SeoScoringEngine
             self::SNIPPET_TIER_EXCELLENT => 3,
         ];
 
-        foreach ($dom->getElementsByTagName('table') as $table) {
-            if (! $table instanceof DOMElement || ! $this->isTopLevelHtmlTable($table)) {
-                continue;
+        $root = $dom->getElementById('omi-snippet-root');
+        $topLevel = [];
+        if ($root instanceof DOMElement) {
+            foreach ($root->getElementsByTagName('table') as $table) {
+                if ($table instanceof DOMElement && $this->isTopLevelHtmlTable($table)) {
+                    $topLevel[] = $table;
+                }
             }
+        }
 
+        $primary = null;
+        foreach ($topLevel as $table) {
+            if ($table->getAttribute('data-seo-primary-table') === '1') {
+                $primary = $table;
+                break;
+            }
+        }
+        $candidates = $primary instanceof DOMElement ? [$primary] : $topLevel;
+
+        foreach ($candidates as $table) {
             $metrics = $this->htmlTableFeaturedSnippetMetrics($table, $minCols, $maxCols);
             if ($metrics === null) {
                 continue;

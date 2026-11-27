@@ -138,13 +138,14 @@ function collectHtmlTableMetrics(html, minCols, maxCols) {
     const container = document.createElement('div');
     container.innerHTML = source;
 
+    const topLevel = Array.from(container.querySelectorAll('table')).filter(isTopLevelHtmlTable);
+    const primary = topLevel.find(
+        (table) => table.getAttribute('data-seo-primary-table') === '1',
+    );
+    const candidates = primary ? [primary] : topLevel;
+
     const metricsList = [];
-
-    container.querySelectorAll('table').forEach((table) => {
-        if (!isTopLevelHtmlTable(table)) {
-            return;
-        }
-
+    candidates.forEach((table) => {
         const metrics = htmlTableFeaturedSnippetMetrics(table, minCols, maxCols);
         if (metrics) {
             metricsList.push(metrics);
@@ -285,8 +286,17 @@ function collectNodeText(node) {
         .trim();
 }
 
+function isPrimaryDocumentTable(table) {
+    const attr = table?.attrs?.seoPrimary ?? table?.attrs?.['data-seo-primary-table'];
+    return String(attr ?? '') === '1';
+}
+
 function collectDocumentTableMetrics(tables, minCols, maxCols) {
-    return (Array.isArray(tables) ? tables : []).map((table) => {
+    const source = Array.isArray(tables) ? tables : [];
+    const primary = source.find(isPrimaryDocumentTable);
+    const candidates = primary ? [primary] : source;
+
+    return candidates.map((table) => {
         const rows = (Array.isArray(table?.content) ? table.content : [])
             .filter((row) => row?.type === 'tableRow');
         const rowColCounts = [];

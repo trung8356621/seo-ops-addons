@@ -3,7 +3,13 @@ import { articleImageRowsShareIdentity, resolveArticleImageRemoveTarget } from '
 import { assertWritableEditorSession } from '../utils/editorSessionState';
 import { callEditArticleLivewire } from '../utils/articleEditorLivewire';
 import { clearFeaturedImageStorage, saveFeaturedImage } from '@media-addon/utils/articleFeaturedImageStorage.js';
-import { dispatchActiveBlockContext, exportBlocksToHtml } from '../utils/contentDocumentHelpers';
+import {
+    buildEditorSections,
+    createEmptyTextBlock,
+    dispatchActiveBlockContext,
+    ensureH2SectionsHaveEditableBody,
+    exportBlocksToHtml,
+} from '../utils/contentDocumentHelpers';
 import { loadProductAlbum, removeProductAlbumItem } from '@media-addon/utils/articleProductAlbumStorage.js';
 import { mediaActions } from '@media-addon/editor/domains/media/state.js';
 import { buildAiMediaContextFromBlock, buildAiMediaContextFromSection } from '../utils/buildAiMediaContext';
@@ -343,11 +349,35 @@ export default function useArticleEditorImageLifecycle({ activeBlockId, articleI
                 commitActiveBlock();
             }
 
+            const section = buildEditorSections(blocksRef.current).find((item) =>
+                item.blockIds?.includes(id),
+            );
+            const bodyIds = section && !section.isIntro ? section.blockIds.slice(1) : [];
+            const isLastSectionBody = bodyIds.length === 1 && bodyIds[0] === id;
+
+            if (isLastSectionBody) {
+                if (block.type === 'image') {
+                    releaseImageBlockMediaTracking(block);
+                }
+                setBlocks((prev) =>
+                    prev.map((row) =>
+                        row.id === id
+                            ? {
+                                  ...createEmptyTextBlock(),
+                                  id,
+                              }
+                            : row,
+                    ),
+                );
+
+                return;
+            }
+
             if (block.type === 'image') {
                 releaseImageBlockMediaTracking(block);
             }
 
-            setBlocks((prev) => prev.filter((b) => b.id !== id));
+            setBlocks((prev) => ensureH2SectionsHaveEditableBody(prev.filter((b) => b.id !== id)));
         },
         [activeBlockId, articleId, commitActiveBlock, clearTempMerge, releaseImageBlockMediaTracking],
     );

@@ -39,6 +39,16 @@ trait InteractsWithContentProjectPublishingActions
 {
     abstract protected function requireProject(): SeoProject;
 
+    /**
+     * Project ref for commands; virtual month views may derive from item refs.
+     *
+     * @param  list<int>  $itemRefs
+     */
+    protected function commandProjectRefForItemRefs(array $itemRefs): int|string
+    {
+        return (int) $this->requireProject()->getKey();
+    }
+
     /** @return list<int> */
     abstract protected function selectedItemIds(): array;
 
@@ -56,7 +66,7 @@ trait InteractsWithContentProjectPublishingActions
             : SystemDateTime::currentSystemTime()->addHour()->utc();
 
         $this->dispatchPublishingCommand(new ScheduleProjectItemsCommand(
-            (int) $this->requireProject()->getKey(),
+            $this->commandProjectRefForItemRefs($this->selectedItemIds()),
             $this->selectedItemIds(),
             $when,
         ), 'schedule');
@@ -65,7 +75,7 @@ trait InteractsWithContentProjectPublishingActions
     public function bulkUnschedule(): void
     {
         $this->dispatchPublishingCommand(new UnscheduleProjectItemsCommand(
-            (int) $this->requireProject()->getKey(),
+            $this->commandProjectRefForItemRefs($this->selectedItemIds()),
             $this->selectedItemIds(),
         ), 'unschedule');
     }
@@ -73,7 +83,7 @@ trait InteractsWithContentProjectPublishingActions
     public function bulkPublishNow(): void
     {
         $this->dispatchPublishingCommand(new PublishProjectItemsNowCommand(
-            (int) $this->requireProject()->getKey(),
+            $this->commandProjectRefForItemRefs($this->selectedItemIds()),
             $this->selectedItemIds(),
         ), 'publish_now');
     }
@@ -81,7 +91,7 @@ trait InteractsWithContentProjectPublishingActions
     public function bulkRetryPublish(): void
     {
         $this->dispatchPublishingCommand(new RetryProjectItemPublishingCommand(
-            (int) $this->requireProject()->getKey(),
+            $this->commandProjectRefForItemRefs($this->selectedItemIds()),
             $this->selectedItemIds(),
         ), 'retry');
     }
@@ -89,7 +99,7 @@ trait InteractsWithContentProjectPublishingActions
     public function bulkResyncPublishedWordPress(): void
     {
         $this->dispatchPublishingCommand(new \Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\BulkResyncPublishedArticlesToWordPressCommand(
-            (int) $this->requireProject()->getKey(),
+            $this->commandProjectRefForItemRefs($this->selectedItemIds()),
             $this->selectedItemIds(),
         ), 'bulk_resync_wordpress');
     }
@@ -97,7 +107,7 @@ trait InteractsWithContentProjectPublishingActions
     public function resyncPublishedItemWordPress(int $taskId): void
     {
         $this->dispatchPublishingCommand(new \Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\BulkResyncPublishedArticlesToWordPressCommand(
-            (int) $this->requireProject()->getKey(),
+            $this->commandProjectRefForItemRefs([$taskId]),
             [$taskId],
         ), 'resync_wordpress');
     }
@@ -105,7 +115,7 @@ trait InteractsWithContentProjectPublishingActions
     public function bulkMoveTime(string $at): void
     {
         $this->dispatchPublishingCommand(new MoveProjectItemScheduleCommand(
-            (int) $this->requireProject()->getKey(),
+            $this->commandProjectRefForItemRefs($this->selectedItemIds()),
             $this->selectedItemIds(),
             SystemDateTime::parseSystemInputToUtc($at),
         ), 'move_time');
@@ -114,7 +124,7 @@ trait InteractsWithContentProjectPublishingActions
     public function bulkClearSchedule(): void
     {
         $this->dispatchPublishingCommand(new UnscheduleProjectItemsCommand(
-            (int) $this->requireProject()->getKey(),
+            $this->commandProjectRefForItemRefs($this->selectedItemIds()),
             $this->selectedItemIds(),
         ), 'clear_schedule');
     }
@@ -122,7 +132,7 @@ trait InteractsWithContentProjectPublishingActions
     public function bulkSkipPublish(): void
     {
         $this->dispatchPublishingCommand(new SkipProjectItemPublishingCommand(
-            (int) $this->requireProject()->getKey(),
+            $this->commandProjectRefForItemRefs($this->selectedItemIds()),
             $this->selectedItemIds(),
         ), 'skip');
     }
@@ -130,7 +140,7 @@ trait InteractsWithContentProjectPublishingActions
     public function bulkCancelPublish(): void
     {
         $this->dispatchPublishingCommand(new CancelProjectItemPublishingCommand(
-            (int) $this->requireProject()->getKey(),
+            $this->commandProjectRefForItemRefs($this->selectedItemIds()),
             $this->selectedItemIds(),
         ), 'cancel');
     }
@@ -138,7 +148,7 @@ trait InteractsWithContentProjectPublishingActions
     public function retryPublishOne(int $taskId): void
     {
         $this->dispatchPublishingCommand(new RetryProjectItemPublishingCommand(
-            (int) $this->requireProject()->getKey(),
+            $this->commandProjectRefForItemRefs([$taskId]),
             [$taskId],
         ), 'retry');
     }
@@ -146,7 +156,7 @@ trait InteractsWithContentProjectPublishingActions
     public function skipPublishOne(int $taskId): void
     {
         $this->dispatchPublishingCommand(new SkipProjectItemPublishingCommand(
-            (int) $this->requireProject()->getKey(),
+            $this->commandProjectRefForItemRefs([$taskId]),
             [$taskId],
         ), 'skip');
     }
@@ -154,7 +164,7 @@ trait InteractsWithContentProjectPublishingActions
     public function cancelPublishOne(int $taskId): void
     {
         $this->dispatchPublishingCommand(new CancelProjectItemPublishingCommand(
-            (int) $this->requireProject()->getKey(),
+            $this->commandProjectRefForItemRefs([$taskId]),
             [$taskId],
         ), 'cancel');
     }
@@ -162,7 +172,7 @@ trait InteractsWithContentProjectPublishingActions
     public function sendToPublishingQueueOne(int $taskId): void
     {
         $this->dispatchPublishingCommand(new SendToPublishingQueueCommand(
-            (int) $this->requireProject()->getKey(),
+            $this->commandProjectRefForItemRefs([$taskId]),
             [$taskId],
         ), 'send_to_publishing_queue');
     }
@@ -170,7 +180,7 @@ trait InteractsWithContentProjectPublishingActions
     public function bulkSendToPublishingQueue(): void
     {
         $this->dispatchPublishingCommand(new SendToPublishingQueueCommand(
-            (int) $this->requireProject()->getKey(),
+            $this->commandProjectRefForItemRefs($this->selectedItemIds()),
             $this->selectedItemIds(),
         ), 'send_to_publishing_queue');
     }
@@ -178,7 +188,7 @@ trait InteractsWithContentProjectPublishingActions
     public function scheduleOne(int $taskId): void
     {
         $this->dispatchPublishingCommand(new ScheduleProjectItemsCommand(
-            (int) $this->requireProject()->getKey(),
+            $this->commandProjectRefForItemRefs([$taskId]),
             [$taskId],
             SystemDateTime::currentSystemTime()->addHour()->utc(),
         ), 'schedule');
@@ -187,7 +197,7 @@ trait InteractsWithContentProjectPublishingActions
     public function unscheduleOne(int $taskId): void
     {
         $this->dispatchPublishingCommand(new UnscheduleProjectItemsCommand(
-            (int) $this->requireProject()->getKey(),
+            $this->commandProjectRefForItemRefs([$taskId]),
             [$taskId],
         ), 'unschedule');
     }
@@ -195,7 +205,7 @@ trait InteractsWithContentProjectPublishingActions
     public function publishOneNow(int $taskId): void
     {
         $this->dispatchPublishingCommand(new PublishProjectItemsNowCommand(
-            (int) $this->requireProject()->getKey(),
+            $this->commandProjectRefForItemRefs([$taskId]),
             [$taskId],
         ), 'publish_now');
     }
@@ -217,13 +227,13 @@ trait InteractsWithContentProjectPublishingActions
         }
 
         $this->dispatchPublishingCommand(new AutoScheduleProjectItemsCommand(
-            (int) $this->requireProject()->getKey(),
+            $this->commandProjectRefForItemRefs($this->selectedItemIds()),
             $this->selectedItemIds(),
             $options,
         ), 'auto_schedule');
     }
 
-    private function dispatchPublishingCommand(object $command, string $op): void
+    protected function dispatchPublishingCommand(object $command, string $op): void
     {
         abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
 

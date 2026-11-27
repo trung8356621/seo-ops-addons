@@ -3,6 +3,7 @@ import { canMutateEditor, getArticleEditorSessionState } from '../utils/editorSe
 import { getAnalysisPolicy } from '@seo-addon/utils/articleAnalysisOwnership.js';
 import { getDefaultArticleEditorRuntime } from '../editor/runtime/defaultArticleEditorRuntime';
 import { resolveEditorForInsertion } from '../utils/editorInsertionContext';
+import { ensureH2SectionsHaveEditableBody, extractSectionHeading } from '../utils/contentDocumentHelpers';
 import { useCallback, useEffect } from 'react';
 
 /**
@@ -43,11 +44,17 @@ export default function useArticleEditorBlockContentCommands({ activeBlockIdRef,
                     : b,
             );
 
+            const updated = nextBlocks.find((b) => b.id === id);
+            const ensured =
+                updated && extractSectionHeading(updated) !== null
+                    ? ensureH2SectionsHaveEditableBody(nextBlocks)
+                    : nextBlocks;
+
             if (imageData !== undefined) {
-                queueMicrotask(() => reconcileImagesTabWithBlocks(nextBlocks));
+                queueMicrotask(() => reconcileImagesTabWithBlocks(ensured));
             }
 
-            return nextBlocks;
+            return ensured;
         });
     }, [reconcileImagesTabWithBlocks]);
 

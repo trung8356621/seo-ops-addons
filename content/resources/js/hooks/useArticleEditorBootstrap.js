@@ -18,7 +18,13 @@ import {
 } from '../utils/editorDocumentConflictRecovery';
 import { plainTextFromHtmlLoose, repairGluedInlineMarkBoundaryWhitespaceWithReport } from '../utils/inlineWhitespaceGuard';
 import { enrichBlocksWithPostImages, reconcileSupplementalImagesWithBlocks } from '@media-addon/utils/articleImagesUtils.js';
-import { exportBlocksToHtml, parseHtmlToBlocks, stripLeadingH1FromHtml, createEmptyTextBlock } from '../utils/contentDocumentHelpers';
+import {
+    createEmptyTextBlock,
+    ensureH2SectionsHaveEditableBody,
+    exportBlocksToHtml,
+    parseHtmlToBlocks,
+    stripLeadingH1FromHtml,
+} from '../utils/contentDocumentHelpers';
 import { filterSuggestedInternalLinks, isSpecialOrContactHref, mergeSuggestionCatalog } from '../utils/articleLinkSuggestionFilter';
 import { mediaActions } from '@media-addon/editor/domains/media/state.js';
 import { seoActions, seoApi } from '@seo-addon/editor/domains/seo/state.js';
@@ -110,7 +116,7 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
     draftRestoreOfferRef.current = draftRestoreOffer;
 
     const applyServerBlocksBaseline = useCallback((serverBlocks, serverBodyHash, serverContentHash) => {
-        setBlocks(serverBlocks);
+        setBlocks(ensureH2SectionsHaveEditableBody(serverBlocks));
         cancelLocalDraftSave();
         window.__seoCancelArticleDraftAutosave?.();
         const analyzedContentHash = String(initialSeo?.analyzed_content_hash ?? '').trim();
@@ -344,7 +350,7 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
         const offer = draftRestoreOfferRef.current;
         clearDraft(articleId, connectionHashRef.current, draftScope());
         if (offer?.serverBlocks) {
-            setBlocks(offer.serverBlocks);
+            setBlocks(ensureH2SectionsHaveEditableBody(offer.serverBlocks));
             writeSyncedLocalSnapshot(articleId, connectionHashRef.current, withDraftSite({
                 content: exportBlocksToHtml(offer.serverBlocks),
                 base_updated_at: expectedUpdatedAt || null,

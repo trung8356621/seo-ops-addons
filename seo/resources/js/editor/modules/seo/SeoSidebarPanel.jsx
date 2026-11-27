@@ -3,10 +3,12 @@ import { useEditorHostApi } from '@content-addon/editor/host/EditorHostApiContex
 import { t } from '@content-addon/utils/i18n.js';
 
 const SeoModule = lazy(() => import('../../../modules/SeoModule'));
+const ArticleTableManagerPanel = lazy(() => import('@content-addon/components/ArticleTableManagerPanel.jsx'));
 
 export function SeoSidebarPanel() {
     const api = useEditorHostApi();
     const seo = api.seo || {};
+    const tables = api.tables || {};
 
     if (seo.error) {
         return (
@@ -45,6 +47,13 @@ export function SeoSidebarPanel() {
                 onViolationAction={seo.onViolationAction}
                 canGenerateFaq={seo.canGenerateFaq}
                 canGenerateFeaturedSnippet={seo.canGenerateFeaturedSnippet}
+            />
+            <ArticleTableManagerPanel
+                blocks={tables.blocks || []}
+                canOptimize={tables.canOptimize === true}
+                syncRequired={seo.syncRequired === true}
+                onReplaceBlocks={tables.onReplaceBlocks}
+                onMarkSeoStale={tables.onMarkSeoStale}
             />
         </Suspense>
     );

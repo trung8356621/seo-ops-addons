@@ -1,0 +1,72 @@
+{
+  "spec_version": "0.1",
+  "key": "article.featured_snippet.optimize",
+  "version": "0.1.0",
+  "name": "Featured snippet table optimize",
+  "description": "Expand an existing selected comparison table toward the highest Featured Snippet scoring tier. Preview + user confirm before Apply. Does not generate a new snippet section.",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "article_editor",
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "structured_output": false,
+    "settings": {
+      "temperature": 0.35
+    }
+  },
+  "locale": { "mode": "site", "fallback": "en" },
+  "input_schema": {
+    "table_html": { "type": "string", "required": true, "nullable": false, "max_length": 80000 },
+    "target_data_rows": { "type": "integer", "required": true, "nullable": false },
+    "rows_min": { "type": "integer", "required": false, "nullable": true },
+    "rows_range": { "type": "integer", "required": false, "nullable": true },
+    "rows_max": { "type": "integer", "required": false, "nullable": true },
+    "min_columns": { "type": "integer", "required": false, "nullable": true },
+    "max_columns": { "type": "integer", "required": false, "nullable": true },
+    "current_data_rows": { "type": "integer", "required": false, "nullable": true },
+    "post_title": { "type": "string", "required": false, "nullable": true },
+    "focus_keyword": { "type": "string", "required": false, "nullable": true },
+    "language": { "type": "string", "required": false, "nullable": true },
+    "domain": { "type": "string", "required": false, "nullable": true },
+    "optimize_instruction": { "type": "string", "required": false, "nullable": true, "max_length": 12000 }
+  },
+  "output_schema": {
+    "type": "text",
+    "normalize": ["trim", "strip_markdown_fence"],
+    "validation": { "not_empty": true }
+  },
+  "template": {
+    "source": "legacy_prompt_content",
+    "system": null,
+    "user": null
+  },
+  "presentation": {
+    "description": "Improve an existing Featured Snippet table toward the highest configured scoring tier.",
+    "default_instructions": [
+      "Preserve every existing cell value and meaning.",
+      "Add useful rows only when needed to reach the target data-row tier.",
+      "Do not invent unsupported facts.",
+      "Return one HTML table only — no article shell, no other sections."
+    ],
+    "output_format": [
+      "A single HTML <table>…</table> (optional Markdown table equivalent).",
+      "No surrounding article markup."
+    ],
+    "variables": [
+      { "key": "table_html", "required": true },
+      { "key": "target_data_rows", "required": true },
+      { "key": "optimize_instruction", "required": false },
+      { "key": "focus_keyword", "required": false },
+      { "key": "post_title", "required": false }
+    ],
+    "notes": [
+      "Separate from article.featured_snippet.generate — optimize never creates a new section."
+    ]
+  },
+  "retry": { "max": 0 },
+  "logging": { "store_full_prompt": false, "redact_sensitive": true },
+  "side_effects": [],
+  "strict_template_variables": false
+}

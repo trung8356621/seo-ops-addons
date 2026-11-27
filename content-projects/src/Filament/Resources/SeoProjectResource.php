@@ -286,7 +286,17 @@ class SeoProjectResource extends SeoPanelResource
                 ->icon(null)
                 ->parentItem($parentLabel)
                 ->url(\Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectSeoAuditPlanner::getUrl())
-                ->isActiveWhen(fn (): bool => SeoPanelRoutes::isProjectPlannerNav());
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::isProjectPlannerNav() && ! SeoPanelRoutes::isIdeaManagerNav());
+        }
+
+        if (\Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectIdeaManager::canAccess()) {
+            $children[] = \Filament\Navigation\NavigationItem::make(
+                \Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectIdeaManager::getNavigationLabel()
+            )
+                ->icon(null)
+                ->parentItem($parentLabel)
+                ->url(\Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectIdeaManager::getUrl())
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::isIdeaManagerNav());
         }
 
         if (SeoAccessControl::canViewProjectArchives()) {
@@ -1518,6 +1528,7 @@ class SeoProjectResource extends SeoPanelResource
             'view-run' => Pages\ViewSeoProjectRun::route('/runs/{run}'),
             'publishing-queue' => Pages\ContentProjectPublishingQueue::route('/{record}/publishing-queue'),
             'progress' => Pages\ViewSeoProjectProgress::route('/{record}/progress'),
+            'domain-month' => Pages\ViewDomainMonthlyProject::route('/domain/{site}/month/{month}'),
             'view' => Pages\ViewSeoProject::route('/{record}'),
             'edit' => Pages\EditSeoProject::route('/{record}/edit'),
         ];
@@ -1530,6 +1541,33 @@ class SeoProjectResource extends SeoPanelResource
     public static function getPublishingQueueUrl(SeoProject $project): string
     {
         return PublishingQueueHub::getUrl(['projectId' => (int) $project->getKey()]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $query
+     */
+    public static function getDomainMonthlyVirtualUrl(int $siteId, string $planningMonth, array $query = []): string
+    {
+        $month = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::normalize($planningMonth);
+        $url = static::getUrl('domain-month', [
+            'site' => max(1, $siteId),
+            'month' => $month,
+        ]);
+        if ($query === []) {
+            return $url;
+        }
+
+        $filtered = [];
+        foreach ($query as $key => $value) {
+            if (! is_string($key) || $key === '') {
+                continue;
+            }
+            if (is_scalar($value) || $value === null) {
+                $filtered[$key] = $value;
+            }
+        }
+
+        return $filtered === [] ? $url : $url.'?'.http_build_query($filtered);
     }
 
     /**

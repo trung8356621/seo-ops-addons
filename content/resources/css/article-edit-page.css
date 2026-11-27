@@ -333,6 +333,11 @@ body.article-editor-page .fi-page-content {
     .seo-editor-page-actions__compact-only {
         display: flex !important;
     }
+
+    /* Review stays visible; Preview/secondary may collapse into More */
+    .seo-editor-page-actions .seo-editor-review-cluster {
+        display: inline-flex !important;
+    }
 }
 
 @media (max-width: 640px) {
@@ -347,12 +352,21 @@ body.article-editor-page .fi-page-content {
     }
 
     .seo-editor-page-actions [data-seo-page-action="sync"],
-    .seo-editor-page-actions .seo-editor-preview-split {
+    .seo-editor-page-actions [data-seo-page-action="preview"] {
         display: none !important;
     }
 
-    .seo-editor-page-actions .seo-editor-toolbar-btn--labeled .seo-editor-toolbar-btn__label {
+    /* Keep Review CTA/status visible; hide labels only for non-review labeled buttons */
+    .seo-editor-page-actions .seo-editor-toolbar-btn--labeled:not(.seo-editor-toolbar-btn--review-cta) .seo-editor-toolbar-btn__label {
         display: none;
+    }
+
+    .seo-editor-page-actions .seo-editor-review-cluster {
+        display: inline-flex !important;
+    }
+
+    .seo-editor-page-actions .seo-editor-review-cluster .seo-editor-review-split {
+        display: inline-flex !important;
     }
 }
 
@@ -535,12 +549,48 @@ html.seo-article-sync-locked .fi-no {
 .seo-editor-review-cluster {
     display: inline-flex;
     align-items: center;
+    gap: 0.35rem;
 }
 
 /* Disable toàn bộ split/toggle review khi đang gọi API — không chỉ disabled từng nút con */
 .seo-editor-review-cluster .seo-editor-preview-split.is-disabled {
     pointer-events: none;
     opacity: 0.7;
+}
+
+.seo-editor-toolbar-btn--review-cta,
+.seo-editor-toolbar-btn--review-cta:hover:not(:disabled),
+.seo-editor-toolbar-btn--review-cta:focus-visible {
+    background: #d97706 !important;
+    border-color: #b45309 !important;
+    color: #fff !important;
+    font-weight: 700;
+}
+
+.seo-editor-toolbar-btn--review-cta:hover:not(:disabled) {
+    background: #b45309 !important;
+    border-color: #92400e !important;
+    color: #fff !important;
+}
+
+.seo-editor-review-split.is-pending-cta.seo-editor-preview-split {
+    border-color: #b45309;
+}
+
+.seo-editor-review-split .seo-editor-preview-split__chevron.seo-editor-toolbar-btn--review-cta {
+    border-left: 1px solid rgb(255 255 255 / 35%) !important;
+}
+
+.dark .seo-editor-toolbar-btn--review-cta,
+.dark .seo-editor-toolbar-btn--review-cta:hover:not(:disabled),
+.dark .seo-editor-toolbar-btn--review-cta:focus-visible {
+    background: #d97706 !important;
+    border-color: #fbbf24 !important;
+    color: #fff !important;
+}
+
+.dark .seo-editor-review-split.is-pending-cta.seo-editor-preview-split {
+    border-color: #fbbf24;
 }
 
 .seo-editor-review-badge {

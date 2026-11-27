@@ -722,7 +722,7 @@ export function parseFeaturedSnippetNewSectionBlocks(html, createTextBlock, fall
 
     const headingBlock = {
         ...createTextBlock(),
-        content: `<h2>${escapeHtmlText(headingText)}</h2><p></p>`,
+        content: `<h2>${escapeHtmlText(headingText)}</h2>`,
     };
 
     const restHtml = elements
@@ -741,7 +741,10 @@ export function parseFeaturedSnippetNewSectionBlocks(html, createTextBlock, fall
 
     const contentBlocks = restHtml ? prepareFeaturedSnippetBlocksForInsert(restHtml, createTextBlock) : [];
 
-    return { headingBlock, contentBlocks };
+    return {
+        headingBlock,
+        contentBlocks: contentBlocks.length > 0 ? contentBlocks : [createTextBlock()],
+    };
 }
 
 const newBlockId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;

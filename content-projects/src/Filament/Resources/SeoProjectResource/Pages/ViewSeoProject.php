@@ -68,7 +68,7 @@ use Throwable;
 /**
  * Canonical project workspace — one items table for generation/review/publishing.
  */
-final class ViewSeoProject extends Page
+class ViewSeoProject extends Page
 {
     use InteractsWithAuditNotes;
     use InteractsWithContentProjectPublishingActions;
@@ -237,8 +237,18 @@ final class ViewSeoProject extends Page
         'failureTypeFilter' => ['except' => '', 'as' => 'failure_type'],
     ];
 
-    public function mount(int|string $record): void
+    public bool $virtualDomainMonth = false;
+
+    public int $virtualSiteId = 0;
+
+    public string $virtualPlanningMonth = '';
+
+    protected ?SeoProject $projectContextForCommand = null;
+
+    public function mount(int|string|null $record = null): void
     {
+        // Nullable: domain-month virtual page overrides mount and has no {record} route param.
+        $record ??= 0;
         $this->record = $record;
         $this->project = $this->resolveProject($record);
         abort_unless(SeoProjectResource::canView($this->project), 403);
@@ -289,7 +299,7 @@ final class ViewSeoProject extends Page
         \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationModePreference::persistForUserId($userId, $policy);
     }
 
-    private function syncArticleGenerationModePreference(): void
+    protected function syncArticleGenerationModePreference(): void
     {
         $userId = (int) (auth()->id() ?? 0);
         $policy = \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationModePreference::forUserId(
@@ -371,7 +381,7 @@ final class ViewSeoProject extends Page
         return (int) ($this->summarySnapshot['total_items'] ?? 0);
     }
 
-    private function resolvedWorkflowFilter(): string
+    protected function resolvedWorkflowFilter(): string
     {
         if ($this->workflowFilter !== '') {
             return $this->workflowFilter;
@@ -435,7 +445,7 @@ final class ViewSeoProject extends Page
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */
-    private function applyOptimisticRowHides(array $payload): array
+    protected function applyOptimisticRowHides(array $payload): array
     {
         if ($this->optimisticHiddenTaskIds === []) {
             return $payload;
@@ -568,7 +578,7 @@ final class ViewSeoProject extends Page
         $this->skipRender();
     }
 
-    private function invalidateOpsCache(): void
+    protected function invalidateOpsCache(): void
     {
         $this->opsTableEpoch++;
         $this->cachedOperationsPayload = null;
@@ -590,7 +600,7 @@ final class ViewSeoProject extends Page
         $this->cacheHeaderActions();
     }
 
-    private function buildOpsCacheKey(): string
+    protected function buildOpsCacheKey(): string
     {
         return hash('xxh128', (string) json_encode([
             'epoch' => $this->opsTableEpoch,
@@ -620,7 +630,7 @@ final class ViewSeoProject extends Page
         return hash('xxh128', (string) json_encode($normalized, JSON_THROW_ON_ERROR));
     }
 
-    private function resetClientOptimisticHints(): void
+    protected function resetClientOptimisticHints(): void
     {
         $this->optimisticHiddenTaskIds = [];
         $this->dispatch('cp-ops-client-reset-optimistic');
@@ -1308,13 +1318,11 @@ final class ViewSeoProject extends Page
     {
         abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
 
-        $project = $this->requireProject();
-        $task = SeoProjectTask::query()
-            ->where('project_id', (int) $project->getKey())
-            ->whereKey($taskId)
-            ->first();
+        $owned = $this->resolveOwnedTask($taskId);
+        $project = $owned['project'];
+        $task = $owned['task'];
 
-        $articleId = (int) ($task?->article_id ?? 0);
+        $articleId = (int) ($task->article_id ?? 0);
         if ($articleId <= 0) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.projects.queue_select_required'))
@@ -1347,7 +1355,7 @@ final class ViewSeoProject extends Page
     /**
      * @param  list<int>  $taskIds
      */
-    private function dispatchArchive(array $taskIds): void
+    protected function dispatchArchive(array $taskIds): void
     {
         abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
 
@@ -1361,44 +1369,22 @@ final class ViewSeoProject extends Page
             return;
         }
 
-        $project = $this->requireProject();
         $this->bulkRunning = true;
 
         try {
-            $result = app(ContentProjectCommandBus::class)->dispatch(
-                new ArchiveProjectItemsCommand(
-                    (int) $project->getKey(),
-                    $ids,
-                ),
-                ActorContext::user(
-                    auth()->id() !== null ? (int) auth()->id() : null,
-                    (int) ($project->site_id ?? 0) ?: null,
-                ),
-            );
+            $this->dispatchBus(new ArchiveProjectItemsCommand(
+                $this->commandProjectRefForItemRefs($ids),
+                $ids,
+            ));
 
-            Notification::make()
-                ->title($result->success
-                    ? __('seo-content-ai::filament.projects.archive_item_completed')
-                    : __('seo-content-ai::filament.projects.archive_failed'))
-                ->body($result->success
-                    ? __('seo-content-ai::filament.projects.archive_item_completed_body', [
-                        'archived' => (int) ($result->metadata['affected_count'] ?? count($ids)),
-                    ])
-                    : $result->message)
-                ->{$result->success ? 'success' : 'danger'}()
-                ->send();
-
-            if ($result->success) {
-                $archived = array_flip($ids);
-                $this->selectedTaskIds = array_values(array_filter(
-                    $this->normalizeSelectedIds($this->selectedTaskIds),
-                    static fn (int $id): bool => ! isset($archived[$id]),
-                ));
-            }
+            $archived = array_flip($ids);
+            $this->selectedTaskIds = array_values(array_filter(
+                $this->normalizeSelectedIds($this->selectedTaskIds),
+                static fn (int $id): bool => ! isset($archived[$id]),
+            ));
         } catch (Throwable $e) {
             RuntimeLogger::report($e, [
                 'endpoint' => 'content_project.items.archive',
-                'project_id' => (int) $project->getKey(),
             ]);
             Notification::make()
                 ->title(__('seo-content-ai::filament.projects.archive_failed'))
@@ -1420,11 +1406,12 @@ final class ViewSeoProject extends Page
     public function markGenerationResultViewed(int $taskId): bool
     {
         $userId = (int) (auth()->id() ?? 0);
-        $project = $this->requireProject();
-        $projectId = (int) $project->getKey();
         if ($userId <= 0 || $taskId <= 0) {
             return false;
         }
+
+        $owned = $this->resolveOwnedTask($taskId);
+        $projectId = (int) $owned['project']->getKey();
 
         $completedAt = $this->resolveLatestSuccessfulGenerationCompletedAt($projectId, $taskId);
         if ($completedAt === null) {
@@ -1451,10 +1438,11 @@ final class ViewSeoProject extends Page
             return ['ok' => false];
         }
 
-        $completedAt = $this->resolveLatestSuccessfulGenerationCompletedAt(
-            (int) $this->requireProject()->getKey(),
-            $taskId,
-        );
+        $owned = $this->resolveOwnedTask($taskId);
+        $projectId = (int) $owned['project']->getKey();
+        $task = $owned['task'];
+
+        $completedAt = $this->resolveLatestSuccessfulGenerationCompletedAt($projectId, $taskId);
         $needsMark = $expectNeedsReviewMark || $completedAt !== null;
 
         if ($needsMark) {
@@ -1466,12 +1454,7 @@ final class ViewSeoProject extends Page
             }
         }
 
-        $projectId = (int) $this->requireProject()->getKey();
-        $task = SeoProjectTask::query()
-            ->where('project_id', $projectId)
-            ->whereKey($taskId)
-            ->first(['id', 'article_id']);
-        $articleId = (int) ($task?->article_id ?? 0);
+        $articleId = (int) ($task->article_id ?? 0);
         if ($articleId <= 0) {
             $this->skipRender();
 
@@ -1480,10 +1463,35 @@ final class ViewSeoProject extends Page
 
         $this->skipRender();
 
+        $url = ArticleResource::getUrl('edit', ['record' => $articleId]);
+        if ($this->virtualDomainMonth && $this->virtualSiteId > 0 && $this->virtualPlanningMonth !== '') {
+            $returnUrl = SeoProjectResource::getDomainMonthlyVirtualUrl(
+                $this->virtualSiteId,
+                $this->virtualPlanningMonth,
+                request()->query(),
+            );
+            $url .= (str_contains($url, '?') ? '&' : '?').http_build_query(['cp_return' => $returnUrl]);
+        }
+
         return [
             'ok' => true,
-            'url' => ArticleResource::getUrl('edit', ['record' => $articleId]),
+            'url' => $url,
         ];
+    }
+
+    /**
+     * @return array{task: SeoProjectTask, project: SeoProject}
+     */
+    public function resolveOwnedTask(int $taskId): array
+    {
+        $project = $this->requireProject();
+        $task = SeoProjectTask::query()
+            ->where('project_id', (int) $project->getKey())
+            ->whereKey($taskId)
+            ->first();
+        abort_unless($task instanceof SeoProjectTask, 404);
+
+        return ['task' => $task, 'project' => $project];
     }
 
     /** @deprecated Use claimNeedsReviewItem — alias for older Alpine callers. */
@@ -1640,53 +1648,40 @@ final class ViewSeoProject extends Page
      */
     public function createOrRerunOne(int $taskId): void
     {
-        $project = $this->requireProject();
-        if (! SeoAccessControl::canAccessContentProjectRun($project)) {
-            Notification::make()->title(__('Forbidden'))->danger()->send();
+        $owned = $this->resolveOwnedTask($taskId);
+        $project = $owned['project'];
+        $task = $owned['task'];
+        $this->projectContextForCommand = $project;
+        try {
+            if (! SeoAccessControl::canAccessContentProjectRun($project)) {
+                Notification::make()->title(__('Forbidden'))->danger()->send();
 
-            return;
+                return;
+            }
+
+            if (app(ContentProjectStaleArticleLinkService::class)->isStaleMissingCreateArticle($task)) {
+                $this->openMissingArticleConfirm($task);
+
+                return;
+            }
+
+            $this->executeCreateOrRerun($project, $task);
+        } finally {
+            $this->projectContextForCommand = null;
         }
-
-        $task = SeoProjectTask::query()
-            ->where('project_id', (int) $project->id)
-            ->whereKey((int) $taskId)
-            ->first();
-        if (! $task instanceof SeoProjectTask) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.run_failed'))
-                ->body(__('Item not found.'))
-                ->danger()
-                ->send();
-
-            return;
-        }
-
-        if (app(ContentProjectStaleArticleLinkService::class)->isStaleMissingCreateArticle($task)) {
-            $this->openMissingArticleConfirm($task);
-
-            return;
-        }
-
-        $this->executeCreateOrRerun($project, $task);
     }
 
     public function openMissingArticleConfirm(int|SeoProjectTask $taskOrId): void
     {
-        $project = $this->requireProject();
+        $owned = $taskOrId instanceof SeoProjectTask
+            ? $this->resolveOwnedTask((int) $taskOrId->getKey())
+            : $this->resolveOwnedTask((int) $taskOrId);
+        $project = $owned['project'];
+        $task = $owned['task'];
+
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
             Notification::make()->title(__('Forbidden'))->danger()->send();
 
-            return;
-        }
-
-        $task = $taskOrId instanceof SeoProjectTask
-            ? $taskOrId
-            : SeoProjectTask::query()
-                ->where('project_id', (int) $project->id)
-                ->whereKey((int) $taskOrId)
-                ->first();
-
-        if (! $task instanceof SeoProjectTask) {
             return;
         }
 
@@ -1726,13 +1721,6 @@ final class ViewSeoProject extends Page
      */
     public function confirmRecreateMissingArticle(?int $taskId = null): void
     {
-        $project = $this->requireProject();
-        if (! SeoAccessControl::canAccessContentProjectRun($project)) {
-            Notification::make()->title(__('Forbidden'))->danger()->send();
-
-            return;
-        }
-
         $resolvedTaskId = (int) ($taskId ?? $this->missingArticleConfirmTaskId ?? 0);
         if ($resolvedTaskId <= 0) {
             $this->closeMissingArticleConfirm();
@@ -1740,17 +1728,12 @@ final class ViewSeoProject extends Page
             return;
         }
 
-        $task = SeoProjectTask::query()
-            ->where('project_id', (int) $project->id)
-            ->whereKey($resolvedTaskId)
-            ->first();
-        if (! $task instanceof SeoProjectTask) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.run_failed'))
-                ->body(__('Item not found.'))
-                ->danger()
-                ->send();
-            $this->closeMissingArticleConfirm();
+        $owned = $this->resolveOwnedTask($resolvedTaskId);
+        $project = $owned['project'];
+        $task = $owned['task'];
+
+        if (! SeoAccessControl::canAccessContentProjectRun($project)) {
+            Notification::make()->title(__('Forbidden'))->danger()->send();
 
             return;
         }
@@ -1760,7 +1743,7 @@ final class ViewSeoProject extends Page
 
         $result = app(ContentProjectCommandBus::class)->dispatch(
             new RerunProjectItemsCommand(
-                (int) $project->id,
+                (int) $project->getKey(),
                 [$resolvedTaskId],
                 SeoProjectRun::MODE_FULL,
                 [
@@ -2144,7 +2127,7 @@ final class ViewSeoProject extends Page
      */
     public function resumeFromFailedStep(int $taskId): void
     {
-        $project = $this->requireProject();
+        $project = $this->resolveOwnedTask($taskId)['project'];
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
             Notification::make()->title(__('Forbidden'))->danger()->send();
 
@@ -2152,7 +2135,7 @@ final class ViewSeoProject extends Page
         }
 
         $this->dispatchBus(new ResumeProjectItemFromFailedStepCommand(
-            (int) $project->id,
+            $this->commandProjectRefForItemRefs([(int) $taskId]),
             [(int) $taskId],
             SeoProjectRun::MODE_FULL,
         ));
@@ -2164,7 +2147,6 @@ final class ViewSeoProject extends Page
      */
     public function changeItemStatus(int $taskId, string $status): void
     {
-        $project = $this->requireProject();
         if (! SeoAccessControl::canManageContentProjectWorkflow()) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.projects.item_change_status_failed'))
@@ -2188,10 +2170,9 @@ final class ViewSeoProject extends Page
             return;
         }
 
-        $task = SeoProjectTask::query()
-            ->where('project_id', (int) $project->getKey())
-            ->whereKey((int) $taskId)
-            ->first();
+        $owned = $this->resolveOwnedTask($taskId);
+        $project = $owned['project'];
+        $task = $owned['task'];
         if (! $task instanceof SeoProjectTask) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.projects.item_change_status_failed'))
@@ -2239,7 +2220,7 @@ final class ViewSeoProject extends Page
      */
     public function acknowledgeGenerationError(int $taskId): void
     {
-        $project = $this->requireProject();
+        $project = $this->resolveOwnedTask($taskId)['project'];
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
             Notification::make()->title(__('Forbidden'))->danger()->send();
 
@@ -2247,7 +2228,7 @@ final class ViewSeoProject extends Page
         }
 
         $this->dispatchBus(new AcknowledgeProjectItemGenerationErrorCommand(
-            (int) $project->id,
+            $this->commandProjectRefForItemRefs([(int) $taskId]),
             [(int) $taskId],
         ));
         $this->resetPage();
@@ -2395,7 +2376,7 @@ final class ViewSeoProject extends Page
      */
     public function skipGenerationOne(int $taskId): void
     {
-        $project = $this->requireProject();
+        $project = $this->resolveOwnedTask($taskId)['project'];
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
             Notification::make()->title(__('Forbidden'))->danger()->send();
 
@@ -2403,7 +2384,7 @@ final class ViewSeoProject extends Page
         }
 
         $this->dispatchBus(new BlockProjectItemGenerationCommand(
-            (int) $project->id,
+            $this->commandProjectRefForItemRefs([(int) $taskId]),
             [(int) $taskId],
             'operator_skip_generation',
         ));
@@ -2415,13 +2396,6 @@ final class ViewSeoProject extends Page
      */
     public function skipGenerationSelected(): void
     {
-        $project = $this->requireProject();
-        if (! SeoAccessControl::canAccessContentProjectRun($project)) {
-            Notification::make()->title(__('Forbidden'))->danger()->send();
-
-            return;
-        }
-
         $ids = $this->selectedItemIds();
         if ($ids === []) {
             Notification::make()
@@ -2432,8 +2406,15 @@ final class ViewSeoProject extends Page
             return;
         }
 
+        $project = $this->resolveOwnedTask((int) $ids[0])['project'];
+        if (! SeoAccessControl::canAccessContentProjectRun($project)) {
+            Notification::make()->title(__('Forbidden'))->danger()->send();
+
+            return;
+        }
+
         $this->dispatchBus(new BlockProjectItemGenerationCommand(
-            (int) $project->id,
+            $this->commandProjectRefForItemRefs($ids),
             $ids,
             'operator_skip_generation',
         ));
@@ -2445,7 +2426,7 @@ final class ViewSeoProject extends Page
      */
     public function allowGenerationOne(int $taskId): void
     {
-        $project = $this->requireProject();
+        $project = $this->resolveOwnedTask($taskId)['project'];
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
             Notification::make()->title(__('Forbidden'))->danger()->send();
 
@@ -2453,7 +2434,7 @@ final class ViewSeoProject extends Page
         }
 
         $this->dispatchBus(new UnblockProjectItemGenerationCommand(
-            (int) $project->id,
+            $this->commandProjectRefForItemRefs([(int) $taskId]),
             [(int) $taskId],
         ));
         $this->resetPage();
@@ -2481,24 +2462,24 @@ final class ViewSeoProject extends Page
 
     public function startReviewSelected(): void
     {
-        $this->dispatchBus(new StartReviewCommand((int) $this->requireProject()->id, $this->selectedTaskIds));
+        $this->dispatchBus(new StartReviewCommand($this->commandProjectRefForItemRefs($this->selectedTaskIds), $this->selectedTaskIds));
     }
 
     public function startReviewOne(int $taskId): void
     {
-        $this->dispatchBus(new StartReviewCommand((int) $this->requireProject()->id, [$taskId]));
+        $this->dispatchBus(new StartReviewCommand($this->commandProjectRefForItemRefs([$taskId]), [$taskId]));
     }
 
     public function approveSelected(): void
     {
         abort_unless(SeoAccessControl::canApproveArticleReview(), 403);
-        $this->dispatchBus(new ApproveProjectItemsCommand((int) $this->requireProject()->id, $this->selectedTaskIds));
+        $this->dispatchBus(new ApproveProjectItemsCommand($this->commandProjectRefForItemRefs($this->selectedTaskIds), $this->selectedTaskIds));
     }
 
     public function approveOne(int $taskId): void
     {
         abort_unless(SeoAccessControl::canApproveArticleReview(), 403);
-        $this->dispatchBus(new ApproveProjectItemsCommand((int) $this->requireProject()->id, [$taskId]));
+        $this->dispatchBus(new ApproveProjectItemsCommand($this->commandProjectRefForItemRefs([$taskId]), [$taskId]));
     }
 
     /**
@@ -2524,7 +2505,7 @@ final class ViewSeoProject extends Page
         }
 
         $this->dispatchBus(new DebugOverrideProjectItemLifecycleCommand(
-            (int) $this->requireProject()->id,
+            $this->commandProjectRefForItemRefs([$taskId]),
             [$taskId],
             $to,
             $at,
@@ -2563,7 +2544,7 @@ final class ViewSeoProject extends Page
         }
 
         $this->dispatchBus(new DebugOverrideProjectItemLifecycleCommand(
-            (int) $this->requireProject()->id,
+            $this->commandProjectRefForItemRefs($ids),
             $ids,
             ContentProjectDebugLifecycleOverrideService::TO_SCHEDULED,
             $at,
@@ -2614,7 +2595,7 @@ final class ViewSeoProject extends Page
     /**
      * @param  list<int>  $taskIds
      */
-    private function dispatchGenerate(array $taskIds): void
+    protected function dispatchGenerate(array $taskIds): void
     {
         $project = $this->requireProject();
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
@@ -2699,7 +2680,7 @@ final class ViewSeoProject extends Page
     /**
      * @param  list<int>  $taskIds
      */
-    private function dispatchBulkStep(array $taskIds, string $action): void
+    protected function dispatchBulkStep(array $taskIds, string $action): void
     {
         $project = $this->requireProject();
         $filtered = [];
@@ -2742,7 +2723,7 @@ final class ViewSeoProject extends Page
         ));
     }
 
-    private function dispatchBus(object $command): void
+    protected function dispatchBus(object $command): void
     {
         $project = $this->requireProject();
         $result = app(ContentProjectCommandBus::class)->dispatch(
@@ -3016,7 +2997,7 @@ final class ViewSeoProject extends Page
     /**
      * @return list<int>
      */
-    private function resolveTaskIdsForCommand(object $command): array
+    protected function resolveTaskIdsForCommand(object $command): array
     {
         if (property_exists($command, 'itemRefs') && is_array($command->itemRefs)) {
             return $this->normalizeSelectedIds($command->itemRefs);
@@ -3037,6 +3018,10 @@ final class ViewSeoProject extends Page
 
     protected function requireProject(): SeoProject
     {
+        if ($this->projectContextForCommand instanceof SeoProject) {
+            return $this->projectContextForCommand;
+        }
+
         if (! $this->project instanceof SeoProject) {
             $this->project = $this->resolveProject($this->record);
         }

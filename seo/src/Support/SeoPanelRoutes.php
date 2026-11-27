@@ -113,7 +113,13 @@ final class SeoPanelRoutes
             'filament.seo.pages.content-projects.planner-runs',
             'filament.seo.pages.content-projects.new-content',
             'filament.seo.pages.content-projects.ai-history',
+            'filament.seo.pages.content-projects.idea-manager',
         );
+    }
+
+    public static function isIdeaManagerNav(?string $route = null): bool
+    {
+        return self::check($route, 'filament.seo.pages.content-projects.idea-manager');
     }
 
     /** Canonical Project Planner (/content-projects/seo-audit) — domain-scoped via Global bar. */

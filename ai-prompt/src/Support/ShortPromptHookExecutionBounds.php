@@ -42,6 +42,7 @@ final class ShortPromptHookExecutionBounds
         'article.meta_description_suggestion',
         'article.faq.generate',
         'article.featured_snippet.generate',
+        'article.featured_snippet.optimize',
         'article.comment.generate',
     ];
 
