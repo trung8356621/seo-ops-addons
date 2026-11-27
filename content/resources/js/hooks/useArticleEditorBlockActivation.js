@@ -2,6 +2,7 @@ import {
     articleHasFaqShortcode,
     blockHasOutlineHeading,
     createEmptyImageBlock,
+    createEmptyTableBlock,
     createEmptyTextBlock,
     createFaqShortcodeBlock,
     dispatchActiveBlockContext,
@@ -21,7 +22,7 @@ import { useCallback, useEffect } from 'react';
  * useArticleEditorBlockActivation - extracted from SeoArticleEditor.jsx (Task 7 mechanical
  * extraction). Mechanical move - no behavior change.
  */
-export default function useArticleEditorBlockActivation({ activeBlockId, activeBlockIdRef, armBlockOutsideClickGuard, articleId, blocks, blocksRef, clearTempMerge, collapsedSectionIds, commitActiveBlock, focusedOutlineHeadingRef, intraSelectionRef, isIntroBlockId, notifyIntroNoImages, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingKeys, sectionByBlockId, setActiveBlockId, setBlocks, setCollapsedSectionIds, setGlobalEditor, setInsertMenu, setOutlineHeadingCommand, tempMerge, tempMergeRef }) {
+export default function useArticleEditorBlockActivation({ activeBlockId, activeBlockIdRef, armBlockOutsideClickGuard, articleId, blocks, blocksRef, clearTempMerge, collapsedSectionIds, commitActiveBlock, focusedOutlineHeadingRef, intraSelectionRef, isIntroBlockId, notifyIntroNoImages, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingKeys, sectionByBlockId, sectionExpandAllowedRef = null, setActiveBlockId, setBlocks, setCollapsedSectionIds, setGlobalEditor, setInsertMenu, setOutlineHeadingCommand, tempMerge, tempMergeRef }) {
     useEffect(() => {
         const publishSelectionContext = () => {
             if (!activeBlockId) {
@@ -141,8 +142,13 @@ export default function useArticleEditorBlockActivation({ activeBlockId, activeB
             setInsertMenu(null);
             armBlockOutsideClickGuard();
             const sectionId = sectionByBlockId.get(id);
-            if (sectionId && collapsedSectionIds[sectionId]) {
-                setCollapsedSectionIds((prev) => ({ ...prev, [sectionId]: false }));
+            // Missing key = collapsed. Do not auto-expand during Outline baseline init (F5).
+            if (sectionId && sectionExpandAllowedRef?.current !== false) {
+                setCollapsedSectionIds((prev) => (
+                    prev[sectionId] === false
+                        ? prev
+                        : { ...prev, [sectionId]: false }
+                ));
             }
             captureEditorInsertionContext({
                 sectionId: sectionId ?? null,
@@ -183,12 +189,12 @@ export default function useArticleEditorBlockActivation({ activeBlockId, activeB
             activeBlockId,
             armBlockOutsideClickGuard,
             clearOutlineFocus,
-            collapsedSectionIds,
             commitActiveBlock,
             clearTempMerge,
             isBlockOutlineSynced,
             outlineHasSavedHeadings,
             sectionByBlockId,
+            sectionExpandAllowedRef,
             syncOutlineFocusFromBlock,
         ],
     );
@@ -224,9 +230,11 @@ export default function useArticleEditorBlockActivation({ activeBlockId, activeB
             const newBlock =
                 type === 'image'
                     ? createEmptyImageBlock()
-                    : type === 'faq'
-                      ? createFaqShortcodeBlock()
-                      : createEmptyTextBlock();
+                    : type === 'table'
+                      ? createEmptyTableBlock()
+                      : type === 'faq'
+                        ? createFaqShortcodeBlock()
+                        : createEmptyTextBlock();
             const newId = newBlock.id;
 
             setBlocks((prev) => {
@@ -242,7 +250,7 @@ export default function useArticleEditorBlockActivation({ activeBlockId, activeB
             activeBlockIdRef.current = newId;
             setActiveBlockId(newId);
             setGlobalEditor(null);
-            if (type === 'image') {
+            if (type === 'image' || type === 'table') {
                 armBlockOutsideClickGuard(360);
             } else {
                 armBlockOutsideClickGuard();

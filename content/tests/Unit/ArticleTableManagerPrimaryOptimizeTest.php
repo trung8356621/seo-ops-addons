@@ -42,6 +42,9 @@ final class ArticleTableManagerPrimaryOptimizeTest extends TestCase
         self::assertStringNotContainsString("'article.featured_snippet.generate'", $src);
         self::assertStringContainsString('validateOptimizedPreservesContent', $src);
         self::assertStringContainsString('resolveFeaturedSnippetTableScore', $src);
+        // Settings-bound PromptRunner path (v01 hook) — not legacy PromptHookRegistry schema_v1.
+        self::assertStringContainsString('PromptRunnerService', $src);
+        self::assertStringNotContainsString('PromptHookExecutionService', $src);
     }
 
     public function test_primary_attr_preferred_in_scoring_engines(): void
@@ -98,8 +101,11 @@ final class ArticleTableManagerPrimaryOptimizeTest extends TestCase
         $utils = (string) file_get_contents(
             dirname(__DIR__, 2).'/resources/js/utils/articleTableManager.js',
         );
-        $panel = (string) file_get_contents(
-            dirname(__DIR__, 2).'/resources/js/components/ArticleTableManagerPanel.jsx',
+        $tableBlock = (string) file_get_contents(
+            dirname(__DIR__, 2).'/resources/js/components/TableBlockEditor.jsx',
+        );
+        $tableModal = (string) file_get_contents(
+            dirname(__DIR__, 2).'/resources/js/components/TableEditorModal.jsx',
         );
         $ext = (string) file_get_contents(
             dirname(__DIR__, 2).'/resources/js/utils/editorExtensions.js',
@@ -107,15 +113,22 @@ final class ArticleTableManagerPrimaryOptimizeTest extends TestCase
         $sidebar = (string) file_get_contents(
             dirname(__DIR__, 3).'/seo/resources/js/editor/modules/seo/SeoSidebarPanel.jsx',
         );
+        $helpers = (string) file_get_contents(
+            dirname(__DIR__, 2).'/resources/js/utils/contentDocumentHelpers.js',
+        );
 
         self::assertStringContainsString('data-seo-primary-table', $utils);
         self::assertStringContainsString('export function listArticleTablesFromBlocks', $utils);
-        self::assertStringContainsString('export function setPrimaryTableInBlocks', $utils);
-        self::assertStringContainsString('export function replaceTableInBlocks', $utils);
-        self::assertStringContainsString('optimizeFeaturedSnippetTableFromEditor', $panel);
-        self::assertStringContainsString('onApply', $panel);
+        self::assertStringContainsString('export function setPrimaryTableByBlockId', $utils);
+        self::assertStringContainsString('export function replaceTableBlockContent', $utils);
+        self::assertStringContainsString('optimizeFeaturedSnippetTableFromEditor', $tableBlock);
+        self::assertStringContainsString('TableEditorModal', $tableBlock);
+        self::assertStringContainsString('tableEditorExtensions', $tableModal);
         self::assertStringContainsString('seoPrimary', $ext);
-        self::assertStringContainsString('ArticleTableManagerPanel', $sidebar);
+        self::assertStringContainsString('createEmptyTableBlock', $helpers);
+        self::assertStringContainsString('hoistInlineTablesFromTextBlocks', $helpers);
+        // Sidebar no longer hosts Table Manager — actions live on Table Block.
+        self::assertStringNotContainsString('ArticleTableManagerPanel', $sidebar);
     }
 
     public function test_edit_article_wires_optimize_preview_endpoint(): void

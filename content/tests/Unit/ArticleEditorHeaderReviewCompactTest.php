@@ -72,8 +72,13 @@ final class ArticleEditorHeaderReviewCompactTest extends TestCase
         self::assertStringContainsString('data-seo-page-action="review-cta"', $actions);
         self::assertStringContainsString('data-seo-page-action="review-badge"', $actions);
         self::assertStringContainsString('reviewShowsStatusBadge()', $actions);
-        self::assertStringContainsString('reviewCtaLabel()', $actions);
-        self::assertStringContainsString('reviewIsPendingCta()', $actions);
+        self::assertStringContainsString('reviewHasActions()', $actions);
+        self::assertStringContainsString('seo-editor-review-status-split', $actions);
+        self::assertStringContainsString('reviewBadgeLabelText()', $actions);
+        self::assertStringNotContainsString(
+            'seo-editor-preview-split seo-editor-page-actions__desktop-only',
+            $actions,
+        );
     }
 
     public function test_review_reuses_canonical_handler_and_does_not_run_on_save(): void
@@ -118,7 +123,8 @@ final class ArticleEditorHeaderReviewCompactTest extends TestCase
 
         self::assertStringContainsString('.seo-editor-toolbar-btn--review-cta', $css);
         self::assertStringContainsString('.seo-editor-page-actions .seo-editor-review-cluster', $css);
-        self::assertStringContainsString('[data-seo-page-action="preview"]', $css);
+        self::assertStringContainsString('.seo-editor-review-status-split', $css);
+        self::assertStringContainsString('.seo-editor-review-status-dot', $css);
         self::assertStringNotContainsString(
             ".seo-editor-page-actions [data-seo-page-action=\"sync\"],\n    .seo-editor-page-actions .seo-editor-preview-split {",
             $css,

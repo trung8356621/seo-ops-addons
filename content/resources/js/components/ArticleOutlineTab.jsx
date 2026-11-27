@@ -1,5 +1,5 @@
 ﻿import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, createContext } from 'react';
-import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronRight, Copy, Loader2, MoreHorizontal, Pencil, Plus } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronRight, Copy, ListCollapse, Loader2, MoreHorizontal, Pencil, Plus } from 'lucide-react';
 import { csrfToken, seoArticleApiHeaders } from '@seo-addon/utils/seoArticleApi.js';
 import { isPersistedOutlineHeadingId } from '../utils/contentDocumentHelpers';
 import { findLocalDuplicateHeadingKeys, localDuplicateHeadingKey } from '../utils/articleEditorClientOutline';
@@ -919,6 +919,9 @@ export default function ArticleOutlineTab({
     onHeadingHtmlChange,
     onSaveOutlineHeadingTitle = null,
     onJumpToEditorHeading,
+    outlineNavReady = true,
+    onCollapseAllSections = null,
+    collapseAllEnabled = true,
     onOutlineMoveHeading,
     onOutlineDeleteHeading,
     onOutlineAddSection,
@@ -954,9 +957,12 @@ export default function ArticleOutlineTab({
 
     const handleJumpToEditor = useCallback(
         (node) => {
+            if (!outlineNavReady) {
+                return;
+            }
             onJumpToEditorHeading?.(node);
         },
-        [onJumpToEditorHeading],
+        [onJumpToEditorHeading, outlineNavReady],
     );
 
     const notify = useCallback(
@@ -1436,8 +1442,27 @@ export default function ArticleOutlineTab({
             }}
         >
             <div className="seo-outline-toolbar">
-                <h3 className="seo-outline-title">{t('outline_title')}</h3>
-                <ContextHelpButton contextKey="article_editor.widget.outline" title="Outline Help" />
+                <div className="seo-outline-toolbar__title-row">
+                    <h3 className="seo-outline-title">{t('outline_title')}</h3>
+                    <div className="seo-outline-toolbar__title-actions">
+                        <ContextHelpButton contextKey="article_editor.widget.outline" title="Outline Help" />
+                        {typeof onCollapseAllSections === 'function' ? (
+                            <button
+                                type="button"
+                                className="seo-outline-collapse-all"
+                                title={t('editor_collapse_all_sections')}
+                                aria-label={t('editor_collapse_all_sections')}
+                                disabled={loading || collapseAllEnabled === false}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onCollapseAllSections();
+                                }}
+                            >
+                                <ListCollapse size={15} strokeWidth={1.75} aria-hidden="true" />
+                            </button>
+                        ) : null}
+                    </div>
+                </div>
                 <div className="seo-outline-toolbar__actions">
                     {onOutlineAddSection ? (
                         <button

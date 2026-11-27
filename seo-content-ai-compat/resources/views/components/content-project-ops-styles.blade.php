@@ -1355,7 +1355,7 @@
         }
         @media (min-width: 1024px) {
             .cp-plan-grid {
-                grid-template-columns: repeat(3, minmax(0, 1fr));
+                grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
                 align-items: stretch;
                 transition: grid-template-columns 0.2s ease;
             }
@@ -1369,40 +1369,15 @@
                 max-height: 100%;
                 min-height: 0;
             }
-            .cp-plan-slide--create .cp-plan-card--create,
             .cp-plan-slide--create .cp-plan-card--site-planning {
                 display: flex;
                 flex-direction: column;
                 min-height: 0;
             }
-            .cp-plan-slide--create .cp-plan-card--create .cp-plan-tab-panels {
-                flex: 1 1 auto;
-                min-height: 0;
-                overflow: hidden;
-            }
             .cp-plan-slide--create .cp-plan-card--site-planning .cp-plan-card__scroll {
                 flex: 1 1 auto;
                 min-height: 0;
                 overflow: auto;
-            }
-            /* Gen AI focused: hide Improve only; keep Create + Site Planning (~65/35) */
-            .cp-plan-grid.is-ai-focused {
-                grid-template-columns: minmax(0, 65fr) minmax(0, 35fr);
-            }
-            .cp-plan-grid.is-ai-focused > [data-planner-card="improve"] {
-                display: none;
-            }
-        }
-        /* Mobile / all breakpoints: hide Improve only while AI focus; Site Planning stays */
-        .cp-plan-grid.is-ai-focused > [data-planner-card="improve"] {
-            display: none;
-        }
-        @media (max-width: 1023px) {
-            .cp-plan-grid.is-ai-focused {
-                grid-template-columns: minmax(0, 1fr);
-            }
-            .cp-plan-grid.is-ai-focused > [data-planner-card="site-planning"] {
-                display: flex;
             }
         }
         .cp-plan-card--with-sticky-cta {

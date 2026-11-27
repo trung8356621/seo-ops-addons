@@ -39,9 +39,21 @@ final class AssignToContentProjectContract
 
     public const LABEL_KEY = 'seo-content-ai::filament.article_list.add_to_draft';
 
+    /** Keyword mode destination label — Idea Manager warehouse (not Planning Draft). */
+    public const KEYWORD_LABEL_KEY = 'seo-content-ai::filament.article_list.add_to_idea_manager';
+
     public static function label(): string
     {
         return __(self::LABEL_KEY);
+    }
+
+    public static function labelForMode(string $mode): string
+    {
+        if ($mode === self::MODE_KEYWORD) {
+            return __(self::KEYWORD_LABEL_KEY);
+        }
+
+        return self::label();
     }
 
     /**

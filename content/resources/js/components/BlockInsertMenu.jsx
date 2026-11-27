@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, ChevronsDown, ChevronsUp, FileText, HelpCircle, Image as ImageIcon, Plus } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronsDown, ChevronsUp, FileText, HelpCircle, Image as ImageIcon, Plus, Table } from 'lucide-react';
 import { getEditorCommandHost } from '../utils/editorCommands';
 import { openPanel } from '../editor/runtime/editorRuntimeNavigation';
 import { t } from '../utils/i18n';
@@ -134,7 +134,7 @@ export function BlockInsertTrigger(props) {
 
 /**
  * @param {() => void} onClose
- * @param {(type: 'text'|'image'|'faq') => void} onInsert
+ * @param {(type: 'text'|'image'|'table'|'faq') => void} onInsert
  * @param {boolean} [faqShortcodeDisabled]
  * @param {boolean} [imageInsertDisabled]
  */
@@ -188,6 +188,18 @@ export function BlockInsertMenuBar({
                     <span>{t('image_block_label')}</span>
                 </button>
             ) : null}
+            <button
+                type="button"
+                className="seo-block-insert-menu__item"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={(e) => {
+                    e.stopPropagation();
+                    handleInsert('table');
+                }}
+            >
+                <Table size={18} strokeWidth={1.75} />
+                <span>{t('table_block_label')}</span>
+            </button>
             <button
                 type="button"
                 className={`seo-block-insert-menu__item${faqShortcodeDisabled ? ' is-disabled' : ''}`}

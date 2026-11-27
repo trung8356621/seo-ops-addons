@@ -10,6 +10,8 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftIntakeResult;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftIntakeService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager\IdeaManagerKeywordIntakeResult;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager\IdeaManagerKeywordIntakeService;
 use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
@@ -20,9 +22,12 @@ use Livewire\Component;
 use Throwable;
 
 /**
- * Canonical Add-to-Draft sidebar (legacy Assign-to-Content-Project shell).
+ * Canonical Assign-to-Content-Project sidebar.
  *
- * Destination is always Shared Planning Draft via PlanningDraftIntakeService.
+ * Destinations by mode:
+ * - MODE_KEYWORD → Idea Manager warehouse (IdeaManagerKeywordIntakeService)
+ * - article / pending_link / vocabulary → Shared Planning Draft (PlanningDraftIntakeService)
+ *
  * Mount once at the panel shell; callers open via assign-content-project:open.
  */
 class AssignToContentProjectDrawer extends Component
@@ -314,7 +319,7 @@ class AssignToContentProjectDrawer extends Component
     public function getUiStateProperty(): array
     {
         return [
-            'label' => AssignToContentProjectContract::label(),
+            'label' => AssignToContentProjectContract::labelForMode($this->mode),
             'selected_count' => $this->selectedCount(),
             'can_submit' => $this->canSubmit(),
             'writer_options' => [],
@@ -591,8 +596,9 @@ class AssignToContentProjectDrawer extends Component
             }
         }
 
-        $result = app(PlanningDraftIntakeService::class)->addKeywords($keywords, $this->siteIds);
-        $this->notifyIntakeResult($result);
+        // Keyword UI → Idea Manager (not Shared Planning Draft / seo_project_tasks).
+        $result = app(IdeaManagerKeywordIntakeService::class)->addKeywords($keywords, $this->siteIds);
+        $this->notifyIdeaManagerIntakeResult($result);
         if (! $result->isSuccess()) {
             $this->errorMessage = $result->message !== ''
                 ? $result->message
@@ -605,7 +611,8 @@ class AssignToContentProjectDrawer extends Component
             'mode' => $this->mode,
             'source' => $this->source,
             'keyword_ids' => $this->keywordIds,
-            'draft_project_id' => $result->draftProjectId,
+            'destination' => 'idea_manager',
+            'draft_project_id' => null,
             'status' => $result->status,
             'summary' => $result->summary,
         ]);
@@ -728,6 +735,35 @@ class AssignToContentProjectDrawer extends Component
         if ($result->isSuccess()) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.article_list.add_to_draft_completed'))
+                ->body($result->message)
+                ->success()
+                ->send();
+
+            return;
+        }
+
+        Notification::make()
+            ->title(__('seo-content-ai::filament.articles_optimal.assign_failed'))
+            ->body($result->message !== '' ? $result->message : __('seo-content-ai::filament.articles_optimal.assign_failed'))
+            ->warning()
+            ->send();
+    }
+
+    private function notifyIdeaManagerIntakeResult(IdeaManagerKeywordIntakeResult $result): void
+    {
+        if ($result->isAlreadyPresent()) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.article_list.already_in_idea_manager'))
+                ->body($result->message)
+                ->info()
+                ->send();
+
+            return;
+        }
+
+        if ($result->isSuccess()) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.article_list.add_to_idea_manager_completed'))
                 ->body($result->message)
                 ->success()
                 ->send();

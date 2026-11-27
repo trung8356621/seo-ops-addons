@@ -87,10 +87,10 @@ final class DraftAiCallHistoryContractTest extends TestCase
         );
         $planner = LegacyAddonPath::read('resources/views/components/content-project-draft-planner.blade.php');
         self::assertStringNotContainsString('data-new-content-ai-history="1"', $card);
-        self::assertStringContainsString('data-new-content-ai-history="1"', $planner);
-        self::assertStringContainsString('data-create-tab="ai-history"', $planner);
-        self::assertStringContainsString('target="_blank"', $planner);
-        self::assertStringContainsString('draft_ai_history_nav', $planner);
+        // Ideas/AI History tab removed from SEO Audit; Idea Manager CTA replaces middle-column nav.
+        self::assertStringNotContainsString('data-new-content-ai-history="1"', $planner);
+        self::assertStringNotContainsString('data-create-tab="ai-history"', $planner);
+        self::assertStringContainsString('data-planner-action="idea-manager"', $planner);
     }
 
     public function test_planner_run_detail_page_and_view_results_link(): void

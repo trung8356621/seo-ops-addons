@@ -45,6 +45,10 @@ final class ArticleEditorStickyHeaderHelpTest extends TestCase
         self::assertStringContainsString('body.article-editor-page .fi-topbar', $source);
         self::assertStringContainsString('global-help-topbar-host', $source);
         self::assertStringContainsString('seo-article-editor-sticky-header', $source);
+        self::assertStringContainsString('body.article-editor-page .fi-layout', $source);
+        self::assertStringContainsString('background: #ffffff', $source);
+        self::assertStringContainsString('position: sticky', $source);
+        self::assertStringContainsString('top: 0', $source);
         self::assertStringContainsString('.seo-editor-page-actions .seo-editor-preview-split', $source);
         self::assertStringContainsString('overflow: visible !important', $source);
     }

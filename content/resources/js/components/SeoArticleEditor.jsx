@@ -280,7 +280,7 @@ import {
     stripEditorTransientMarkup,
 } from '../utils/articleEditorTransientMarkup';
 import FaqAccordionPreview from './FaqAccordionPreview';
-import { Undo2, Redo2, Plus, ChevronDown, ChevronRight, ImageIcon, Table, AlertTriangle, Search, ListCollapse, Trash2, BarChart3, Star, Copy, Check, ImagePlus, Loader2, MoreHorizontal } from 'lucide-react';
+import { Undo2, Redo2, Plus, ChevronDown, ChevronRight, ImageIcon, Table, AlertTriangle, Search, Trash2, BarChart3, Star, Copy, Check, ImagePlus, Loader2, MoreHorizontal } from 'lucide-react';
 import { extractSelectedBlocksPlainText, extractSectionPlainText, writeTextToClipboard } from '../utils/sectionPlainTextCopy';
 import { detectFaqPairsFromSection, findLegacyFaqSection, sectionHtml } from '../utils/legacyFaqDetection';
 import {
@@ -315,6 +315,7 @@ import useArticleEditorInsertAndSections from '../hooks/useArticleEditorInsertAn
 import useArticleEditorExternalEventsBridge from '../hooks/useArticleEditorExternalEventsBridge';
 import useArticleEditorOutline from '../hooks/useArticleEditorOutline';
 import useArticleEditorSearch from '../hooks/useArticleEditorSearch';
+import { setPrimaryTableByBlockId } from '../utils/articleTableManager';
 
 import {
     newBlockId,
@@ -706,7 +707,7 @@ export default function SeoArticleEditor({
         };
     }, [activeHeavyModule, articleId]);
 
-        const { analyzing, canGenerateFaq, canGenerateFeaturedSnippet, canGenerateOutlineHeading, canQuickCreateReviews, clientOutline, collapsedSectionIds, editorSearchMatchCount, faqCount, faqsCanonicalKnownRef, featuredHealthSnapshot, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetPromptContext, featuredSnippetPromptOpen, featuredSnippetTargetRef, generateImageModalInitialCustom, generateImageModalOpen, generateImageModalPrompt, generateImageModalTarget, generateImageTargetRef, generateQuickPostReviews, imageRenameBusy, imageRenameBusyCount, imagesReloadKey, imagesTabJumpTarget, insertMenu, isProductPost, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingCommand, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineHeadingKeys, outlineJumpTarget, outlineTreeSync, panelFaqs, panelFaqsRef, pendingFaqGenerateRef, pendingLocalRenameQueueRef, pendingLocalRenameResultsRef, pendingQuickFixKeywordRef, pendingWpRenameRequestRef, postImagesRef, productGalleryItems, publishEditorImagesCatalogRef, quickCreateReviewsConfigUrl, quickFixSlugAllBusy, quickReplaceFind, quickReplaceValue, refreshVirtualReviews, reviewCount, reviewCountLoading, reviewsLoaded, reviewsLoadWarning, reviewsLoading, saveStatus, sectionTitleEditRequest, seoAnalyzeError, seoPanelActive, setAnalyzing, setClientOutline, setCollapsedSectionIds, setEditorSearchMatchCount, setFaqCount, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptContext, setFeaturedSnippetPromptOpen, setGenerateImageModalInitialCustom, setGenerateImageModalOpen, setGenerateImageModalPrompt, setGenerateImageModalTarget, setImageRenameBusy, setImageRenameBusyCount, setImagesReloadKey, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingCommand, setOutlineHeadingKeys, setOutlineJumpTarget, setOutlineTreeSync, setPanelFaqs, setQuickFixSlugAllBusy, setQuickReplaceFind, setQuickReplaceValue, setSaveStatus, setSectionTitleEditRequest, setSeoAnalyzeError, showConfigureReviewsLink, showReviewsTab, slugRenameManagedByBatchRef, supplementalImages, supplementalImagesRef, utilitySchedulerRef, virtualReviews } = useArticleEditorCoreState({ activeHeavyModule, activeHeavyModuleRef, articleId, blocks, blocksRef, editorSettings, initialFaqs, initialPostImages, initialProductGallery, initialSupplementalImages, initialVirtualReviews, perfDebug, reviewsAbortRef, setAssistantPortalRoots, setMediaPickerRoot, supportsProductGallery });
+        const { analyzing, canGenerateFaq, canGenerateFeaturedSnippet, canGenerateOutlineHeading, canQuickCreateReviews, clientOutline, collapsedSectionIds, sectionExpandAllowedRef, editorSearchMatchCount, faqCount, faqsCanonicalKnownRef, featuredHealthSnapshot, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetPromptContext, featuredSnippetPromptOpen, featuredSnippetTargetRef, generateImageModalInitialCustom, generateImageModalOpen, generateImageModalPrompt, generateImageModalTarget, generateImageTargetRef, generateQuickPostReviews, imageRenameBusy, imageRenameBusyCount, imagesReloadKey, imagesTabJumpTarget, insertMenu, isProductPost, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingCommand, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineHeadingKeys, outlineJumpTarget, outlineTreeSync, panelFaqs, panelFaqsRef, pendingFaqGenerateRef, pendingLocalRenameQueueRef, pendingLocalRenameResultsRef, pendingQuickFixKeywordRef, pendingWpRenameRequestRef, postImagesRef, productGalleryItems, publishEditorImagesCatalogRef, quickCreateReviewsConfigUrl, quickFixSlugAllBusy, quickReplaceFind, quickReplaceValue, refreshVirtualReviews, reviewCount, reviewCountLoading, reviewsLoaded, reviewsLoadWarning, reviewsLoading, saveStatus, sectionTitleEditRequest, seoAnalyzeError, seoPanelActive, setAnalyzing, setClientOutline, setCollapsedSectionIds, setEditorSearchMatchCount, setFaqCount, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptContext, setFeaturedSnippetPromptOpen, setGenerateImageModalInitialCustom, setGenerateImageModalOpen, setGenerateImageModalPrompt, setGenerateImageModalTarget, setImageRenameBusy, setImageRenameBusyCount, setImagesReloadKey, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingCommand, setOutlineHeadingKeys, setOutlineJumpTarget, setOutlineTreeSync, setPanelFaqs, setQuickFixSlugAllBusy, setQuickReplaceFind, setQuickReplaceValue, setSaveStatus, setSectionTitleEditRequest, setSeoAnalyzeError, showConfigureReviewsLink, showReviewsTab, slugRenameManagedByBatchRef, supplementalImages, supplementalImagesRef, utilitySchedulerRef, virtualReviews } = useArticleEditorCoreState({ activeHeavyModule, activeHeavyModuleRef, articleId, blocks, blocksRef, editorSettings, initialFaqs, initialPostImages, initialProductGallery, initialSupplementalImages, initialVirtualReviews, perfDebug, reviewsAbortRef, setAssistantPortalRoots, setMediaPickerRoot, supportsProductGallery });
 
     const parseGalleryItems = useCallback((items) => normalizeProductAlbumList(items), []);
 
@@ -1484,7 +1485,7 @@ export default function SeoArticleEditor({
 
         const { clearMediaPolling, deleteBlock, isDismissedEditorImageMedia, makeImageFeatured, removeImageBlock, removeSupplementalImage } = useArticleEditorImageLifecycle({ activeBlockId, articleId, articleTitle, blockById, blockFlushRef, blocks, blocksRef, clearTempMerge, commitActiveBlock, dismissedEditorImageMediaIdsRef, editorHostActionsRef, extractedLinks, focusImageBlock, focusKeyword, generateImageTargetRef, getExportHtml, insertCtaLinkIntoContent, insertSuggestedLinkIntoContent, intraSelectionRef, mediaPollTimersRef, pendingAiMediaRef, publishEditorImagesCatalogRef, publishExtractedLinks, removeInternalLinkFromContent, requestGenerateArticleImageRef, scheduleAutosave, scrollToExtractedLink, scrollToFeaturedSnippetTable, sectionByBlockId, setActiveBlockId, setBlocks, setExtractedLinks, setGlobalEditor, setImagesReloadKey, siteDomain, siteDomainRef, suggestedExternalLinks, suggestedInternalLinks, supplementalImagesRef, supportsProductGallery, tempMergeRef, utilitySchedulerRef });
 
-        const { activateBlock, clearOutlineFocus, insertBlockRelative, syncOutlineFocusFromBlock } = useArticleEditorBlockActivation({ activeBlockId, activeBlockIdRef, armBlockOutsideClickGuard, articleId, blocks, blocksRef, clearTempMerge, collapsedSectionIds, commitActiveBlock, focusedOutlineHeadingRef, intraSelectionRef, isIntroBlockId, notifyIntroNoImages, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingKeys, sectionByBlockId, setActiveBlockId, setBlocks, setCollapsedSectionIds, setGlobalEditor, setInsertMenu, setOutlineHeadingCommand, tempMerge, tempMergeRef });
+        const { activateBlock, clearOutlineFocus, insertBlockRelative, syncOutlineFocusFromBlock } = useArticleEditorBlockActivation({ activeBlockId, activeBlockIdRef, armBlockOutsideClickGuard, articleId, blocks, blocksRef, clearTempMerge, collapsedSectionIds, commitActiveBlock, focusedOutlineHeadingRef, sectionExpandAllowedRef, intraSelectionRef, isIntroBlockId, notifyIntroNoImages, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingKeys, sectionByBlockId, setActiveBlockId, setBlocks, setCollapsedSectionIds, setGlobalEditor, setInsertMenu, setOutlineHeadingCommand, tempMerge, tempMergeRef });
 
         const { applyCompletedMediaToPlaceholder, applyCompletedMediaToProductGallery, clearAwaitingClientImagePlaceholders, findImageBlockByMediaId, insertImageAfterBlock, placeProcessingImagePlaceholder, requestGenerateArticleImage, resolveAiRefBlockId, startMediaStatusPolling } = useArticleEditorImageGeneration({ activeBlockIdRef, articleId, blocks, blocksRef, clearMediaPolling, commitActiveBlock, connectionHashRef, dismissedEditorImageMediaIdsRef, generateImageInFlightRef, getExportHtml, isDismissedEditorImageMedia, isIntroBlockId, mediaPollTimersRef, notifyIntroNoImages, patchImageInBlocks, pendingAiMediaRef, requestGenerateArticleImageRef, resumedArticleAiJobsRef, scheduleAutosave, setActiveBlockId, setBlocks, setGlobalEditor, setImagesReloadKey, setSaveStatus, tempMergeRef, updateBlocksWithoutHistory });
 
@@ -1494,7 +1495,7 @@ export default function SeoArticleEditor({
         const { mergedDisplay, saveLabel } = useArticleEditorExternalEventsBridge({ activeBlockId, activeBlockIdRef, analyzedBlocksRef, applyCompletedMediaToPlaceholder, applyCompletedMediaToProductGallery, applySeoAnalysisResult, articleId, articleTitle, assertNoLocalSlugFixBeforeWpSync, assertWritableDocumentNotWhitespaceCorrupted, blockEditorsRef, blockFlushRef, blockOutsideClickGuardUntilRef, blocks, blocksRef, clearAwaitingClientImagePlaceholders, clearMediaPolling, clearOutlineFocus, clearTempMerge, connectionHashRef, dismissedEditorImageMediaIdsRef, editorHostActionsRef, faqsCanonicalKnownRef, findImageBlockByMediaId, generateImageTargetRef, getExportHtml, globalEditor, initialPostImages, insertImageAfterBlock, insertVideoAfterBlock, isDismissedEditorImageMedia, lastSeoAnalysisRef, mediaPollTimersRef, networkRecovering, networkUnavailable, outlineHasSavedHeadings, panelFaqsRef, patchImageInBlocks, pendingAiMediaRef, placeProcessingImagePlaceholder, postImagesRef, publishEditorImagesCatalogRef, reconcileImagesTabWithBlocks, requestAnalyze, requestGenerateArticleImage, resolveAiRefBlockId, resolveArticleFaqsSnapshot, runLocalSeoAnalysis, saveStatus, scheduleAutosave, markSeoStale, sectionByBlockId, seoDomain, seoMetaRef, setActiveBlockId, setArticleType, setBlocks, setFaqCount, setGlobalEditor, setImagesReloadKey, setInsertMenu, setPanelFaqs, setSaveStatus, setSavedSeoScore, setSeoStale, setSupportsProductGallery, skipNextAutosave, startMediaStatusPolling, supplementalImagesRef, tempMerge, tempMergeRef, updateBlockContent });
 
     // Sync text heading t? tab Outline v? block tuong ?ng trong editor ch�nh.
-        const { addOutlineNode, addSection, applyOutlineHeadingHtml, applyOutlineHeadingText, changeOutlineHeadingLevel, collapseAllSections, confirmFeaturedSnippetPromptInsert, convertOutlineHeading, deleteOutlineHeadingKeepContent, deleteOutlineHeadingWithContent, focusOutlineFromSectionHeader, handleOutlineHeadingFromEditor, handleOutlineLoaded, insertFeaturedSnippetAsNewSectionAfter, jumpToOutlineHeading, resolveHeadingInnerHtml, runFeaturedSnippetPromptGenerate, saveSectionTitleFromHeader, toggleOutlineHeadingVisible, toggleSectionCollapse, updateOutlineHeadingTitle } = useArticleEditorOutline({ activeBlockId, activateBlock, articleId, articleTitle, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFeaturedSnippet, collapseSectionsExcept, commitActiveBlock, editorSections, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetTargetRef, focusImageBlock, focusKeyword, focusedOutlineHeadingRef, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineRailRef, markSeoStale, sectionByBlockId, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setClientOutline, setCollapsedSectionIds, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptOpen, setGlobalEditor, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingKeys, setOutlineJumpTarget, setOutlineTreeSync, setSectionTitleEditRequest, syncOutlineFocusFromBlock, tempMergeRef });
+        const { addOutlineNode, addSection, applyOutlineHeadingHtml, applyOutlineHeadingText, changeOutlineHeadingLevel, collapseAllSections, confirmFeaturedSnippetPromptInsert, convertOutlineHeading, deleteOutlineHeadingKeepContent, deleteOutlineHeadingWithContent, focusOutlineFromSectionHeader, handleOutlineHeadingFromEditor, handleOutlineLoaded, insertFeaturedSnippetAsNewSectionAfter, jumpToOutlineHeading, outlineNavReady, resolveHeadingInnerHtml, runFeaturedSnippetPromptGenerate, saveSectionTitleFromHeader, toggleOutlineHeadingVisible, toggleSectionCollapse, updateOutlineHeadingTitle } = useArticleEditorOutline({ activeBlockId, activateBlock, articleId, articleTitle, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFeaturedSnippet, collapseSectionsExcept, collapsedSectionIds, commitActiveBlock, sectionExpandAllowedRef, editorSections, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetTargetRef, focusImageBlock, focusKeyword, focusedOutlineHeadingRef, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineRailRef, markSeoStale, sectionByBlockId, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setClientOutline, setCollapsedSectionIds, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptOpen, setGlobalEditor, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingKeys, setOutlineJumpTarget, setOutlineTreeSync, setSectionTitleEditRequest, syncOutlineFocusFromBlock, tempMergeRef });
 
         editorHostActionsRef.current.jumpToOutlineHeading = jumpToOutlineHeading;
 
@@ -1964,6 +1965,9 @@ export default function SeoArticleEditor({
                             onHeadingHtmlChange={applyOutlineHeadingHtml}
                             onSaveOutlineHeadingTitle={updateOutlineHeadingTitle}
                             onJumpToEditorHeading={jumpToOutlineHeading}
+                            outlineNavReady={outlineNavReady}
+                            onCollapseAllSections={collapseAllSections}
+                            collapseAllEnabled={editorSections.length > 0}
                             onOutlineMoveHeading={handleOutlineMoveHeading}
                             onOutlineDeleteHeading={handleOutlineDeleteHeading}
                             onOutlineAddSection={addSection}
@@ -2069,15 +2073,6 @@ export default function SeoArticleEditor({
                                     )}
                             </div>
                             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                                <button
-                                    type="button"
-                                    onClick={collapseAllSections}
-                                    className="seo-editor-search-btn"
-                                    title={t('editor_collapse_all_sections')}
-                                    aria-label={t('editor_collapse_all_sections')}
-                                >
-                                    <ListCollapse size={15} />
-                                </button>
                                 <ContextHelpButton contextKey="article_editor.widget.section_blocks" title="Section blocks Help" />
                                 <div className="seo-editor-search-group">
                                     <input
@@ -2192,7 +2187,8 @@ export default function SeoArticleEditor({
                                 </div>
                             ) : null}
                             {editorSections.map((section, sectionIndex) => {
-                                const isCollapsed = collapsedSectionIds[section.id] === true;
+                                // Missing key = collapsed (F5 must not open Mở đầu / sections).
+                                const isCollapsed = collapsedSectionIds[section.id] !== false;
                                 const sectionNumber = editorSections
                                     .slice(0, sectionIndex + 1)
                                     .filter((item) => !item.isIntro).length;
@@ -2511,6 +2507,14 @@ export default function SeoArticleEditor({
                                                                 editable={!sessionReadOnly && !window.__SEO_EDITOR_READ_ONLY__}
                                                                 focusHeadingIndex={jumpTarget?.headingIndex ?? null}
                                                                 focusHeadingToken={jumpTarget?.token ?? 0}
+                                                                onSetTablePrimary={(blockId, makePrimary) => {
+                                                                    commitActiveBlock?.();
+                                                                    setBlocks((prev) => setPrimaryTableByBlockId(prev, blockId, makePrimary));
+                                                                    markSeoStale?.();
+                                                                }}
+                                                                canOptimizeTable={Boolean(editorSettings?.can_optimize_featured_snippet) && !syncRequired}
+                                                                featuredSnippetThresholds={editorSettings?.featured_snippet_thresholds || null}
+                                                                onMarkSeoStale={markSeoStale}
                                                             />
 
                                                             {showInsert ? (

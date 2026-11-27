@@ -427,6 +427,16 @@ final class AuditNoteDnaNormalizer
             $out['candidate_key'] = self::generatedCandidateKey($ref);
         }
 
+        // Optional Idea Manager provenance — never invent; only preserve when provided.
+        $sourceSiteId = (int) ($item['source_site_id'] ?? 0);
+        if ($sourceSiteId > 0) {
+            $out['source_site_id'] = $sourceSiteId;
+        }
+        $sourceDomain = trim((string) ($item['source_domain'] ?? ''));
+        if ($sourceDomain !== '') {
+            $out['source_domain'] = $sourceDomain;
+        }
+
         return $out;
     }
 

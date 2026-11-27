@@ -35,11 +35,12 @@ final class ArticleEditorContextPreservationContractTest extends TestCase
 
     public function test_collapsed_sections_initialized_once(): void
     {
-        $body = $this->read('resources/js/components/SeoArticleEditor.jsx');
+        $editor = $this->read('resources/js/components/SeoArticleEditor.jsx');
+        $outline = $this->read('resources/js/hooks/useArticleEditorOutline.js');
 
-        self::assertStringContainsString('collapsedSectionsInitializedRef', $body);
-        self::assertStringContainsString('key={section.id}', $body);
-        self::assertStringContainsString('key={block.id}', $body);
+        self::assertStringContainsString('collapsedSectionsInitializedRef', $outline);
+        self::assertStringContainsString('rebuildCollapsedBaseline', $outline);
+        self::assertStringContainsString('key={section.id}', $editor);
     }
 
     public function test_editor_insertion_context_module_exists(): void

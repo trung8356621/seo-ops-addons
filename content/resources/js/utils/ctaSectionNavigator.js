@@ -5,7 +5,20 @@
  */
 import { extractOutlineHeadingsFromBlock } from './articleEditorClientOutline.js';
 
-const SCROLL_OFFSET = 88;
+const HEADER_GAP_PX = 0;
+
+export function measureEditorStickyHeaderHeight() {
+    const header = document.querySelector('[data-seo-sticky-editor-header]');
+    if (!(header instanceof HTMLElement)) {
+        return 0;
+    }
+
+    return Math.ceil(header.getBoundingClientRect().height);
+}
+
+export function editorScrollOffset() {
+    return measureEditorStickyHeaderHeight() + HEADER_GAP_PX;
+}
 
 function normalizeHeading(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -166,10 +179,98 @@ export function selectEditorScroller(element) {
     return document.scrollingElement;
 }
 
-function stickyOffset(pane) {
-    const toolbar = pane?.querySelector?.('.seo-editor-toolbar');
-    const height = toolbar ? toolbar.getBoundingClientRect().height : 0;
-    return Math.max(SCROLL_OFFSET, Math.ceil(height) + 12);
+function stickyOffset(_pane) {
+    return editorScrollOffset();
+}
+
+function isDocumentScroller(container) {
+    return container === document.scrollingElement
+        || container === document.documentElement
+        || container === document.body;
+}
+
+/**
+ * Live DOM destination in the scroller's coordinate system.
+ * Does not use collapsed baselines or section-index offsets.
+ *
+ * @param {Element} target
+ * @param {Element} container
+ * @param {number} [stickyPx]
+ * @returns {{ top: number, raw: number, max: number, atLimit: boolean, stickyPx: number }}
+ */
+export function computeEditorScrollDestination(target, container, stickyPx = editorScrollOffset()) {
+    const targetRect = target.getBoundingClientRect();
+    const sticky = Math.max(0, Number(stickyPx) || 0);
+    let raw;
+
+    if (isDocumentScroller(container)) {
+        // Document/window scrolling: viewport Y + page scrollY.
+        raw = (window.scrollY || container.scrollTop || 0) + targetRect.top - sticky;
+    } else {
+        const containerRect = container.getBoundingClientRect();
+        raw = container.scrollTop + targetRect.top - containerRect.top - sticky;
+    }
+
+    const max = Math.max(0, container.scrollHeight - container.clientHeight);
+    const top = Math.max(0, Math.min(raw, max));
+
+    return {
+        top,
+        raw,
+        max,
+        atLimit: raw > max + 0.5 || (raw < -0.5 && top === 0),
+        stickyPx: sticky,
+    };
+}
+
+/**
+ * Scroll a container and resolve after the position settles (no fixed timeout guess).
+ * @param {Element} container
+ * @param {number} top
+ * @param {ScrollBehavior} [behavior]
+ * @returns {Promise<{ top: number, max: number }>}
+ */
+export function scrollContainerTo(container, top, behavior = 'auto') {
+    const max = Math.max(0, container.scrollHeight - container.clientHeight);
+    const clamped = Math.max(0, Math.min(Number(top) || 0, max));
+
+    return new Promise((resolve) => {
+        if (behavior !== 'smooth') {
+            container.scrollTo({ top: clamped, behavior: 'auto' });
+            resolve({ top: clamped, max });
+            return;
+        }
+
+        let settled = false;
+        const finish = () => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            container.removeEventListener('scrollend', finish);
+            resolve({ top: clamped, max });
+        };
+
+        container.addEventListener('scrollend', finish, { once: true });
+        container.scrollTo({ top: clamped, behavior: 'smooth' });
+
+        let frames = 0;
+        let last = container.scrollTop;
+        const poll = () => {
+            if (settled) {
+                return;
+            }
+            frames += 1;
+            const current = container.scrollTop;
+            if (Math.abs(current - clamped) <= 1 || (frames > 8 && Math.abs(current - last) < 0.5) || frames > 90) {
+                finish();
+                return;
+            }
+            last = current;
+            window.requestAnimationFrame(poll);
+        };
+        window.requestAnimationFrame(poll);
+    });
 }
 
 /**
@@ -177,7 +278,8 @@ function stickyOffset(pane) {
  * Used by Outline H2/H3/H4 jump and CTA section navigation — never block:center.
  *
  * @param {Element|null|undefined} element
- * @param {{ highlightClass?: string, align?: 'start'|'nearest' }} [options]
+ * @param {{ highlightClass?: string, align?: 'start'|'nearest', behavior?: ScrollBehavior }} [options]
+ * @returns {boolean|{ ok: true, destination: ReturnType<typeof computeEditorScrollDestination>, container: Element }}
  */
 export function scrollEditorTargetIntoView(element, options = {}) {
     if (!(element instanceof Element)) {
@@ -195,11 +297,13 @@ export function scrollEditorTargetIntoView(element, options = {}) {
         return false;
     }
 
-    const top = highlight.getBoundingClientRect().top
-        - container.getBoundingClientRect().top
-        + container.scrollTop
-        - stickyOffset(pane);
-    container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    const destination = computeEditorScrollDestination(highlight, container, stickyOffset(pane));
+    const behavior = options.behavior === 'smooth' ? 'smooth' : 'auto';
+    if (behavior === 'smooth') {
+        void scrollContainerTo(container, destination.top, 'smooth');
+    } else {
+        container.scrollTo({ top: destination.top, behavior: 'auto' });
+    }
 
     if (highlightClass !== '') {
         highlight.classList.add(highlightClass);
@@ -208,7 +312,49 @@ export function scrollEditorTargetIntoView(element, options = {}) {
         }, 2400);
     }
 
-    return true;
+    return { ok: true, destination, container };
+}
+
+/**
+ * Live measure + scroll, awaiting settle. Preferred path for Outline navigation.
+ * @param {Element|null|undefined} element
+ * @param {{ highlightClass?: string, behavior?: ScrollBehavior }} [options]
+ */
+export async function scrollEditorTargetIntoViewAsync(element, options = {}) {
+    if (!(element instanceof Element)) {
+        return { ok: false, reason: 'missing_element' };
+    }
+
+    const highlightClass = String(options.highlightClass ?? '').trim();
+    const preferSection = element.matches?.('section[data-seo-section-id]');
+    const highlight = preferSection
+        ? element
+        : (element.closest?.('.seo-editor-block-slot') || element);
+    const pane = highlight.closest?.('.seo-article-editor-mainpane') ?? mainPane();
+    const container = selectEditorScroller(highlight);
+    if (!container || !pane) {
+        return { ok: false, reason: 'missing_scroller' };
+    }
+
+    const destination = computeEditorScrollDestination(highlight, container, stickyOffset(pane));
+    await scrollContainerTo(container, destination.top, options.behavior === 'smooth' ? 'smooth' : 'auto');
+
+    if (highlightClass !== '') {
+        highlight.classList.add(highlightClass);
+        window.setTimeout(() => {
+            highlight.classList.remove(highlightClass);
+        }, 2400);
+    }
+
+    const afterTop = highlight.getBoundingClientRect().top;
+    return {
+        ok: true,
+        destination,
+        container,
+        afterTop,
+        stickyPx: destination.stickyPx,
+        atLimit: destination.atLimit,
+    };
 }
 
 function scrollTarget(element) {

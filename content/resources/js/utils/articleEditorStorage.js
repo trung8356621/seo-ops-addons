@@ -145,7 +145,7 @@ function sanitizeEditorBlock(block) {
         return block;
     }
 
-    if (block.type === 'image' || block.isWp || typeof block.content !== 'string') {
+    if (block.type === 'image' || block.type === 'table' || block.isWp || typeof block.content !== 'string') {
         return block;
     }
 

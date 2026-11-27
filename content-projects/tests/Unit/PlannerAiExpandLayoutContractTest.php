@@ -8,66 +8,39 @@ use PHPUnit\Framework\TestCase;
 use Tests\Support\LegacyAddonPath;
 
 /**
- * Project Planner: balanced 50/50 cards; AI focus = full-width AI + bottom 30/70 actions.
+ * Project Planner SEO Audit: balanced 2-column Improve + Site Planning (Ideas moved to Idea Manager).
+ * Generate AI card layout contracts remain on the standalone new-content card component.
  */
 final class PlannerAiExpandLayoutContractTest extends TestCase
 {
-    public function test_planner_layout_initializes_balanced(): void
+    public function test_planner_layout_is_two_column_without_ai_focus_toggle(): void
     {
         $draft = LegacyAddonPath::read('resources/views/components/content-project-draft-planner.blade.php');
 
-        self::assertStringContainsString("plannerLayout: 'balanced'", $draft);
-        self::assertStringContainsString("createTab: 'ideas'", $draft);
-        self::assertStringContainsString("x-data=\"{ filtersOpen: true, createTab: 'ideas', plannerLayout: 'balanced' }\"", $draft);
+        self::assertStringContainsString('x-data="{ filtersOpen: true }"', $draft);
+        self::assertStringContainsString('data-planner-layout="two-column"', $draft);
+        self::assertStringNotContainsString('createTab', $draft);
+        self::assertStringNotContainsString('plannerLayout', $draft);
+        self::assertStringNotContainsString('is-ai-focused', $draft);
         self::assertStringNotContainsString('localStorage', $draft);
         self::assertStringNotContainsString('sessionStorage', $draft);
-        self::assertStringNotContainsString('public string $plannerLayout', $draft);
-        self::assertStringNotContainsString('ai-expanded', $draft);
         self::assertStringNotContainsString('cp-plan-improve-float', $draft);
     }
 
-    public function test_desktop_defaults_to_equal_columns_and_ai_focus_keeps_site_planning(): void
+    public function test_desktop_defaults_to_two_equal_columns(): void
     {
         $css = LegacyAddonPath::read('resources/views/components/content-project-ops-styles.blade.php');
 
         self::assertMatchesRegularExpression(
-            '/@media \(min-width: 1024px\)\s*\{\s*\.cp-plan-grid\s*\{\s*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/',
-            $css,
-        );
-        self::assertStringContainsString('.cp-plan-grid.is-ai-focused', $css);
-        self::assertStringContainsString('grid-template-columns: minmax(0, 65fr) minmax(0, 35fr)', $css);
-        self::assertStringContainsString(
-            '.cp-plan-grid.is-ai-focused > [data-planner-card="improve"]',
-            $css,
-        );
-        // Site Planning must NOT be hidden in AI-focused mode.
-        self::assertStringNotContainsString(
-            '.cp-plan-grid.is-ai-focused > [data-planner-card="improve"],'."\n".'            .cp-plan-grid.is-ai-focused > [data-planner-card="site-planning"]',
+            '/@media \(min-width: 1024px\)\s*\{\s*\.cp-plan-grid\s*\{\s*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(0,\s*1fr\)/',
             $css,
         );
         self::assertDoesNotMatchRegularExpression(
-            '/\.cp-plan-grid\.is-ai-focused\s*>\s*\[data-planner-card="site-planning"\]\s*\{\s*display:\s*none/',
+            '/\.cp-plan-grid\s*\{\s*grid-template-columns:\s*repeat\(3,/',
             $css,
         );
-        self::assertStringContainsString('display: none', $css);
-        self::assertStringNotContainsString('minmax(15rem, 3fr) minmax(0, 7fr)', $css);
         self::assertStringNotContainsString('cp-plan-improve-float', $css);
         self::assertStringNotContainsString('is-ai-expanded', $css);
-    }
-
-    public function test_gen_ai_tab_sets_ai_focused_and_ideas_restores_balanced(): void
-    {
-        $draft = LegacyAddonPath::read('resources/views/components/content-project-draft-planner.blade.php');
-
-        self::assertStringContainsString(
-            "@click=\"createTab = 'ai'; plannerLayout = 'ai-focused'\"",
-            $draft,
-        );
-        self::assertStringContainsString(
-            "@click=\"createTab = 'ideas'; plannerLayout = 'balanced'\"",
-            $draft,
-        );
-        self::assertStringContainsString(":class=\"{ 'is-ai-focused': plannerLayout === 'ai-focused' }\"", $draft);
     }
 
     public function test_no_top_thirty_seventy_switcher_on_improve_header(): void
@@ -76,15 +49,12 @@ final class PlannerAiExpandLayoutContractTest extends TestCase
 
         self::assertStringNotContainsString('data-planner-improve-return', $draft);
         self::assertStringNotContainsString('cp-plan-card__head--return', $draft);
-        self::assertStringNotContainsString(
-            "@click=\"if (plannerLayout === 'ai-focused') plannerLayout = 'balanced'\"",
-            $draft,
-        );
         self::assertStringContainsString('data-planner-card="improve"', $draft);
+        self::assertStringContainsString('data-planner-action="idea-manager"', $draft);
         self::assertStringNotContainsString('cp-plan-improve-float', $draft);
     }
 
-    public function test_ai_focus_bottom_actions_are_thirty_seventy(): void
+    public function test_ai_focus_bottom_actions_remain_on_new_content_card(): void
     {
         $card = LegacyAddonPath::read('resources/views/components/content-project-new-content-card.blade.php');
         $css = LegacyAddonPath::read('resources/views/components/content-project-ops-styles.blade.php');
@@ -98,15 +68,13 @@ final class PlannerAiExpandLayoutContractTest extends TestCase
         self::assertStringContainsString('generateNewContentSuggestions', $card);
         self::assertStringContainsString('data-planner-generate="new-content"', $card);
         self::assertStringContainsString('data-planner-generate-balanced="1"', $card);
-        self::assertStringContainsString("x-show=\"plannerLayout === 'ai-focused'\"", $card);
-        self::assertStringContainsString("x-show=\"plannerLayout !== 'ai-focused'\"", $card);
 
         self::assertStringContainsString('.cp-plan-sticky-cta__split', $css);
         self::assertStringContainsString('grid-template-columns: 3fr 7fr', $css);
         self::assertStringContainsString('gap: 0.5rem', $css);
     }
 
-    public function test_balanced_keeps_single_generate_and_improve_card_cta(): void
+    public function test_balanced_keeps_improve_card_cta(): void
     {
         $draft = LegacyAddonPath::read('resources/views/components/content-project-draft-planner.blade.php');
         $card = LegacyAddonPath::read('resources/views/components/content-project-new-content-card.blade.php');
@@ -128,10 +96,5 @@ final class PlannerAiExpandLayoutContractTest extends TestCase
         self::assertStringNotContainsString('plannerLayout', $page);
         self::assertStringNotContainsString("Url(as: 'planner_layout')", $draft);
         self::assertStringNotContainsString('cp-plan-improve-float', $css);
-        self::assertStringNotContainsString('position: absolute', substr(
-            $css,
-            (int) strpos($css, '.cp-plan-grid.is-ai-focused'),
-            500,
-        ));
     }
 }

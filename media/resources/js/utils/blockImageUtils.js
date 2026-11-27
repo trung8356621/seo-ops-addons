@@ -622,7 +622,7 @@ export function prepareFeaturedSnippetBlocksForInsert(html, createTextBlock) {
     const doc = new DOMParser().parseFromString(source, 'text/html');
     const blocks = [];
 
-    const pushBlock = (content) => {
+    const pushTextBlock = (content) => {
         const trimmed = String(content ?? '').trim();
         if (!trimmed || !isMeaningfulHtml(trimmed)) {
             return;
@@ -631,6 +631,24 @@ export function prepareFeaturedSnippetBlocksForInsert(html, createTextBlock) {
         blocks.push({
             ...createTextBlock(),
             content: trimmed,
+        });
+    };
+
+    const pushTableBlock = (tableEl) => {
+        const tableHtml = String(tableEl?.outerHTML ?? '').trim();
+        if (!tableHtml) {
+            return;
+        }
+        const base = createTextBlock();
+        blocks.push({
+            ...base,
+            id: `table_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
+            type: 'table',
+            isWp: false,
+            prefix: '',
+            content: tableHtml,
+            suffix: '',
+            image: undefined,
         });
     };
 
@@ -647,7 +665,7 @@ export function prepareFeaturedSnippetBlocksForInsert(html, createTextBlock) {
         if (node.nodeType === Node.TEXT_NODE) {
             const text = (node.textContent || '').replace(/\s+/g, ' ').trim();
             if (text) {
-                pushBlock(`<p>${text}</p>`);
+                pushTextBlock(`<p>${text}</p>`);
             }
 
             continue;
@@ -658,15 +676,17 @@ export function prepareFeaturedSnippetBlocksForInsert(html, createTextBlock) {
         }
 
         const tag = node.tagName.toLowerCase();
-        if (/^h[1-6]$/.test(tag)) {
-            pushBlock(downgradeHeading(node));
+        if (tag === 'table') {
+            pushTableBlock(node);
+        } else if (/^h[1-6]$/.test(tag)) {
+            pushTextBlock(downgradeHeading(node));
         } else {
-            pushBlock(node.outerHTML);
+            pushTextBlock(node.outerHTML);
         }
     }
 
     if (blocks.length === 0) {
-        pushBlock(source);
+        pushTextBlock(source);
     }
 
     return blocks;
@@ -760,7 +780,7 @@ export function pruneEmptyTextBlocks(blocks) {
     }
 
     return blocks.filter((block) => {
-        if (!block || block.type === 'image' || block.isWp) {
+        if (!block || block.type === 'image' || block.type === 'table' || block.isWp) {
             return Boolean(block);
         }
 
@@ -777,6 +797,15 @@ export function normalizeBlocks(blocks) {
     const result = [];
 
     blocks.forEach((block) => {
+        if (block.type === 'table') {
+            result.push({
+                ...block,
+                type: 'table',
+                content: String(block.content ?? ''),
+            });
+            return;
+        }
+
         if (block.type === 'image' || block.isWp) {
             if (block.type === 'image' && !block.image) {
                 const image = parseImageFromBlockContent(block.content);

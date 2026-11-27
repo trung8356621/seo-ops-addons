@@ -1,14 +1,24 @@
 /**
- * Article Table Manager — inventory / primary / replace against editor HTML blocks.
+ * Article Table Manager — inventory / primary / replace against editor blocks.
  * Primary marker: data-seo-primary-table="1" (document-level, no DB table).
+ * Preferred storage: type === 'table' blocks. Legacy inline <table> in text still supported.
  */
 
 export const PRIMARY_TABLE_ATTR = 'data-seo-primary-table';
 export const PRIMARY_TABLE_VALUE = '1';
 
+export const DEFAULT_TABLE_HTML = [
+    '<table>',
+    '<thead><tr><th>Header 1</th><th>Header 2</th><th>Header 3</th></tr></thead>',
+    '<tbody>',
+    '<tr><td></td><td></td><td></td></tr>',
+    '<tr><td></td><td></td><td></td></tr>',
+    '</tbody>',
+    '</table>',
+].join('');
+
 function parseHtml(html) {
-    const doc = new DOMParser().parseFromString(String(html ?? ''), 'text/html');
-    return doc;
+    return new DOMParser().parseFromString(String(html ?? ''), 'text/html');
 }
 
 function isTopLevelTable(table) {
@@ -28,6 +38,7 @@ function tableMetrics(tableEl) {
     );
     let headerRows = 0;
     let maxCols = 0;
+    let filledRows = 0;
     rows.forEach((row) => {
         const cells = Array.from(row.children).filter((c) => {
             const tag = c.tagName.toLowerCase();
@@ -36,25 +47,62 @@ function tableMetrics(tableEl) {
         if (cells.length === 0) {
             return;
         }
+        filledRows += 1;
         maxCols = Math.max(maxCols, cells.length);
         if (cells.some((c) => c.tagName.toLowerCase() === 'th')) {
             headerRows += 1;
         }
     });
-    const dataRows = Math.max(0, rows.filter((row) => {
-        const cells = Array.from(row.children).filter((c) => {
-            const tag = c.tagName.toLowerCase();
-            return tag === 'td' || tag === 'th';
-        });
-        return cells.length > 0;
-    }).length - (headerRows > 0 ? 1 : 0));
 
-    return { data_rows: dataRows, columns: maxCols, row_count: rows.length };
+    return {
+        data_rows: Math.max(0, filledRows - (headerRows > 0 ? 1 : 0)),
+        columns: maxCols,
+        row_count: rows.length,
+    };
 }
 
 function tablePreviewText(tableEl) {
     const text = String(tableEl.textContent ?? '').replace(/\s+/g, ' ').trim();
     return text.length > 80 ? `${text.slice(0, 80)}…` : text;
+}
+
+export function isPrimaryTableHtml(html) {
+    const doc = parseHtml(html);
+    const table = Array.from(doc.body.querySelectorAll('table')).find(isTopLevelTable);
+    return table?.getAttribute(PRIMARY_TABLE_ATTR) === PRIMARY_TABLE_VALUE;
+}
+
+export function withPrimaryTableAttr(tableHtml, isPrimary) {
+    const doc = parseHtml(tableHtml);
+    const table = Array.from(doc.body.querySelectorAll('table')).find(isTopLevelTable);
+    if (!table) {
+        return String(tableHtml ?? '');
+    }
+    if (isPrimary) {
+        table.setAttribute(PRIMARY_TABLE_ATTR, PRIMARY_TABLE_VALUE);
+    } else {
+        table.removeAttribute(PRIMARY_TABLE_ATTR);
+    }
+    return table.outerHTML;
+}
+
+export function extractSingleTableHtml(html) {
+    const doc = parseHtml(html);
+    const table = Array.from(doc.body.querySelectorAll('table')).find(isTopLevelTable);
+    return table ? table.outerHTML : '';
+}
+
+export function tableBlockMetrics(html) {
+    const doc = parseHtml(html);
+    const table = Array.from(doc.body.querySelectorAll('table')).find(isTopLevelTable);
+    if (!table) {
+        return { data_rows: 0, columns: 0, row_count: 0, preview: '', isPrimary: false };
+    }
+    return {
+        ...tableMetrics(table),
+        preview: tablePreviewText(table),
+        isPrimary: table.getAttribute(PRIMARY_TABLE_ATTR) === PRIMARY_TABLE_VALUE,
+    };
 }
 
 /**
@@ -68,6 +116,7 @@ function tablePreviewText(tableEl) {
  *   data_rows: number,
  *   columns: number,
  *   preview: string,
+ *   isTableBlock: boolean,
  * }>}
  */
 export function listArticleTablesFromBlocks(blocks) {
@@ -75,7 +124,10 @@ export function listArticleTablesFromBlocks(blocks) {
     let globalIndex = 0;
 
     (Array.isArray(blocks) ? blocks : []).forEach((block) => {
-        if (!block || block.type === 'image' || typeof block.content !== 'string') {
+        if (!block || typeof block.content !== 'string') {
+            return;
+        }
+        if (block.type === 'image') {
             return;
         }
         if (!/<table\b/i.test(block.content)) {
@@ -84,7 +136,13 @@ export function listArticleTablesFromBlocks(blocks) {
 
         const doc = parseHtml(block.content);
         const tables = Array.from(doc.body.querySelectorAll('table')).filter(isTopLevelTable);
+        const isTableBlock = block.type === 'table';
+
         tables.forEach((table, localIndex) => {
+            // Table blocks store one table; ignore nested leftovers.
+            if (isTableBlock && localIndex > 0) {
+                return;
+            }
             const metrics = tableMetrics(table);
             list.push({
                 index: globalIndex,
@@ -95,6 +153,7 @@ export function listArticleTablesFromBlocks(blocks) {
                 data_rows: metrics.data_rows,
                 columns: metrics.columns,
                 preview: tablePreviewText(table) || `Table ${globalIndex + 1}`,
+                isTableBlock,
             });
             globalIndex += 1;
         });
@@ -137,7 +196,11 @@ export function setPrimaryTableInBlocks(blocks, primaryIndex) {
         }
 
         let changed = false;
-        tables.forEach((table) => {
+        const isTableBlock = block.type === 'table';
+        tables.forEach((table, localIndex) => {
+            if (isTableBlock && localIndex > 0) {
+                return;
+            }
             const shouldPrimary = globalIndex === target;
             const isPrimary = table.getAttribute(PRIMARY_TABLE_ATTR) === PRIMARY_TABLE_VALUE;
             if (shouldPrimary && !isPrimary) {
@@ -154,7 +217,64 @@ export function setPrimaryTableInBlocks(blocks, primaryIndex) {
             return block;
         }
 
-        return { ...block, content: doc.body.innerHTML };
+        return {
+            ...block,
+            content: isTableBlock
+                ? (tables[0]?.outerHTML || doc.body.innerHTML)
+                : doc.body.innerHTML,
+        };
+    });
+}
+
+/**
+ * Toggle primary for a specific table block id. Clears primary on all others.
+ * @returns {typeof blocks}
+ */
+export function setPrimaryTableByBlockId(blocks, blockId, makePrimary = true) {
+    const targetId = String(blockId ?? '');
+    return (Array.isArray(blocks) ? blocks : []).map((block) => {
+        if (!block || block.type === 'image' || typeof block.content !== 'string') {
+            return block;
+        }
+        if (!/<table\b/i.test(block.content)) {
+            return block;
+        }
+
+        const doc = parseHtml(block.content);
+        const tables = Array.from(doc.body.querySelectorAll('table')).filter(isTopLevelTable);
+        if (tables.length === 0) {
+            return block;
+        }
+
+        const isTarget = String(block.id ?? '') === targetId;
+        let changed = false;
+        const isTableBlock = block.type === 'table';
+
+        tables.forEach((table, localIndex) => {
+            if (isTableBlock && localIndex > 0) {
+                return;
+            }
+            const shouldPrimary = makePrimary && isTarget && localIndex === 0;
+            const isPrimary = table.getAttribute(PRIMARY_TABLE_ATTR) === PRIMARY_TABLE_VALUE;
+            if (shouldPrimary && !isPrimary) {
+                table.setAttribute(PRIMARY_TABLE_ATTR, PRIMARY_TABLE_VALUE);
+                changed = true;
+            } else if (!shouldPrimary && isPrimary) {
+                table.removeAttribute(PRIMARY_TABLE_ATTR);
+                changed = true;
+            }
+        });
+
+        if (!changed) {
+            return block;
+        }
+
+        return {
+            ...block,
+            content: isTableBlock
+                ? (tables[0]?.outerHTML || doc.body.innerHTML)
+                : doc.body.innerHTML,
+        };
     });
 }
 
@@ -183,8 +303,12 @@ export function replaceTableInBlocks(blocks, tableIndex, nextTableHtml) {
         const doc = parseHtml(block.content);
         const tables = Array.from(doc.body.querySelectorAll('table')).filter(isTopLevelTable);
         let changed = false;
+        const isTableBlock = block.type === 'table';
 
-        tables.forEach((table) => {
+        tables.forEach((table, localIndex) => {
+            if (isTableBlock && localIndex > 0) {
+                return;
+            }
             if (globalIndex === target) {
                 const wasPrimary = table.getAttribute(PRIMARY_TABLE_ATTR) === PRIMARY_TABLE_VALUE;
                 const replacement = nextTable.cloneNode(true);
@@ -203,7 +327,37 @@ export function replaceTableInBlocks(blocks, tableIndex, nextTableHtml) {
             return block;
         }
 
-        return { ...block, content: doc.body.innerHTML };
+        const updatedTables = Array.from(doc.body.querySelectorAll('table')).filter(isTopLevelTable);
+        return {
+            ...block,
+            content: isTableBlock
+                ? (updatedTables[0]?.outerHTML || doc.body.innerHTML)
+                : doc.body.innerHTML,
+        };
+    });
+}
+
+/**
+ * Replace table HTML for a type=table block by id.
+ * @returns {typeof blocks}
+ */
+export function replaceTableBlockContent(blocks, blockId, nextTableHtml) {
+    const targetId = String(blockId ?? '');
+    const next = extractSingleTableHtml(nextTableHtml);
+    if (!next || !targetId) {
+        return blocks;
+    }
+
+    return (Array.isArray(blocks) ? blocks : []).map((block) => {
+        if (!block || String(block.id ?? '') !== targetId) {
+            return block;
+        }
+        const wasPrimary = isPrimaryTableHtml(block.content);
+        return {
+            ...block,
+            type: 'table',
+            content: withPrimaryTableAttr(next, wasPrimary),
+        };
     });
 }
 

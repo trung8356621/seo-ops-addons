@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Services;
 
-use Omnichannel\Addons\AiPrompt\PromptHooks\PromptHookExecutionService;
+use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
+use Omnichannel\Addons\AiPrompt\Models\PromptResult;
+use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultFeaturedSnippetOptimizePromptInstaller;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\PromptBindingResolver;
 use Omnichannel\Addons\AiPrompt\Services\PromptResultLinkService;
+use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
 use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
 use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 use Omnichannel\Addons\AiPrompt\Services\WorkflowParserService;
@@ -17,8 +20,9 @@ use Omnichannel\Addons\Seo\Services\SeoAnalyzerService;
 
 /**
  * AI Optimize for one selected Featured Snippet table.
- * Uses article.featured_snippet.optimize — never article.featured_snippet.generate.
- * Preview only; Apply is a client-side replace (no second AI call).
+ * Uses article.featured_snippet.optimize Settings binding via PromptRunner —
+ * same path as Featured Snippet generate (does not require legacy schema_version=1
+ * PromptHookRegistry manifests). Preview only; Apply is client-side.
  */
 final class ArticleTableOptimizeService
 {
@@ -26,7 +30,7 @@ final class ArticleTableOptimizeService
 
     public function __construct(
         private readonly PromptBindingResolver $promptBindingResolver,
-        private readonly PromptHookExecutionService $hookExecution,
+        private readonly PromptRunnerService $promptRunner,
         private readonly SeoPromptSettingsService $promptSettings,
         private readonly SeoAnalyzerService $seoAnalyzer,
         private readonly SiteDomainPromptContextService $sitePromptContext,
@@ -77,8 +81,9 @@ final class ArticleTableOptimizeService
             $targetRows,
         );
 
+        /** @var SeoPrompt $prompt */
         $prompt = $this->promptBindingResolver->resolveSettingsHook(self::HOOK_KEY);
-        $runtimeInput = array_merge(
+        $variables = array_merge(
             [
                 'table_html' => $original,
                 'target_data_rows' => $targetRows,
@@ -99,17 +104,14 @@ final class ArticleTableOptimizeService
         );
 
         try {
-            $hookResult = $this->hookExecution->execute(
-                self::HOOK_KEY,
-                (int) $article->id,
-                $runtimeInput,
-                $prompt,
-            );
+            $result = $this->promptRunner->run($prompt, $variables);
+        } catch (PromptRunException $exception) {
+            return $this->fail($exception->getMessage(), $original, $thresholds);
         } catch (\Throwable $exception) {
             return $this->fail($exception->getMessage(), $original, $thresholds);
         }
 
-        $raw = trim((string) ($hookResult->output['value'] ?? $hookResult->output['raw'] ?? ''));
+        $raw = trim((string) ($result->output_text ?? ''));
         if ($raw === '') {
             return $this->fail('AI không trả về bảng tối ưu.', $original, $thresholds);
         }
@@ -124,22 +126,7 @@ final class ArticleTableOptimizeService
             return $this->fail($validationError, $original, $thresholds, $optimized);
         }
 
-        $promptResultId = $hookResult->promptResultId !== null && $hookResult->promptResultId > 0
-            ? (int) $hookResult->promptResultId
-            : null;
-        if ($promptResultId !== null) {
-            $this->promptResultLinks->linkPromptResult(
-                promptResultId: $promptResultId,
-                articleId: (int) $article->id,
-                source: 'article_featured_snippet_optimize',
-                workflowStepTitle: 'Optimize Featured Snippet Table (AI)',
-                meta: [
-                    'prompt_id' => (int) $prompt->id,
-                    'hook_key' => self::HOOK_KEY,
-                    'target_data_rows' => $targetRows,
-                ],
-            );
-        }
+        $this->linkPromptResult($article, $prompt, $result, $targetRows);
 
         $originalScore = $this->workflowParser->resolveFeaturedSnippetTableScore('', $original);
         $optimizedScore = $this->workflowParser->resolveFeaturedSnippetTableScore('', $optimized);
@@ -152,7 +139,7 @@ final class ArticleTableOptimizeService
             'thresholds' => $thresholds,
             'original_score' => $originalScore,
             'optimized_score' => $optimizedScore,
-            'prompt_result_id' => $promptResultId,
+            'prompt_result_id' => $result->id !== null ? (int) $result->id : null,
         ];
     }
 
@@ -285,5 +272,29 @@ final class ArticleTableOptimizeService
         }
 
         return $out;
+    }
+
+    private function linkPromptResult(
+        SeoArticle $article,
+        SeoPrompt $prompt,
+        PromptResult $result,
+        int $targetRows,
+    ): void {
+        $promptResultId = $result->id !== null ? (int) $result->id : 0;
+        if ($promptResultId <= 0) {
+            return;
+        }
+
+        $this->promptResultLinks->linkPromptResult(
+            promptResultId: $promptResultId,
+            articleId: (int) $article->id,
+            source: 'article_featured_snippet_optimize',
+            workflowStepTitle: 'Optimize Featured Snippet Table (AI)',
+            meta: [
+                'prompt_id' => (int) $prompt->id,
+                'hook_key' => self::HOOK_KEY,
+                'target_data_rows' => $targetRows,
+            ],
+        );
     }
 }

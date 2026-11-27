@@ -62,14 +62,16 @@ final class PlannerScrollSnapLayoutContractTest extends TestCase
         self::assertStringNotContainsString('cp-plan-context', $blade);
     }
 
-    public function test_improve_and_ai_cards_in_section_one(): void
+    public function test_improve_and_site_planning_cards_in_section_one(): void
     {
         $blade = LegacyAddonPath::read('resources/views/filament/pages/content-project-seo-audit-planner.blade.php');
         $draft = LegacyAddonPath::read('resources/views/components/content-project-draft-planner.blade.php');
 
         self::assertStringContainsString('content-project-draft-planner', $blade);
         self::assertStringContainsString('data-planner-card="improve"', $draft);
-        self::assertStringContainsString('content-project-new-content-card', $draft);
+        self::assertStringContainsString('data-planner-card="site-planning"', $draft);
+        self::assertStringContainsString('content-project-site-planning', $draft);
+        self::assertStringNotContainsString('content-project-new-content-card', $draft);
         self::assertStringContainsString('cp-plan-slide__grid', $draft);
     }
 

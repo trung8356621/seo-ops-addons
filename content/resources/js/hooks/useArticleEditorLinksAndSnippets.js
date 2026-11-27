@@ -91,12 +91,13 @@ export default function useArticleEditorLinksAndSnippets({ activeBlockId, active
 
             const targetSectionId = sectionByBlockId.get(blockId);
             // Expand target only — do NOT collapse other sections (media/image UX).
+            // Missing key = collapsed; skip while Outline baseline init locks expand.
             if (targetSectionId) {
-                setCollapsedSectionIds((prev) =>
-                    prev[targetSectionId]
-                        ? { ...prev, [targetSectionId]: false }
-                        : prev,
-                );
+                setCollapsedSectionIds((prev) => (
+                    prev[targetSectionId] === false
+                        ? prev
+                        : { ...prev, [targetSectionId]: false }
+                ));
             }
 
             clearTempMerge();
@@ -159,15 +160,27 @@ export default function useArticleEditorLinksAndSnippets({ activeBlockId, active
         const currentBlocks = blocksRef.current;
         let targetBlockId = null;
 
+        let fallbackBlockId = null;
         for (const block of currentBlocks) {
             if (block.type === 'image' || !block.content) {
                 continue;
             }
 
-            if (/<table\b/i.test(block.content)) {
+            if (!/<table\b/i.test(block.content)) {
+                continue;
+            }
+
+            if (/data-seo-primary-table\s*=\s*["']?1["']?/i.test(block.content)) {
                 targetBlockId = block.id;
                 break;
             }
+
+            if (!fallbackBlockId) {
+                fallbackBlockId = block.id;
+            }
+        }
+        if (!targetBlockId) {
+            targetBlockId = fallbackBlockId;
         }
 
         if (!targetBlockId) {

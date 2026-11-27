@@ -9,8 +9,12 @@ use Filament\Support\Enums\MaxWidth;
 use Illuminate\Contracts\Support\Htmlable;
 use Livewire\Attributes\On;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditNoteClusterSuggestionQuery;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager\IdeaManagerActiveMonthPreference;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager\IdeaManagerDistributionService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager\IdeaWorkspaceItemOps;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager\IdeaWorkspacePersistenceService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\SitePlanningReadModel;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\Seo\Filament\Concerns\HidesFilamentPageHeader;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoPanelPage;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -18,8 +22,9 @@ use Omnichannel\Addons\Seo\Support\SeoUserNavigation;
 use Throwable;
 
 /**
- * Idea Manager — parallel to Content Planning SEO Audit Notes.
- * Local-first UI + debounced server autosave. Does not modify SEO Audit.
+ * Idea Manager Phase 2 — Active Month + Cluster sidebar + Kho Idea + Site Planning.
+ * Distribution merges into destination Idea workspace (no Generate/Publish).
+ * Does not modify SEO Audit.
  */
 final class ContentProjectIdeaManager extends SeoPanelPage
 {
@@ -35,9 +40,24 @@ final class ContentProjectIdeaManager extends SeoPanelPage
 
     protected static string $view = 'seo-content-ai::filament.pages.content-project-idea-manager';
 
+    /**
+     * Working warehouse site (seo_content_project_idea_workspaces ownership).
+     * Independent of sidebar Cluster source filter.
+     */
     public ?int $filterSiteId = null;
 
-    public string $activeTab = 'ideas';
+    /**
+     * Sidebar Cluster Notes filter only — must NOT mutate warehouse or Idea provenance.
+     */
+    public ?int $sourceFilterSiteId = null;
+
+    /** Destination site from Site Planning selection (independent of source filter + warehouse). */
+    public ?int $targetSiteId = null;
+
+    /** Idea Manager Active Month (YYYY-MM) — user preference; not item planning_month. */
+    public string $activeMonth = '';
+
+    public bool $sidebarCollapsed = false;
 
     /** @var array<string, mixed>|null */
     public ?array $workspaceSnapshot = null;
@@ -73,9 +93,15 @@ final class ContentProjectIdeaManager extends SeoPanelPage
     public function mount(): void
     {
         abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+        $this->activeMonth = IdeaManagerActiveMonthPreference::get();
         $this->applyOptionalSiteQueryParam();
         $this->ensureConcreteGlobalWorkingSite();
+        // Source filter defaults to working site for Cluster search only.
+        $this->sourceFilterSiteId = (int) ($this->filterSiteId ?? 0) > 0
+            ? (int) $this->filterSiteId
+            : null;
         $this->refreshWorkspaceFromServer();
+        $this->loadClusterSuggestions();
     }
 
     public function getTitle(): string|Htmlable
@@ -96,21 +122,179 @@ final class ContentProjectIdeaManager extends SeoPanelPage
             ? (int) $siteId
             : SeoAccessControl::globalSiteId();
 
+        // Global Domain updates working warehouse site — never overwrites an explicit target
+        // and never forces sourceFilterSiteId (sidebar Cluster filter stays user-controlled).
         $this->ensureConcreteGlobalWorkingSite($resolved);
-        $this->clusterPage = 1;
-        $this->clusterRows = [];
-        $this->clusterTotal = 0;
         $this->refreshWorkspaceFromServer();
         $this->dispatch('idea-manager-site-changed', siteId: (int) ($this->filterSiteId ?? 0));
     }
 
-    public function setActiveTab(string $tab): void
+    public function setActiveMonth(string $month): void
     {
-        $allowed = ['ideas', 'cluster', 'published'];
-        $this->activeTab = in_array($tab, $allowed, true) ? $tab : 'ideas';
-        if ($this->activeTab === 'cluster' && $this->clusterRows === []) {
-            $this->loadClusterSuggestions();
+        $this->activeMonth = IdeaManagerActiveMonthPreference::set($month);
+        // Re-render Site Planning highlight only — do not touch workspaces or planning_month.
+        $this->dispatch('idea-manager-active-month-changed', month: $this->activeMonth);
+    }
+
+    public function updatedActiveMonth(string $value): void
+    {
+        $this->setActiveMonth($value);
+    }
+
+    public function toggleSidebar(): void
+    {
+        $this->sidebarCollapsed = ! $this->sidebarCollapsed;
+    }
+
+    public function setSourceSite(int $siteId): void
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+        if ($siteId <= 0 || ! SeoAccessControl::canAccessSite($siteId)) {
+            return;
         }
+
+        // Cluster Notes filter only — do NOT change warehouse ownership / Alpine working set.
+        $this->sourceFilterSiteId = $siteId;
+        $this->clusterPage = 1;
+        $this->clusterRows = [];
+        $this->clusterTotal = 0;
+        $this->loadClusterSuggestions();
+        $domain = (string) (Site::query()->whereKey($siteId)->value('domain') ?? '');
+        $this->dispatch('idea-manager-source-filter-changed', siteId: $siteId, domain: $domain);
+    }
+
+    public function selectIdeaManagerTargetSite(int $siteId): void
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+        if ($siteId <= 0 || ! SeoAccessControl::canAccessSite($siteId)) {
+            return;
+        }
+
+        // Destination only — never mutates source workspace or item ownership.
+        $this->targetSiteId = $siteId;
+        $domain = (string) (Site::query()->whereKey($siteId)->value('domain') ?? '');
+        $this->dispatch('idea-manager-target-changed', siteId: $siteId, domain: $domain);
+    }
+
+    /**
+     * Destination duplicate preview for selected Ideas (workspace + Topic Core).
+     *
+     * @param  list<array<string, mixed>>  $selectedItems
+     * @return array<string, mixed>
+     */
+    public function previewDistribution(array $selectedItems): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+        $targetId = (int) ($this->targetSiteId ?? 0);
+        if ($targetId <= 0) {
+            return [
+                'target_site_id' => null,
+                'target_domain' => '',
+                'active_month' => ContentProjectMonthContext::normalize($this->activeMonth ?: null),
+                'eligible_count' => 0,
+                'duplicate_count' => 0,
+                'can_confirm' => false,
+                'items' => [],
+            ];
+        }
+
+        return app(IdeaManagerDistributionService::class)->preview(
+            $targetId,
+            $selectedItems,
+            $this->activeMonth,
+        );
+    }
+
+    /**
+     * Confirm distribution into destination Idea workspace. Source unchanged.
+     *
+     * @param  list<array<string, mixed>>  $selectedItems
+     * @return array<string, mixed>
+     */
+    public function confirmDistribution(array $selectedItems): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+        $sourceId = (int) ($this->filterSiteId ?? 0);
+        $targetId = (int) ($this->targetSiteId ?? 0);
+
+        return app(IdeaManagerDistributionService::class)->confirm(
+            $sourceId,
+            $targetId,
+            $selectedItems,
+            $this->activeMonth,
+            $this->actorId(),
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function sitePlanningPayload(): array
+    {
+        return app(SitePlanningReadModel::class)->overview(
+            null,
+            ContentProjectMonthContext::normalize($this->activeMonth ?: null),
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function sitePlanningCellDetail(int $siteId, string $planningMonth): array
+    {
+        abort_unless(SeoAccessControl::canAccessSite($siteId), 403);
+
+        return app(SitePlanningReadModel::class)->cellDetail($siteId, $planningMonth);
+    }
+
+    /**
+     * @return array{
+     *   active_month: string,
+     *   target_site_id: int|null,
+     *   target_domain: string,
+     *   planned: int|null,
+     *   target: int|null,
+     *   over_target: bool,
+     *   contract: string
+     * }
+     */
+    public function distributionContext(): array
+    {
+        $month = ContentProjectMonthContext::normalize($this->activeMonth ?: null);
+        $targetId = (int) ($this->targetSiteId ?? 0);
+        $domain = '';
+        $planned = null;
+        $target = null;
+        $over = false;
+
+        if ($targetId > 0 && SeoAccessControl::canAccessSite($targetId)) {
+            $domain = (string) (Site::query()->whereKey($targetId)->value('domain') ?? '');
+            $payload = $this->sitePlanningPayload();
+            foreach (($payload['rows'] ?? []) as $row) {
+                if ((int) ($row['site_id'] ?? 0) !== $targetId) {
+                    continue;
+                }
+                foreach (($row['months'] ?? []) as $cell) {
+                    if (ContentProjectMonthContext::normalize((string) ($cell['planning_month'] ?? '')) !== $month) {
+                        continue;
+                    }
+                    $planned = (int) ($cell['planned'] ?? 0);
+                    $target = (int) ($cell['target'] ?? 0);
+                    $over = (bool) ($cell['over_target'] ?? false);
+                    break 2;
+                }
+            }
+        }
+
+        return [
+            'active_month' => $month,
+            'target_site_id' => $targetId > 0 ? $targetId : null,
+            'target_domain' => $domain,
+            'planned' => $planned,
+            'target' => $target,
+            'over_target' => $over,
+            'contract' => 'destination_idea_workspace',
+        ];
     }
 
     public function refreshWorkspaceFromServer(): void
@@ -223,7 +407,7 @@ final class ContentProjectIdeaManager extends SeoPanelPage
 
     public function loadClusterSuggestions(): void
     {
-        $siteId = (int) ($this->filterSiteId ?? 0);
+        $siteId = (int) ($this->sourceFilterSiteId ?? $this->filterSiteId ?? 0);
         $this->clusterLoading = true;
         if ($siteId <= 0 || ! SeoAccessControl::canAccessSite($siteId)) {
             $this->clusterRows = [];
@@ -245,8 +429,6 @@ final class ContentProjectIdeaManager extends SeoPanelPage
     }
 
     /**
-     * Server-side bulk preview (canonical normalize + dedupe).
-     *
      * @param  list<array<string, mixed>>  $existing
      * @return array<string, mixed>
      */
@@ -272,8 +454,42 @@ final class ContentProjectIdeaManager extends SeoPanelPage
     }
 
     /**
-     * Optional ?site_id= preselect (permitted sites only). Never required.
+     * @return array{site_id: int, domain: string}
      */
+    public function getSourceFilterPayloadProperty(): array
+    {
+        $siteId = (int) ($this->sourceFilterSiteId ?? 0);
+        $domain = '';
+        if ($siteId > 0) {
+            $domain = (string) (Site::query()->whereKey($siteId)->value('domain') ?? '');
+        }
+
+        return ['site_id' => $siteId, 'domain' => $domain];
+    }
+
+    /**
+     * @return list<array{id: int, domain: string}>
+     */
+    public function getSourceSiteOptionsProperty(): array
+    {
+        return SeoAccessControl::accessibleSitesQuery()
+            ->orderBy('domain')
+            ->get(['id', 'domain'])
+            ->map(static fn (Site $s): array => [
+                'id' => (int) $s->getKey(),
+                'domain' => (string) ($s->domain ?? ('#'.$s->getKey())),
+            ])
+            ->all();
+    }
+
+    /**
+     * @return list<array{value: string, label: string}>
+     */
+    public function getActiveMonthOptionsProperty(): array
+    {
+        return IdeaManagerActiveMonthPreference::options();
+    }
+
     protected function applyOptionalSiteQueryParam(): void
     {
         $raw = request()->query('site_id', request()->query('site'));
@@ -287,10 +503,6 @@ final class ContentProjectIdeaManager extends SeoPanelPage
         SeoAccessControl::setGlobalSiteId($siteId);
     }
 
-    /**
-     * Mirror Content Planning: prefer Global Domain, else first accessible site.
-     * Page works with no site_id in the URL.
-     */
     protected function ensureConcreteGlobalWorkingSite(?int $preferred = null): void
     {
         $siteId = ($preferred !== null && $preferred > 0)

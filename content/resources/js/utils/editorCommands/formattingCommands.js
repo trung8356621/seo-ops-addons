@@ -6,6 +6,7 @@ import { EDITOR_COMMAND_CODES, failCommand, okCommand } from './editorCommandRes
 import { resolveTargetEditor } from './resolveTargetEditor';
 import { runEditorTransaction } from './runEditorTransaction';
 import { canApplyParagraphStyle } from '../paragraphStyleCompatibility';
+import { runHostStructure } from './structureCommands';
 
 function withEditor(context, payload, name, run) {
     const resolved = resolveTargetEditor(context, payload, name);
@@ -125,21 +126,24 @@ export function setColorCommand(context, payload = {}) {
 }
 
 export function insertTableCommand(context, payload = {}) {
-    return withEditor(context, payload, 'insert_table', (editor, editorId) => (
-        runEditorTransaction({
-            editor,
-            editorId,
-            command: 'insert_table',
-            context,
-            historyPolicy: 'add',
-            successCode: EDITOR_COMMAND_CODES.INSERTED,
-            build: (ed) => ed.chain().focus().insertTable({
-                rows: Number(payload.rows) || 3,
-                cols: Number(payload.cols) || 3,
-                withHeaderRow: payload.withHeaderRow !== false,
-            }).run(),
-        })
-    ));
+    const blockId = String(
+        payload.blockId
+        ?? payload.id
+        ?? context.activeEditorId
+        ?? context.insertionContext?.activeBlockId
+        ?? '',
+    ).trim();
+
+    if (!blockId) {
+        return failCommand('insert_table', EDITOR_COMMAND_CODES.TARGET_MISSING);
+    }
+
+    return runHostStructure(context, 'insert_block_relative', {
+        ...payload,
+        blockId,
+        type: 'table',
+        position: payload.position === 'before' ? 'before' : 'after',
+    });
 }
 
 export function insertEmojiCommand(context, payload = {}) {

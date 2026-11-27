@@ -204,7 +204,11 @@
                 },
 
                 reviewShowsStatusBadge() {
-                    return Boolean(this.reviewStatus) && this.reviewStatus !== 'draft';
+                    return Boolean(this.reviewStatus);
+                },
+
+                reviewHasActions() {
+                    return Array.isArray(this.reviewActions) && this.reviewActions.length > 0;
                 },
 
                 reviewLatestTooltip() {
@@ -333,7 +337,7 @@
     </script>
 @endonce
 
-{{-- Top bar: Save → Sync → Preview(split) → Duyệt bài | More --}}
+{{-- Top bar: Save → Sync → Approval status/action | Help | More (Preview in More) --}}
 <div
     class="seo-editor-page-actions"
     data-seo-page-actions-slot
@@ -435,152 +439,39 @@
             @endif
         @endif
 
-        <div class="seo-editor-preview-split seo-editor-page-actions__desktop-only" data-seo-page-action="preview">
-            @if ($hasWpPreview)
-                <a
-                    href="{{ $wpPreviewUrl }}"
-                    target="_blank"
-                    rel="noopener"
-                    class="seo-editor-toolbar-btn seo-editor-toolbar-btn--labeled seo-editor-preview-split__main"
-                    title="{{ __('seo-content-ai::filament.article_list.page_action_preview_wp') }}"
-                    aria-label="{{ __('seo-content-ai::filament.article_list.page_action_preview_wp') }}"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.964-7.178Z" />
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                    </svg>
-                    <span class="seo-editor-toolbar-btn__label">{{ $previewLabel }}</span>
-                </a>
-            @elseif ($hasInternalPreview)
-                <a
-                    href="{{ $internalPreviewUrl }}"
-                    target="_blank"
-                    rel="noopener"
-                    class="seo-editor-toolbar-btn seo-editor-toolbar-btn--labeled seo-editor-preview-split__main"
-                    title="{{ __('seo-content-ai::filament.article_list.page_action_preview_internal') }}"
-                    aria-label="{{ __('seo-content-ai::filament.article_list.page_action_preview_internal') }}"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.964-7.178Z" />
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                    </svg>
-                    <span class="seo-editor-toolbar-btn__label">{{ $previewLabel }}</span>
-                </a>
-            @else
-                <button
-                    type="button"
-                    class="seo-editor-toolbar-btn seo-editor-toolbar-btn--labeled seo-editor-preview-split__main"
-                    title="{{ __('seo-content-ai::filament.article_list.page_action_preview') }}"
-                    aria-label="{{ __('seo-content-ai::filament.article_list.page_action_preview') }}"
-                    x-on:click="window.dispatchEvent(new CustomEvent('article-editor-shortcut', { detail: { action: 'preview' } }))"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.964-7.178Z" />
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                    </svg>
-                    <span class="seo-editor-toolbar-btn__label">{{ $previewLabel }}</span>
-                </button>
-            @endif
-
-            <button
-                type="button"
-                class="seo-editor-toolbar-btn seo-editor-preview-split__chevron"
-                title="{{ __('seo-content-ai::filament.article_list.page_action_preview_menu') }}"
-                aria-label="{{ __('seo-content-ai::filament.article_list.page_action_preview_menu') }}"
-                x-bind:aria-expanded="previewOpen"
-                x-on:click.stop="previewOpen = !previewOpen; moreOpen = false; reviewMenuOpen = false"
-            >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                    <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 10.94l3.71-3.71a.75.75 0 1 1 1.06 1.06l-4.24 4.24a.75.75 0 0 1-1.06 0L5.21 8.29a.75.75 0 0 1 .02-1.08Z" clip-rule="evenodd" />
-                </svg>
-            </button>
-
-            <div
-                class="seo-editor-preview-split__menu"
-                x-show="previewOpen"
-                x-cloak
-                role="menu"
-            >
-                @if ($hasWpPreview)
-                    <a
-                        href="{{ $wpPreviewUrl }}"
-                        target="_blank"
-                        rel="noopener"
-                        role="menuitem"
-                        class="seo-editor-menu-item"
-                        x-on:click="previewOpen = false"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-                        </svg>
-                        <span>{{ __('seo-content-ai::filament.article_list.page_action_preview_wp') }}</span>
-                    </a>
-                @else
-                    <span class="seo-editor-menu-item is-disabled" role="menuitem" aria-disabled="true">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-                        </svg>
-                        <span>{{ __('seo-content-ai::filament.article_list.page_action_preview_wp') }}</span>
-                    </span>
-                @endif
-
-                @if ($hasInternalPreview)
-                    <a
-                        href="{{ $internalPreviewUrl }}"
-                        target="_blank"
-                        rel="noopener"
-                        role="menuitem"
-                        class="seo-editor-menu-item"
-                        x-on:click="previewOpen = false"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.964-7.178Z" />
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                        </svg>
-                        <span>{{ __('seo-content-ai::filament.article_list.page_action_preview_internal') }}</span>
-                    </a>
-                @endif
-            </div>
-        </div>
-
         <div class="seo-editor-review-cluster" data-seo-page-action="review">
-            {{-- Status always visible when not draft (canonical review_status from bootstrap/API). --}}
+            {{-- Unified status + action dropdown (canonical review_status / available_actions). --}}
             <template x-if="reviewShowsStatusBadge()">
-                <span
-                    class="seo-editor-review-badge"
-                    x-bind:data-status="reviewStatus"
-                    x-bind:title="reviewLatestTooltip()"
-                    data-seo-page-action="review-badge"
-                >
-                    <span x-text="reviewBadgeLabelText()"></span>
-                </span>
-            </template>
-
-            {{-- Forward CTA (submit_review / approve / archive): prominent label + note menu --}}
-            <template x-if="reviewIsForwardAction()">
                 <div
-                    class="seo-editor-preview-split seo-editor-review-split"
+                    class="seo-editor-preview-split seo-editor-review-status-split"
                     x-bind:class="{
                         'is-open': reviewMenuOpen,
                         'is-disabled': reviewLoading,
+                        'is-readonly': ! reviewHasActions(),
                         'is-pending-cta': reviewIsPendingCta(),
                     }"
+                    x-bind:data-status="reviewStatus"
+                    data-seo-page-action="review-badge"
                 >
                     <button
                         type="button"
-                        class="seo-editor-toolbar-btn seo-editor-toolbar-btn--labeled seo-editor-preview-split__main"
+                        class="seo-editor-toolbar-btn seo-editor-toolbar-btn--labeled seo-editor-preview-split__main seo-editor-review-status-btn"
                         x-bind:class="{ 'seo-editor-toolbar-btn--review-cta': reviewIsPendingCta() }"
                         x-bind:disabled="reviewLoading"
-                        x-on:click="submitReviewAction(reviewPrimaryAction()?.type, null)"
-                        x-bind:title="reviewPrimaryAction()?.label"
-                        x-bind:aria-label="reviewCtaLabel()"
+                        x-bind:title="reviewLatestTooltip() || reviewBadgeLabelText()"
+                        x-bind:aria-label="reviewBadgeLabelText()"
+                        x-bind:aria-expanded="reviewMenuOpen"
+                        x-on:click.stop="
+                            if (! reviewHasActions() || reviewLoading) { return; }
+                            reviewMenuOpen = ! reviewMenuOpen;
+                            moreOpen = false;
+                            previewOpen = false;
+                        "
                         data-seo-page-action="review-cta"
                     >
                         <span class="seo-editor-toolbar-btn__inner" x-show="! reviewLoading">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                            </svg>
-                            <span class="seo-editor-toolbar-btn__label" x-text="reviewCtaLabel()"></span>
+                            <span class="seo-editor-review-status-dot" aria-hidden="true"></span>
+                            <span class="seo-editor-toolbar-btn__label" x-text="reviewBadgeLabelText()"></span>
                         </span>
                         <span class="seo-editor-toolbar-btn__spinner" x-show="reviewLoading" aria-hidden="true"></span>
                     </button>
@@ -588,80 +479,55 @@
                         type="button"
                         class="seo-editor-toolbar-btn seo-editor-preview-split__chevron"
                         x-bind:class="{ 'seo-editor-toolbar-btn--review-cta': reviewIsPendingCta() }"
-                        x-bind:disabled="reviewLoading"
+                        x-bind:disabled="reviewLoading || ! reviewHasActions()"
                         x-bind:aria-expanded="reviewMenuOpen"
-                        x-on:click.stop="reviewMenuOpen = ! reviewMenuOpen; moreOpen = false; previewOpen = false"
-                        x-bind:aria-label="reviewPrimaryAction()?.note_label"
-                        x-bind:title="reviewPrimaryAction()?.note_label"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                            <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 10.94l3.71-3.71a.75.75 0 1 1 1.06 1.06l-4.24 4.24a.75.75 0 0 1-1.06 0L5.21 8.29a.75.75 0 0 1 .02-1.08Z" clip-rule="evenodd" />
-                        </svg>
-                    </button>
-                    <div class="seo-editor-preview-split__menu" x-show="reviewMenuOpen" x-cloak role="menu">
-                        <button
-                            type="button"
-                            role="menuitem"
-                            class="seo-editor-menu-item"
-                            x-on:click="reviewMenuOpen = false; openReviewModal(reviewPrimaryAction())"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487 18.549 2.8a2.121 2.121 0 0 1 3 3l-1.687 1.688m-3-3L6.75 15.7l-.375 3.375 3.375-.375L18.862 7.487m-3-3 3 3M6.75 19.5H4.5a2.25 2.25 0 0 1-2.25-2.25v-11A2.25 2.25 0 0 1 4.5 4h5.25" />
-                            </svg>
-                            <span x-text="reviewPrimaryAction()?.note_label"></span>
-                        </button>
-                    </div>
-                </div>
-            </template>
-
-            {{-- Reverse (unapprove/reopen): menu only — do not make status look like a reverse CTA --}}
-            <template x-if="reviewPrimaryAction() && reviewIsToggleAction()">
-                <div
-                    class="seo-editor-preview-split seo-editor-review-split"
-                    x-bind:class="{ 'is-open': reviewMenuOpen, 'is-disabled': reviewLoading }"
-                >
-                    <button
-                        type="button"
-                        class="seo-editor-toolbar-btn seo-editor-toolbar-btn--labeled seo-editor-preview-split__main"
-                        x-bind:disabled="reviewLoading"
-                        x-on:click="submitReviewAction(reviewPrimaryAction()?.type, null)"
-                        x-bind:title="reviewPrimaryAction()?.label"
-                        x-bind:aria-label="reviewPrimaryAction()?.label"
+                        x-on:click.stop="
+                            if (! reviewHasActions() || reviewLoading) { return; }
+                            reviewMenuOpen = ! reviewMenuOpen;
+                            moreOpen = false;
+                            previewOpen = false;
+                        "
+                        x-bind:aria-label="reviewBadgeLabelText()"
+                        x-bind:title="reviewBadgeLabelText()"
                         data-seo-page-action="review-toggle"
                     >
-                        <span class="seo-editor-toolbar-btn__inner" x-show="! reviewLoading">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" />
-                            </svg>
-                            <span class="seo-editor-toolbar-btn__label" x-text="reviewPrimaryAction()?.label"></span>
-                        </span>
-                        <span class="seo-editor-toolbar-btn__spinner" x-show="reviewLoading" aria-hidden="true"></span>
-                    </button>
-                    <button
-                        type="button"
-                        class="seo-editor-toolbar-btn seo-editor-preview-split__chevron"
-                        x-bind:disabled="reviewLoading"
-                        x-bind:aria-expanded="reviewMenuOpen"
-                        x-on:click.stop="reviewMenuOpen = ! reviewMenuOpen; moreOpen = false; previewOpen = false"
-                        x-bind:aria-label="reviewPrimaryAction()?.note_label"
-                        x-bind:title="reviewPrimaryAction()?.note_label"
-                    >
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                             <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 10.94l3.71-3.71a.75.75 0 1 1 1.06 1.06l-4.24 4.24a.75.75 0 0 1-1.06 0L5.21 8.29a.75.75 0 0 1 .02-1.08Z" clip-rule="evenodd" />
                         </svg>
                     </button>
-                    <div class="seo-editor-preview-split__menu" x-show="reviewMenuOpen" x-cloak role="menu">
-                        <button
-                            type="button"
-                            role="menuitem"
-                            class="seo-editor-menu-item"
-                            x-on:click="reviewMenuOpen = false; openReviewModal(reviewPrimaryAction())"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487 18.549 2.8a2.121 2.121 0 0 1 3 3l-1.687 1.688m-3-3L6.75 15.7l-.375 3.375 3.375-.375L18.862 7.487m-3-3 3 3M6.75 19.5H4.5a2.25 2.25 0 0 1-2.25-2.25v-11A2.25 2.25 0 0 1 4.5 4h5.25" />
-                            </svg>
-                            <span x-text="reviewPrimaryAction()?.note_label"></span>
-                        </button>
+                    <div
+                        class="seo-editor-preview-split__menu"
+                        x-show="reviewMenuOpen && reviewHasActions()"
+                        x-cloak
+                        role="menu"
+                    >
+                        <template x-for="action in reviewActions" x-bind:key="action.type">
+                            <div class="seo-editor-review-action-group">
+                                <button
+                                    type="button"
+                                    role="menuitem"
+                                    class="seo-editor-menu-item"
+                                    x-on:click="reviewMenuOpen = false; submitReviewAction(action.type, null)"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                    </svg>
+                                    <span x-text="action.label || action.quick_label"></span>
+                                </button>
+                                <button
+                                    type="button"
+                                    role="menuitem"
+                                    class="seo-editor-menu-item"
+                                    x-show="action.note_label"
+                                    x-on:click="reviewMenuOpen = false; openReviewModal(action)"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487 18.549 2.8a2.121 2.121 0 0 1 3 3l-1.687 1.688m-3-3L6.75 15.7l-.375 3.375 3.375-.375L18.862 7.487m-3-3 3 3M6.75 19.5H4.5a2.25 2.25 0 0 1-2.25-2.25v-11A2.25 2.25 0 0 1 4.5 4h5.25" />
+                                    </svg>
+                                    <span x-text="action.note_label"></span>
+                                </button>
+                            </div>
+                        </template>
                     </div>
                 </div>
             </template>
@@ -717,13 +583,13 @@
             role="menu"
             data-seo-page-actions-more-panel
         >
-            {{-- Compact: Preview / Approve (tablet+) — cùng handler, chỉ hiện khi desktop primary ẩn --}}
+            {{-- Preview lives in More (not primary header). --}}
             @if ($hasWpPreview)
                 <a
                     href="{{ $wpPreviewUrl }}"
                     target="_blank"
                     rel="noopener"
-                    class="seo-editor-menu-item seo-editor-page-actions__compact-only"
+                    class="seo-editor-menu-item"
                     role="menuitem"
                     data-seo-page-action="preview"
                     x-on:click="moreOpen = false"
@@ -732,14 +598,15 @@
                         <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.964-7.178Z" />
                         <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
                     </svg>
-                    <span>{{ $previewLabel }}</span>
+                    <span>{{ __('seo-content-ai::filament.article_list.page_action_preview_wp') }}</span>
                 </a>
-            @elseif ($hasInternalPreview)
+            @endif
+            @if ($hasInternalPreview)
                 <a
                     href="{{ $internalPreviewUrl }}"
                     target="_blank"
                     rel="noopener"
-                    class="seo-editor-menu-item seo-editor-page-actions__compact-only"
+                    class="seo-editor-menu-item"
                     role="menuitem"
                     data-seo-page-action="preview"
                     x-on:click="moreOpen = false"
@@ -748,12 +615,13 @@
                         <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.964-7.178Z" />
                         <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
                     </svg>
-                    <span>{{ $previewLabel }}</span>
+                    <span>{{ __('seo-content-ai::filament.article_list.page_action_preview_internal') }}</span>
                 </a>
-            @else
+            @endif
+            @if (! $hasWpPreview && ! $hasInternalPreview)
                 <button
                     type="button"
-                    class="seo-editor-menu-item seo-editor-page-actions__compact-only"
+                    class="seo-editor-menu-item"
                     role="menuitem"
                     data-seo-page-action="preview"
                     x-on:click="moreOpen = false; window.dispatchEvent(new CustomEvent('article-editor-shortcut', { detail: { action: 'preview' } }))"
@@ -768,7 +636,7 @@
 
             {{-- Review stays in the primary toolbar (not overflow) so Writers always see status/CTA. --}}
 
-            <div class="seo-editor-menu-divider seo-editor-page-actions__compact-only" aria-hidden="true"></div>
+            <div class="seo-editor-menu-divider" aria-hidden="true"></div>
 
             <a
                 href="{{ $historyUrl }}"

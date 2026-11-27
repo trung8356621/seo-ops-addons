@@ -205,6 +205,8 @@ export default function useArticleEditorSearch({ blockById, clearTempMerge, comm
                 totalMatches += sectionCount;
                 if (sectionCount > 0) {
                     sectionsWithMatches += 1;
+                    // Explicit false = expanded (missing key now means collapsed).
+                    nextCollapsed[section.id] = false;
                 } else {
                     nextCollapsed[section.id] = true;
                 }

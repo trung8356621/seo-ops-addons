@@ -42,17 +42,13 @@
     $splitDomainWarning = is_array($splitUi['domain_warning'] ?? null) ? $splitUi['domain_warning'] : null;
     $splitWriterCount = (int) ($splitUi['writer_count'] ?? count($splitIncludedWriters));
     $splitTargetMonthLabel = (string) ($splitUi['target_month_label'] ?? $splitStartMonthLabel);
-    $ideaPayload = $this->ideaCandidatesPayload ?? [];
-    $ideaPaginator = $ideaPayload['paginator'] ?? null;
-    $ideaTotal = $ideaPaginator instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator
-        ? (int) $ideaPaginator->total()
-        : count(is_array($ideaPayload['rows'] ?? null) ? $ideaPayload['rows'] : []);
+    $ideaManagerUrl = \Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectIdeaManager::getUrl();
 @endphp
 
 <div
     class="cp-plan-slide__planner space-y-3"
     wire:key="cp-draft-content-planner"
-    x-data="{ filtersOpen: true, createTab: 'ideas', plannerLayout: 'balanced' }"
+    x-data="{ filtersOpen: true }"
 >
     @if ($showProjectActions)
         <div class="flex flex-wrap items-end justify-between gap-3">
@@ -108,17 +104,16 @@
 
     <div
         class="cp-plan-slide__grid cp-plan-grid"
-        :class="{ 'is-ai-focused': plannerLayout === 'ai-focused' }"
         data-planner-grid="1"
-        :data-planner-layout="plannerLayout"
+        data-planner-layout="two-column"
     >
-        {{-- Improve | Create tabs | Site Planning (3 columns on desktop) --}}
+        {{-- Improve | Site Planning (2 columns on desktop) --}}
         <div class="cp-plan-card cp-plan-card--improve cp-plan-card--with-sticky-cta" data-planner-card="improve">
             <div class="cp-plan-card__head">
                 <span class="cp-plan-card__icon cp-plan-card__icon--improve" aria-hidden="true">
                     <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 7-7"/><path d="M14 8h7v7"/></svg>
                 </span>
-                <div>
+                <div class="min-w-0 flex-1">
                     <h3 class="cp-plan-card__title">
                         {{ __('seo-content-ai::filament.projects.planner_improve_heading') }}
                     </h3>
@@ -126,6 +121,13 @@
                         {{ __('seo-content-ai::filament.projects.planner_improve_help') }}
                     </p>
                 </div>
+                <a
+                    href="{{ $ideaManagerUrl }}"
+                    class="fi-btn fi-btn-color-primary fi-size-sm shrink-0"
+                    data-planner-action="idea-manager"
+                >
+                    {{ __('seo-content-ai::filament.projects.idea_manager_nav_label') }}
+                </a>
             </div>
 
             <div class="cp-plan-card__scroll" data-plan-scroll="improve">
@@ -278,86 +280,7 @@
             </div>
         </div>
 
-        {{-- Create / ideas (blue outer panel; tab panels stacked for stable height) --}}
-        <div class="cp-plan-card cp-plan-card--create" data-planner-card="create">
-            <div class="cp-plan-create-head">
-                <div class="cp-plan-create-head__title">
-                    <span class="cp-plan-card__icon cp-plan-card__icon--create" aria-hidden="true">
-                        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 017 7c0 2.38-1.19 4.47-3 5.74V17H8v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 017-7z"/></svg>
-                    </span>
-                    <h3 class="cp-plan-card__title">
-                        {{ __('seo-content-ai::filament.projects.idea_candidate_tab_available') }}
-                        <span class="cp-plan-create-tab__badge" data-idea-total-badge="1">{{ $ideaTotal }}</span>
-                    </h3>
-                </div>
-                <div class="cp-plan-create-tabs" role="tablist" aria-label="{{ __('seo-content-ai::filament.projects.planner_create_heading') }}">
-                <button
-                    type="button"
-                    role="tab"
-                    class="cp-plan-create-tab"
-                    :class="createTab === 'ideas' && 'is-active'"
-                    :aria-selected="createTab === 'ideas'"
-                    @click="createTab = 'ideas'; plannerLayout = 'balanced'"
-                    data-create-tab="ideas"
-                >
-                    {{ __('seo-content-ai::filament.projects.idea_candidate_tab_available') }}
-                    <span class="cp-plan-create-tab__badge" data-idea-total-badge="1">{{ $ideaTotal }}</span>
-                </button>
-                <button
-                    type="button"
-                    role="tab"
-                    class="cp-plan-create-tab"
-                    :class="createTab === 'ai' && 'is-active'"
-                    :aria-selected="createTab === 'ai'"
-                    @click="createTab = 'ai'; plannerLayout = 'ai-focused'"
-                    data-create-tab="ai"
-                >
-                    {{ __('seo-content-ai::filament.projects.idea_candidate_tab_ai_short') }}
-                </button>
-                @php
-                    $aiHistoryTabUrl = method_exists($this, 'draftAiHistoryUrl')
-                        ? $this->draftAiHistoryUrl()
-                        : (method_exists($this, 'newContentDraftAiHistoryUrl') ? $this->newContentDraftAiHistoryUrl() : '#');
-                @endphp
-                @if ($aiHistoryTabUrl !== '#')
-                    <a
-                        href="{{ $aiHistoryTabUrl }}"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        role="tab"
-                        class="cp-plan-create-tab cp-plan-create-tab--external"
-                        data-create-tab="ai-history"
-                        data-new-content-ai-history="1"
-                        title="{{ __('seo-content-ai::filament.projects.draft_ai_history_nav') }}"
-                    >
-                        {{ __('seo-content-ai::filament.projects.draft_ai_history_nav') }}
-                        <svg class="h-3.5 w-3.5 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>
-                    </a>
-                @endif
-                </div>
-            </div>
-
-            <div class="cp-plan-tab-panels">
-                <div
-                    class="cp-plan-tab-panel"
-                    data-create-panel="ideas"
-                    :class="createTab === 'ideas' ? 'is-active' : 'is-inactive'"
-                    :aria-hidden="createTab !== 'ideas'"
-                >
-                    <x-seo-content-ai::content-project-idea-candidate-picker :embedded="true" />
-                </div>
-                <div
-                    class="cp-plan-tab-panel"
-                    data-create-panel="ai"
-                    :class="createTab === 'ai' ? 'is-active' : 'is-inactive'"
-                    :aria-hidden="createTab !== 'ai'"
-                >
-                    <x-seo-content-ai::content-project-new-content-card :embedded="true" />
-                </div>
-            </div>
-        </div>
-
-        {{-- Site Planning: 3rd column overview (not a create tab) --}}
+        {{-- Site Planning: 2nd column (wider usable matrix) --}}
         <div
             class="cp-plan-card cp-plan-card--site-planning"
             data-planner-card="site-planning"

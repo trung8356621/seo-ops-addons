@@ -376,6 +376,7 @@ export default function useArticleEditorImageLifecycle({ activeBlockId, articleI
             if (block.type === 'image') {
                 releaseImageBlockMediaTracking(block);
             }
+            // table blocks: no media tracking; fall through to filter remove
 
             setBlocks((prev) => ensureH2SectionsHaveEditableBody(prev.filter((b) => b.id !== id)));
         },

@@ -295,14 +295,17 @@ final class AssignToContentProjectUiArchitectureGuardTest extends TestCase
             (new ReflectionClass(AssignToContentProjectDrawer::class))->getFileName()
         );
         self::assertStringContainsString('PlanningDraftIntakeService', $drawer);
+        self::assertStringContainsString('IdeaManagerKeywordIntakeService', $drawer);
         self::assertStringContainsString('->addArticles(', $drawer);
-        self::assertStringContainsString('->addKeywords(', $drawer);
         self::assertStringContainsString('->addPendingLink(', $drawer);
         self::assertStringContainsString('->addVocabularyPhrases(', $drawer);
         self::assertStringContainsString('shouldAutoSubmitAfterPrepare', $drawer);
         self::assertStringContainsString('preflightOpen', $drawer);
         self::assertStringNotContainsString('ArticleResource::assignArticlesFromFormData', $drawer);
         self::assertStringNotContainsString('executeAssignKeywordsToContentProjects', $drawer);
+        $submitKeyword = self::extractPhpMethod($drawer, 'submitKeyword');
+        self::assertStringContainsString('IdeaManagerKeywordIntakeService::class', $submitKeyword);
+        self::assertStringNotContainsString('PlanningDraftIntakeService', $submitKeyword);
     }
 
     public function test_keyword_detail_opens_assign_via_window_event_not_mount_action(): void
@@ -329,5 +332,32 @@ final class AssignToContentProjectUiArchitectureGuardTest extends TestCase
         self::assertStringContainsString('keywordRowClickBound', $source);
         self::assertStringContainsString("querySelectorAll(':scope > .keyword-row-click-layer')", $source);
         self::assertStringNotContainsString("layer.className = 'keyword-row-click-layer'", $source);
+    }
+
+    private static function extractPhpMethod(string $src, string $name): string
+    {
+        if (! preg_match('/function '.$name.'\([^)]*\)[^{]*\{/', $src, $m, PREG_OFFSET_CAPTURE)) {
+            return '';
+        }
+        $start = (int) $m[0][1];
+        $i = strpos($src, '{', $start);
+        if ($i === false) {
+            return '';
+        }
+        $depth = 0;
+        $len = strlen($src);
+        for ($p = $i; $p < $len; $p++) {
+            $ch = $src[$p];
+            if ($ch === '{') {
+                $depth++;
+            } elseif ($ch === '}') {
+                $depth--;
+                if ($depth === 0) {
+                    return substr($src, $start, $p - $start + 1);
+                }
+            }
+        }
+
+        return '';
     }
 }

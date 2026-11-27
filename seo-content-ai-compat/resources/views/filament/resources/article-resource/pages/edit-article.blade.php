@@ -47,22 +47,42 @@
             padding-inline: 0 !important;
             padding-top: 0 !important;
         }
+        /* Kill Filament section.py-8 top inset — sticky header flush to viewport */
+        body.article-editor-page .fi-page section.flex.flex-col.py-8,
+        body.article-editor-page .fi-page section.py-8,
+        body:has(.seo-article-edit-page) .fi-page section.py-8,
+        html.article-editor-page .fi-page section.py-8,
+        .fi-page.seo-article-edit-page section.flex.flex-col.py-8,
+        .fi-page.article-editor-page section.flex.flex-col.py-8,
+        [data-article-editor-page] section.py-8 {
+            padding-top: 0 !important;
+        }
+        /* overflow-x-clip on .fi-layout steals sticky scrollport from the viewport */
+        body.article-editor-page .fi-layout,
+        body:has(.seo-article-edit-page) .fi-layout,
+        html.article-editor-page .fi-layout,
+        body.article-editor-page .fi-main-ctn,
+        body:has(.seo-article-edit-page) .fi-main-ctn {
+            overflow: visible;
+        }
         .seo-article-editor-sticky-header {
             position: sticky;
             top: 0;
             z-index: 40;
             width: 100%;
+            min-height: 3.25rem;
             margin: 0;
             border-radius: 0;
             border: 0;
             border-bottom: 1px solid #e2e8f0;
             padding: 0.55rem 1rem;
             box-sizing: border-box;
-            background: rgb(255 255 255 / 97%);
+            background: #ffffff;
+            overflow: visible;
         }
         .wp-article-edit-layout {
             padding-inline: 0.75rem;
-            padding-top: 0.75rem;
+            padding-top: 0;
             box-sizing: border-box;
         }
         .seo-article-editor-sticky-header__title,
@@ -699,7 +719,7 @@
 
         <div class="wp-article-edit-layout">
             {{-- Cột chính (giống WP post editor) --}}
-            <div class="wp-article-edit-main space-y-4">
+            <div class="wp-article-edit-main space-y-2">
                 <div class="wp-postbox">
                     <div class="wp-postbox-title-toolbar">
                         <input

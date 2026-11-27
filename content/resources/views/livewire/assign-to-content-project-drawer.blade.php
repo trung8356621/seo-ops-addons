@@ -155,7 +155,7 @@
                             id="assign-to-content-project-drawer-title"
                             class="text-sm font-semibold text-gray-900 dark:text-gray-100"
                         >
-                            {{ AssignToContentProjectContract::label() }}
+                            {{ AssignToContentProjectContract::labelForMode($mode) }}
                         </h3>
                         <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                             <span x-show="clientPreparing" x-text="selectedHint"></span>
@@ -233,6 +233,9 @@
                         @endif
 
                         @if ($mode === AssignToContentProjectContract::MODE_KEYWORD)
+                            <p class="text-xs text-gray-500 dark:text-gray-400">
+                                {{ __('seo-content-ai::filament.article_list.add_to_idea_manager_description') }}
+                            </p>
                             <div>
                                 <label class="text-sm font-medium text-gray-700 dark:text-gray-200">
                                     {{ __('seo-content-ai::filament.keyword.domain') }}
@@ -287,14 +290,14 @@
                         :disabled="! $this->uiState['can_submit']"
                     >
                         <span wire:loading.remove wire:target="submit">
-                            {{ AssignToContentProjectContract::label() }}
+                            {{ AssignToContentProjectContract::labelForMode($mode) }}
                         </span>
                         <span wire:loading wire:target="submit" class="inline-flex items-center gap-2">
                             <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
                             </svg>
-                            {{ AssignToContentProjectContract::label() }}
+                            {{ AssignToContentProjectContract::labelForMode($mode) }}
                         </span>
                     </x-filament::button>
                 </div>

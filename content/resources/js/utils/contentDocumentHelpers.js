@@ -61,6 +61,28 @@ export const createEmptyImageBlock = () => ({
     image: null,
 });
 
+export const createEmptyTableBlock = () => {
+    // Lazy import avoided — keep default HTML inline to prevent circular deps at module init.
+    const html = [
+        '<table>',
+        '<thead><tr><th>Header 1</th><th>Header 2</th><th>Header 3</th></tr></thead>',
+        '<tbody>',
+        '<tr><td></td><td></td><td></td></tr>',
+        '<tr><td></td><td></td><td></td></tr>',
+        '</tbody>',
+        '</table>',
+    ].join('');
+
+    return {
+        id: newBlockId('table'),
+        type: 'table',
+        isWp: false,
+        prefix: '',
+        content: html,
+        suffix: '',
+    };
+};
+
 export const createFaqShortcodeBlock = () => ({
     id: newBlockId('classic'),
     type: 'text',
@@ -207,7 +229,7 @@ export const requiresClassicInlineRegroup = (html) => {
 };
 
 export const extractSectionHeading = (block) => {
-    if (!block || block.type === 'image' || typeof block.content !== 'string' || !block.content.trim()) {
+    if (!block || block.type === 'image' || block.type === 'table' || typeof block.content !== 'string' || !block.content.trim()) {
         return null;
     }
 
@@ -227,7 +249,7 @@ export const extractSectionHeading = (block) => {
 };
 
 export const blockHasOutlineHeading = (block) => {
-    if (!block || block.type === 'image' || typeof block.content !== 'string' || !block.content.trim()) {
+    if (!block || block.type === 'image' || block.type === 'table' || typeof block.content !== 'string' || !block.content.trim()) {
         return false;
     }
 
@@ -405,7 +427,7 @@ export const sectionHasOnlyEmptyHeadingBody = (section, blockById) => {
             continue;
         }
 
-        if (block.type === 'image') {
+        if (block.type === 'image' || block.type === 'table') {
             return false;
         }
 
@@ -419,7 +441,7 @@ export const sectionHasOnlyEmptyHeadingBody = (section, blockById) => {
     }
 
     const headingBlock = blockById.get(section.blockIds[0]);
-    if (!headingBlock || headingBlock.type === 'image' || typeof headingBlock.content !== 'string') {
+    if (!headingBlock || headingBlock.type === 'image' || headingBlock.type === 'table' || typeof headingBlock.content !== 'string') {
         return false;
     }
 
@@ -528,6 +550,11 @@ export const buildSectionStats = (editorSections, blockById) => {
                 } else {
                     emptyImageSrcCount += 1;
                 }
+                continue;
+            }
+
+            if (block.type === 'table') {
+                tableCount += 1;
                 continue;
             }
 
@@ -1034,6 +1061,18 @@ export const parseHtmlToBlocks = (html) => {
                 return;
             }
 
+            if (node.nodeType === 1 && String(node.tagName || '').toLowerCase() === 'table') {
+                chunks.push({
+                    id: newBlockId('table'),
+                    type: 'table',
+                    isWp: false,
+                    prefix: '',
+                    content: node.outerHTML,
+                    suffix: '',
+                });
+                return;
+            }
+
             const tempDiv = document.createElement('div');
             tempDiv.appendChild(node.cloneNode(true));
             const content = cleanBlockHtmlForEditorDisplay(tempDiv.innerHTML.trim());
@@ -1063,6 +1102,7 @@ export const parseHtmlToBlocks = (html) => {
         const wpOpen = String(match[1] || '');
         const wpInner = String(match[2] || '').trim();
         const isWpImageBlock = /<!--\s*wp:image\b/i.test(wpOpen);
+        const isWpTableBlock = /<!--\s*wp:table\b/i.test(wpOpen);
         if (isWpImageBlock) {
             const image = parseImageFromBlockContent(wpInner) ?? parseVideoMediaFromHtml(wpInner);
             if (image && image.mediaType !== 'video' && image.src) {
@@ -1074,6 +1114,20 @@ export const parseHtmlToBlocks = (html) => {
                     content: renderImageFigure(image),
                     suffix: '',
                     image,
+                });
+            } else if (wpInner) {
+                blocks.push(...splitClassic(wpInner));
+            }
+        } else if (isWpTableBlock) {
+            const tableMatch = String(wpInner).match(/<table\b[\s\S]*?<\/table>/i);
+            if (tableMatch) {
+                blocks.push({
+                    id: newBlockId('table'),
+                    type: 'table',
+                    isWp: false,
+                    prefix: '',
+                    content: tableMatch[0],
+                    suffix: '',
                 });
             } else if (wpInner) {
                 blocks.push(...splitClassic(wpInner));
@@ -1098,10 +1152,106 @@ export const parseHtmlToBlocks = (html) => {
 
     return ensureH2SectionsHaveEditableBody(
         peelSectionHeadingTrailingBlocks(
-            hoistInlineImagesFromTextBlocks(regroupParsedBlocksByH2(normalizeBlocks(blocks))),
+            hoistInlineTablesFromTextBlocks(
+                hoistInlineImagesFromTextBlocks(regroupParsedBlocksByH2(normalizeBlocks(blocks))),
+            ),
         ),
     );
 };
+
+/**
+ * Split legacy inline <table> elements out of text blocks into independent table blocks.
+ * Preserves surrounding text order and primary/SEO attributes on the table HTML.
+ *
+ * @param {Array<object>} blocks
+ * @returns {Array<object>}
+ */
+export const hoistInlineTablesFromTextBlocks = (blocks) => {
+    if (!Array.isArray(blocks) || blocks.length === 0) {
+        return blocks;
+    }
+
+    const result = [];
+
+    blocks.forEach((block) => {
+        if (!block || block.type === 'image' || block.type === 'table' || typeof block.content !== 'string') {
+            result.push(block);
+            return;
+        }
+
+        if (!/<table\b/i.test(block.content)) {
+            result.push(block);
+            return;
+        }
+
+        const chunks = splitHtmlIntoTextAndTableChunks(block.content);
+        if (chunks.length <= 1 && chunks[0]?.type === 'text') {
+            result.push(block);
+            return;
+        }
+
+        chunks.forEach((chunk) => {
+            if (chunk.type === 'table' && chunk.html) {
+                result.push({
+                    id: newBlockId('table'),
+                    type: 'table',
+                    isWp: false,
+                    prefix: '',
+                    content: chunk.html,
+                    suffix: '',
+                });
+                return;
+            }
+
+            const html = String(chunk.html || '').trim();
+            if (!html || !isMeaningfulHtml(html)) {
+                return;
+            }
+
+            result.push({
+                id: newBlockId(block.isWp ? 'wp' : 'classic'),
+                type: 'text',
+                isWp: false,
+                prefix: '',
+                content: cleanBlockHtmlForEditorDisplay(html),
+                suffix: '',
+            });
+        });
+    });
+
+    return normalizeBlocks(result);
+};
+
+function splitHtmlIntoTextAndTableChunks(html) {
+    const source = String(html ?? '');
+    if (!source || !/<table\b/i.test(source)) {
+        return [{ type: 'text', html: source }];
+    }
+
+    const doc = new DOMParser().parseFromString(source, 'text/html');
+    const chunks = [];
+    let buffer = document.createElement('div');
+
+    const flushText = () => {
+        const textHtml = buffer.innerHTML.trim();
+        if (textHtml && isMeaningfulHtml(textHtml)) {
+            chunks.push({ type: 'text', html: textHtml });
+        }
+        buffer = document.createElement('div');
+    };
+
+    Array.from(doc.body.childNodes).forEach((node) => {
+        if (node.nodeType === 1 && String(node.tagName || '').toLowerCase() === 'table') {
+            flushText();
+            chunks.push({ type: 'table', html: node.outerHTML });
+            return;
+        }
+        buffer.appendChild(node.cloneNode(true));
+    });
+    flushText();
+
+    return chunks.length > 0 ? chunks : [{ type: 'text', html: source }];
+}
 
 export const hoistInlineImagesFromTextBlocks = (blocks) => {
     if (!Array.isArray(blocks) || blocks.length === 0) {
@@ -1111,7 +1261,7 @@ export const hoistInlineImagesFromTextBlocks = (blocks) => {
     const result = [];
 
     blocks.forEach((block) => {
-        if (!block || block.type === 'image' || typeof block.content !== 'string') {
+        if (!block || block.type === 'image' || block.type === 'table' || typeof block.content !== 'string') {
             result.push(block);
 
             return;
@@ -1343,6 +1493,18 @@ function peelOneLeadingH2Block(block) {
             continue;
         }
 
+        if (node.nodeType === 1 && String(node.tagName || '').toLowerCase() === 'table') {
+            rows.push({
+                id: newBlockId('table'),
+                type: 'table',
+                isWp: false,
+                prefix: '',
+                content: node.outerHTML,
+                suffix: '',
+            });
+            continue;
+        }
+
         rows.push({
             id: newBlockId('classic'),
             type: 'text',
@@ -1510,6 +1672,10 @@ export function getActiveBlockContextText(blocks, activeBlockId, tempMerge) {
         const caption = block.image?.caption ?? '';
         const alt = block.image?.alt ?? '';
         return [alt, caption].filter(Boolean).join(' — ');
+    }
+
+    if (block.type === 'table') {
+        return htmlToPlainText(block.content);
     }
 
     return htmlToPlainText(block.content);

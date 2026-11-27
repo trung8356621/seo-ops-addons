@@ -53,8 +53,8 @@ final class IdeaManagerPhase1ContractTest extends TestCase
         self::assertStringContainsString('confirmKeepMine', $blade);
         self::assertStringContainsString('confirmLoadServer', $blade);
         self::assertStringContainsString('dismissConflict', $blade);
-        self::assertStringContainsString('idea_manager_published_blocked', $blade);
-        self::assertStringContainsString('idea_manager_clone_blocked', $blade);
+        self::assertStringContainsString('idea_manager_published_note', $blade);
+        self::assertStringContainsString('data-im-distribution-confirm', $blade);
         self::assertStringContainsString('disabled', $blade);
         self::assertStringContainsString('Never overwrite newer working set', $blade);
         // Import is confirm-only — init only bootstraps; previewAuditImport is user-triggered.
@@ -70,7 +70,7 @@ final class IdeaManagerPhase1ContractTest extends TestCase
         self::assertStringContainsString('this.labels.conflictBody', $blade);
         // UX redesign + legacy discovery (read-only Audit key).
         self::assertStringContainsString('content-project-ops-styles', $blade);
-        self::assertStringContainsString('im-toolbar', $blade);
+        self::assertStringContainsString('im-stepbar', $blade);
         self::assertStringContainsString('im-card', $blade);
         self::assertStringContainsString('im-cluster-row', $blade);
         self::assertStringContainsString('data-im-legacy-banner', $blade);

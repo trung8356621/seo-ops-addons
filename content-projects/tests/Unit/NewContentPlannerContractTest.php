@@ -208,7 +208,9 @@ final class NewContentPlannerContractTest extends TestCase
             (string) (new ReflectionClass(ContentProjectNewContentPlanner::class))->getFileName(),
         );
 
-        self::assertStringContainsString('content-project-new-content-card', $draft);
+        // Generate Ideas card remains available; SEO Audit no longer embeds it (Idea Manager owns ideas UX).
+        self::assertStringNotContainsString('content-project-new-content-card', $draft);
+        self::assertStringContainsString('data-planner-action="idea-manager"', $draft);
         self::assertStringContainsString('content_planning_redirecting', $global);
         self::assertStringContainsString('content-project-draft-planner', $planning);
         self::assertStringContainsString('generateNewContentSuggestions', $card);

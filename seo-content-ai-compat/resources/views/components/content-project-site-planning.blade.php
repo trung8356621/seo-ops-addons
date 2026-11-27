@@ -9,13 +9,18 @@
     $yearGroups = is_array($payload['year_groups'] ?? null) ? $payload['year_groups'] : [];
     $rows = is_array($payload['rows'] ?? null) ? $payload['rows'] : [];
     $activeMonth = (string) ($payload['active_month'] ?? '');
-    $workingSiteId = (int) ($this->filterSiteId ?? 0);
+    $targetCandidate = (int) (data_get($this, 'targetSiteId') ?? 0);
+    $workingSiteId = $targetCandidate > 0
+        ? $targetCandidate
+        : (int) ($this->filterSiteId ?? 0);
+    $supportsTargetSelect = method_exists($this, 'selectIdeaManagerTargetSite');
 @endphp
 
 <div
     class="cp-site-planning"
     wire:key="cp-site-planning-panel-{{ $activeMonth }}-{{ $workingSiteId }}"
     data-site-planning="1"
+    data-active-month="{{ $activeMonth }}"
     x-data="{
         open: false,
         loading: false,
@@ -94,16 +99,30 @@
                             $monthCells = is_array($row['months'] ?? null) ? $row['months'] : [];
                         @endphp
                         <tr
-                            class="cp-site-planning__row"
+                            @class([
+                                'cp-site-planning__row',
+                                'is-target' => $supportsTargetSelect && $siteId === $workingSiteId,
+                            ])
                             data-site-planning-row="{{ $siteId }}"
                         >
                             <th
                                 scope="row"
                                 class="cp-site-planning__sticky cp-site-planning__domain-cell"
                             >
-                                <div class="cp-site-planning__domain" title="{{ $row['domain'] ?? ('#'.$siteId) }}">
-                                    {{ $row['domain'] ?? ('#'.$siteId) }}
-                                </div>
+                                @if ($supportsTargetSelect)
+                                    <button
+                                        type="button"
+                                        class="cp-site-planning__domain cp-site-planning__domain-btn"
+                                        title="{{ $row['domain'] ?? ('#'.$siteId) }}"
+                                        wire:click="selectIdeaManagerTargetSite({{ $siteId }})"
+                                    >
+                                        {{ $row['domain'] ?? ('#'.$siteId) }}
+                                    </button>
+                                @else
+                                    <div class="cp-site-planning__domain" title="{{ $row['domain'] ?? ('#'.$siteId) }}">
+                                        {{ $row['domain'] ?? ('#'.$siteId) }}
+                                    </div>
+                                @endif
                             </th>
                             @foreach ($monthCells as $cell)
                                 @php
@@ -124,7 +143,7 @@
                                     <button
                                         type="button"
                                         class="cp-site-planning__cell-btn"
-                                        @click="openCell({{ $siteId }}, '{{ $planningMonth }}')"
+                                        @click="openCell({{ $siteId }}, '{{ $planningMonth }}')@if ($supportsTargetSelect); $wire.selectIdeaManagerTargetSite({{ $siteId }})@endif"
                                     >
                                         {{ $planned }} / {{ $target }}@if ($over)<span class="cp-site-planning__warn" aria-label="{{ __('seo-content-ai::filament.projects.site_planning_over_warning') }}">⚠</span>@endif
                                     </button>
@@ -275,6 +294,27 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+    .cp-site-planning__domain-btn {
+        display: block;
+        width: 100%;
+        border: 0;
+        background: transparent;
+        padding: 0;
+        text-align: left;
+        font: inherit;
+        font-weight: 600;
+        color: inherit;
+        cursor: pointer;
+    }
+    .cp-site-planning__domain-btn:hover {
+        color: #2563eb;
+    }
+    .cp-site-planning__row.is-target .cp-site-planning__domain-cell {
+        background: rgb(59 130 246 / 0.12);
+    }
+    .dark .cp-site-planning__row.is-target .cp-site-planning__domain-cell {
+        background: rgb(59 130 246 / 0.22);
     }
     .cp-site-planning__year-cell,
     .cp-site-planning__month-cell,

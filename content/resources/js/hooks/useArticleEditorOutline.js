@@ -31,17 +31,28 @@ import {
 } from '../utils/contentDocumentHelpers';
 import { isCanonicalLockedHeadingHtml } from '../utils/editorHtmlUtils';
 import { callEditArticleLivewire } from '../utils/articleEditorLivewire';
-import { scrollEditorTargetIntoView } from '../utils/ctaSectionNavigator';
+import {
+    scrollEditorTargetIntoView,
+    scrollEditorTargetIntoViewAsync,
+    selectEditorScroller,
+} from '../utils/ctaSectionNavigator';
+import {
+    buildCollapsedBaselineMap,
+    sectionStructureKey,
+    waitAndScrollToHeading,
+    waitForNextPaint,
+} from '../utils/outlineSectionBaseline';
 import { parseFeaturedSnippetNewSectionBlocks } from '@media-addon/utils/blockImageUtils.js';
 import { setArticleAutosaveLock } from '../utils/articleAutosaveLock';
 import { t } from '../utils/i18n';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 
 /**
  * useArticleEditorOutline - extracted from SeoArticleEditor.jsx (Task 7 mechanical
  * extraction). Mechanical move - no behavior change.
  */
-export default function useArticleEditorOutline({ activeBlockId, activateBlock = null, articleId, articleTitle, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFeaturedSnippet, collapseSectionsExcept, commitActiveBlock, editorSections, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetTargetRef, focusImageBlock, focusKeyword, focusedOutlineHeadingRef, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineRailRef, markSeoStale, sectionByBlockId, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setClientOutline, setCollapsedSectionIds, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptOpen, setGlobalEditor, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingKeys, setOutlineJumpTarget = null, setOutlineTreeSync, setSectionTitleEditRequest, syncOutlineFocusFromBlock, tempMergeRef }) {
+export default function useArticleEditorOutline({ activeBlockId, activateBlock = null, articleId, articleTitle, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFeaturedSnippet, collapseSectionsExcept, collapsedSectionIds = {}, commitActiveBlock, editorSections, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetTargetRef, focusImageBlock, focusKeyword, focusedOutlineHeadingRef, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineRailRef, markSeoStale, sectionByBlockId, sectionExpandAllowedRef = null, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setClientOutline, setCollapsedSectionIds, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptOpen, setGlobalEditor, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingKeys, setOutlineJumpTarget = null, setOutlineTreeSync, setSectionTitleEditRequest, syncOutlineFocusFromBlock, tempMergeRef }) {
     const resolveBlockIdForOutlineHeadingId = useCallback(
         (headingId) =>
             resolveBlockIdFromOutlineHeadingId(headingId, outlineHeadingIdsByBlockIdRef.current),
@@ -646,8 +657,152 @@ export default function useArticleEditorOutline({ activeBlockId, activateBlock =
         [openOutlineRail, syncOutlineFocusFromBlock],
     );
 
+    const [outlineNavReady, setOutlineNavReady] = useState(false);
+    const outlineNavLockedRef = useRef(true);
+    const baselineReadyRef = useRef(false);
+    const baselineMapRef = useRef(new Map());
+    const baselineStructureKeyRef = useRef('');
+    const baselineGenerationRef = useRef(0);
+    const jumpGenerationRef = useRef(0);
+    const mountedRef = useRef(true);
+    const collapsedSectionIdsRef = useRef(collapsedSectionIds);
+    const activeBlockIdRef = useRef(activeBlockId);
+    const collapsedSectionsInitializedRef = useRef(false);
+    /** Fresh load must stay fully collapsed until user interaction — never restore on init. */
+    const initialCollapseDoneRef = useRef(false);
+    /** activeBlockId present at settle time must not auto-expand after unlock. */
+    const seedActiveBlockIdRef = useRef(undefined);
+
+    useEffect(() => {
+        collapsedSectionIdsRef.current = collapsedSectionIds;
+    }, [collapsedSectionIds]);
+
+    useEffect(() => {
+        activeBlockIdRef.current = activeBlockId;
+    }, [activeBlockId]);
+
+    useEffect(() => {
+        mountedRef.current = true;
+
+        return () => {
+            mountedRef.current = false;
+            outlineNavLockedRef.current = false;
+            baselineGenerationRef.current += 1;
+        };
+    }, []);
+
+    const buildAllCollapsedMap = useCallback(() => {
+        const next = {};
+        editorSections.forEach((section) => {
+            next[section.id] = true;
+        });
+
+        return next;
+    }, [editorSections]);
+
+    const readExplicitlyExpandedIds = useCallback(() => {
+        // Missing key ≠ expanded. Only ids explicitly set to false were opened by the user.
+        return editorSections
+            .filter((section) => collapsedSectionIdsRef.current[section.id] === false)
+            .map((section) => section.id);
+    }, [editorSections]);
+
+    const setOutlineNavLock = useCallback((locked) => {
+        outlineNavLockedRef.current = locked;
+        setOutlineNavReady(!locked && baselineReadyRef.current);
+    }, []);
+
+    const rebuildCollapsedBaseline = useCallback(async ({
+        restoreExpandedIds = null,
+        restoreScrollTop = null,
+        markInitialDone = false,
+    } = {}) => {
+        const generation = baselineGenerationRef.current + 1;
+        baselineGenerationRef.current = generation;
+        baselineReadyRef.current = false;
+        if (sectionExpandAllowedRef && !initialCollapseDoneRef.current) {
+            sectionExpandAllowedRef.current = false;
+        }
+        setOutlineNavLock(true);
+
+        try {
+            if (editorSections.length === 0) {
+                baselineMapRef.current = new Map();
+                baselineStructureKeyRef.current = '';
+                return;
+            }
+
+            // Sync collapse immediately (incl. Introduction) before measuring.
+            flushSync(() => {
+                setCollapsedSectionIds(buildAllCollapsedMap());
+            });
+            await waitForNextPaint();
+            if (!mountedRef.current || generation !== baselineGenerationRef.current) {
+                return;
+            }
+
+            baselineMapRef.current = buildCollapsedBaselineMap();
+            baselineStructureKeyRef.current = sectionStructureKey(editorSections);
+            baselineReadyRef.current = true;
+
+            // Resize-only restore. Init / structure hydrate must never reopen sections.
+            if (Array.isArray(restoreExpandedIds) && restoreExpandedIds.length > 0) {
+                const allowed = new Set(editorSections.map((section) => section.id));
+                flushSync(() => {
+                    setCollapsedSectionIds(() => {
+                        const next = buildAllCollapsedMap();
+                        restoreExpandedIds.forEach((id) => {
+                            if (allowed.has(id)) {
+                                next[id] = false;
+                            }
+                        });
+
+                        return next;
+                    });
+                });
+                await waitForNextPaint();
+            }
+
+            if (!mountedRef.current || generation !== baselineGenerationRef.current) {
+                return;
+            }
+
+            if (restoreScrollTop != null && Number.isFinite(restoreScrollTop)) {
+                const firstSection = document.querySelector('section[data-seo-section-id]');
+                const container = firstSection
+                    ? selectEditorScroller(firstSection)
+                    : document.scrollingElement;
+                container?.scrollTo?.({ top: Math.max(0, restoreScrollTop), behavior: 'auto' });
+            }
+
+            if (markInitialDone) {
+                initialCollapseDoneRef.current = true;
+                seedActiveBlockIdRef.current = activeBlockIdRef.current ?? null;
+                if (sectionExpandAllowedRef) {
+                    sectionExpandAllowedRef.current = true;
+                }
+            }
+        } finally {
+            if (mountedRef.current && generation === baselineGenerationRef.current) {
+                setOutlineNavLock(false);
+            }
+        }
+    }, [buildAllCollapsedMap, editorSections, sectionExpandAllowedRef, setCollapsedSectionIds, setOutlineNavLock]);
+
     const jumpToOutlineHeading = useCallback(
-        (node) => {
+        async (node) => {
+            if (!baselineReadyRef.current) {
+                return;
+            }
+
+            // Cancel any in-flight Outline jump (lock + generation), then start fresh.
+            const jumpGeneration = jumpGenerationRef.current + 1;
+            jumpGenerationRef.current = jumpGeneration;
+            const isCurrent = () => (
+                mountedRef.current
+                && jumpGeneration === jumpGenerationRef.current
+            );
+
             focusedOutlineHeadingRef.current = {
                 level: Number(node?.level ?? 0),
                 headingText: String(node?.heading_text ?? ''),
@@ -684,23 +839,108 @@ export default function useArticleEditorOutline({ activeBlockId, activateBlock =
             // H2 owns the Section — scroll the Section top via stable section id, not heading center.
             const jumpToSectionTop = level === 2 || (sectionHeadingBlockIds.has(blockId) && (!Number.isFinite(headingIndex) || headingIndex <= 0));
 
-            if (sectionId) {
-                collapseSectionsExcept(sectionId);
-            }
+            setOutlineNavLock(true);
+            seedActiveBlockIdRef.current = null;
+            try {
+                // Never let TipTap outlineJumpTarget perform a second scroll.
+                setOutlineJumpTarget?.(null);
 
-            window.requestAnimationFrame(() => {
-                if (jumpToSectionTop && sectionId) {
-                    const sectionEl = document.querySelector(`[data-seo-section-id="${CSS.escape(sectionId)}"]`);
-                    scrollEditorTargetIntoView(sectionEl, { highlightClass: 'is-outline-jump-highlight' });
-                    // Avoid a second TipTap heading scroll that re-centers mid-section.
-                    setOutlineJumpTarget?.(null);
-                } else {
-                    setOutlineJumpTarget?.({
-                        blockId,
-                        headingIndex: Number.isFinite(headingIndex) ? headingIndex : 0,
-                        token: Date.now(),
-                        align: 'start',
+                flushSync(() => {
+                    setCollapsedSectionIds(buildAllCollapsedMap());
+                });
+                await waitForNextPaint();
+                if (!isCurrent()) {
+                    return;
+                }
+
+                // Keep baseline map for resize/mapping only — not used as final scroll coords.
+                if (sectionId && !baselineMapRef.current.has(sectionId)) {
+                    baselineMapRef.current = buildCollapsedBaselineMap();
+                }
+
+                if (!sectionId) {
+                    return;
+                }
+
+                if (sectionExpandAllowedRef) {
+                    sectionExpandAllowedRef.current = true;
+                }
+                flushSync(() => {
+                    collapseSectionsExcept(sectionId);
+                });
+                await waitForNextPaint();
+                if (!isCurrent()) {
+                    return;
+                }
+
+                const readSectionEl = () => document.querySelector(
+                    `section[data-seo-section-id="${CSS.escape(sectionId)}"]`,
+                );
+
+                if (jumpToSectionTop) {
+                    const sectionEl = readSectionEl();
+                    if (!(sectionEl instanceof Element)) {
+                        window.dispatchEvent(
+                            new CustomEvent('seo-article-editor-notify', {
+                                detail: {
+                                    title: 'Outline',
+                                    body: 'Không tìm thấy section đích trong editor.',
+                                    status: 'warning',
+                                },
+                            }),
+                        );
+                        return;
+                    }
+                    await scrollEditorTargetIntoViewAsync(sectionEl, {
+                        highlightClass: 'is-outline-jump-highlight',
+                        behavior: 'auto',
                     });
+                } else {
+                    const headingResult = await waitAndScrollToHeading(() => {
+                        const sectionEl = readSectionEl();
+                        if (!(sectionEl instanceof Element)) {
+                            return null;
+                        }
+                        const slots = [...sectionEl.querySelectorAll('[data-seo-block-id]')];
+                        const blockSlot = slots.find((slot) => slot.getAttribute('data-seo-block-id') === blockId)
+                            || sectionEl;
+                        const headings = [...blockSlot.querySelectorAll('h2, h3, h4')];
+                        if (Number.isFinite(headingIndex) && headingIndex >= 0 && headings[headingIndex]) {
+                            return headings[headingIndex];
+                        }
+                        return null;
+                    }, {
+                        highlightClass: 'is-outline-jump-highlight',
+                        behavior: 'auto',
+                        isCurrent,
+                    });
+
+                    if (!isCurrent()) {
+                        return;
+                    }
+
+                    if (!headingResult?.ok) {
+                        const sectionEl = readSectionEl();
+                        if (sectionEl instanceof Element) {
+                            await scrollEditorTargetIntoViewAsync(sectionEl, {
+                                highlightClass: 'is-outline-jump-highlight',
+                                behavior: 'auto',
+                            });
+                        }
+                        window.dispatchEvent(
+                            new CustomEvent('seo-article-editor-notify', {
+                                detail: {
+                                    title: 'Outline',
+                                    body: 'Không tìm thấy heading trong DOM — đã cuộn tới đầu section.',
+                                    status: 'warning',
+                                },
+                            }),
+                        );
+                    }
+                }
+
+                if (!isCurrent()) {
+                    return;
                 }
 
                 if (typeof activateBlock === 'function') {
@@ -708,9 +948,24 @@ export default function useArticleEditorOutline({ activeBlockId, activateBlock =
                 } else {
                     focusImageBlock(blockId);
                 }
-            });
+            } finally {
+                if (mountedRef.current && jumpGeneration === jumpGenerationRef.current) {
+                    setOutlineNavLock(false);
+                }
+            }
         },
-        [activateBlock, collapseSectionsExcept, focusImageBlock, sectionByBlockId, sectionHeadingBlockIds, setOutlineJumpTarget],
+        [
+            activateBlock,
+            buildAllCollapsedMap,
+            collapseSectionsExcept,
+            focusImageBlock,
+            sectionByBlockId,
+            sectionHeadingBlockIds,
+            setCollapsedSectionIds,
+            sectionExpandAllowedRef,
+            setOutlineJumpTarget,
+            setOutlineNavLock,
+        ],
     );
 
     useEffect(() => {
@@ -735,8 +990,16 @@ export default function useArticleEditorOutline({ activeBlockId, activateBlock =
     }, [openImageAssistantPanel]);
 
     useEffect(() => {
-        if (!activeBlockId) {
+        if (!activeBlockId || outlineNavLockedRef.current || !initialCollapseDoneRef.current) {
             return;
+        }
+
+        // Keep load-time active block collapsed; only expand after the user changes focus.
+        if (seedActiveBlockIdRef.current !== null && seedActiveBlockIdRef.current !== undefined) {
+            if (activeBlockId === seedActiveBlockIdRef.current) {
+                return;
+            }
+            seedActiveBlockIdRef.current = null;
         }
 
         const sectionId = sectionByBlockId.get(activeBlockId);
@@ -755,53 +1018,96 @@ export default function useArticleEditorOutline({ activeBlockId, activateBlock =
     }, [activeBlockId, sectionByBlockId]);
 
     const toggleSectionCollapse = useCallback((sectionId) => {
+        seedActiveBlockIdRef.current = null;
+        if (sectionExpandAllowedRef) {
+            sectionExpandAllowedRef.current = true;
+        }
         setCollapsedSectionIds((prev) => ({
             ...prev,
-            [sectionId]: !prev[sectionId],
+            // Missing key = collapsed; only explicit false is expanded.
+            [sectionId]: prev[sectionId] === false ? true : false,
         }));
-    }, []);
+    }, [sectionExpandAllowedRef]);
 
     const collapseAllSections = useCallback(() => {
         if (editorSections.length === 0) {
             return;
         }
 
+        seedActiveBlockIdRef.current = null;
         commitActiveBlock();
+        setCollapsedSectionIds(buildAllCollapsedMap());
+    }, [buildAllCollapsedMap, commitActiveBlock, editorSections.length]);
 
-        const next = {};
-        editorSections.forEach((section) => {
-            next[section.id] = true;
-        });
-        setCollapsedSectionIds(next);
-    }, [commitActiveBlock, editorSections]);
-
-    const collapsedSectionsInitializedRef = useRef(false);
+    // Collapse before paint so F5 never flashes Introduction/sections open.
+    useLayoutEffect(() => {
+        if (editorSections.length === 0 || initialCollapseDoneRef.current) {
+            return;
+        }
+        setCollapsedSectionIds(buildAllCollapsedMap());
+    }, [buildAllCollapsedMap, editorSections, setCollapsedSectionIds]);
 
     useEffect(() => {
         if (editorSections.length === 0) {
             return;
         }
 
-        if (collapsedSectionsInitializedRef.current) {
+        const key = sectionStructureKey(editorSections);
+        if (!collapsedSectionsInitializedRef.current) {
+            collapsedSectionsInitializedRef.current = true;
+            // Fresh mount / F5: collapse all (incl. Introduction) and do NOT restore.
+            void rebuildCollapsedBaseline({ markInitialDone: true });
             return;
         }
 
-        collapsedSectionsInitializedRef.current = true;
-        setCollapsedSectionIds((prev) => {
-            if (Object.keys(prev).length > 0) {
-                return prev;
-            }
+        if (key === baselineStructureKeyRef.current) {
+            return;
+        }
 
-            const next = { ...prev };
-            editorSections.forEach((section, index) => {
-                if (index > 0) {
-                    next[section.id] = true;
-                }
-            });
-
-            return next;
+        // Hydrate / add-remove sections: remeasure while staying collapsed.
+        // Do not treat missing map keys as expanded (that reopened Mở đầu after F5).
+        void rebuildCollapsedBaseline({
+            restoreExpandedIds: initialCollapseDoneRef.current ? readExplicitlyExpandedIds() : null,
+            markInitialDone: !initialCollapseDoneRef.current,
         });
-    }, [editorSections]);
+    }, [editorSections, readExplicitlyExpandedIds, rebuildCollapsedBaseline]);
+
+    useEffect(() => {
+        let debounceTimer = null;
+        let cancelled = false;
+
+        const onResize = () => {
+            if (debounceTimer) {
+                window.clearTimeout(debounceTimer);
+            }
+            debounceTimer = window.setTimeout(() => {
+                if (cancelled || editorSections.length === 0 || !initialCollapseDoneRef.current) {
+                    return;
+                }
+
+                const expandedIds = readExplicitlyExpandedIds();
+                const firstSection = document.querySelector('section[data-seo-section-id]');
+                const container = firstSection
+                    ? selectEditorScroller(firstSection)
+                    : document.scrollingElement;
+                const restoreScrollTop = container?.scrollTop ?? null;
+                void rebuildCollapsedBaseline({
+                    restoreExpandedIds: expandedIds,
+                    restoreScrollTop,
+                });
+            }, 160);
+        };
+
+        window.addEventListener('resize', onResize);
+
+        return () => {
+            cancelled = true;
+            if (debounceTimer) {
+                window.clearTimeout(debounceTimer);
+            }
+            window.removeEventListener('resize', onResize);
+        };
+    }, [editorSections, readExplicitlyExpandedIds, rebuildCollapsedBaseline]);
 
     const focusNewSectionHeader = useCallback((sectionUiId) => {
         setSectionTitleEditRequest({ sectionId: sectionUiId, token: Date.now() });
@@ -1244,5 +1550,5 @@ export default function useArticleEditorOutline({ activeBlockId, activateBlock =
         }
     }, [addSection, addSectionAfter, commitActiveBlock, editorSections, mutateOutlineHeading, setActiveBlockId, setBlocks, setGlobalEditor, setInsertMenu, setOutlineTreeSync]);
 
-    return { addOutlineNode, addSection, addSectionAfter, applyOutlineHeadingHtml, applyOutlineHeadingText, changeOutlineHeadingLevel, collapseAllSections, confirmFeaturedSnippetPromptInsert, convertOutlineHeading, deleteOutlineHeadingKeepContent, deleteOutlineHeadingWithContent, focusOutlineFromSectionHeader, handleOutlineHeadingFromEditor, handleOutlineLoaded, insertFeaturedSnippetAsNewSectionAfter, jumpToOutlineHeading, requestGenerateFeaturedSnippetAfterSection, resolveHeadingInnerHtml, runFeaturedSnippetPromptGenerate, saveSectionTitleFromHeader, toggleOutlineHeadingVisible, toggleSectionCollapse, updateOutlineHeadingTitle };
+    return { addOutlineNode, addSection, addSectionAfter, applyOutlineHeadingHtml, applyOutlineHeadingText, changeOutlineHeadingLevel, collapseAllSections, confirmFeaturedSnippetPromptInsert, convertOutlineHeading, deleteOutlineHeadingKeepContent, deleteOutlineHeadingWithContent, focusOutlineFromSectionHeader, handleOutlineHeadingFromEditor, handleOutlineLoaded, insertFeaturedSnippetAsNewSectionAfter, jumpToOutlineHeading, outlineNavReady, requestGenerateFeaturedSnippetAfterSection, resolveHeadingInnerHtml, runFeaturedSnippetPromptGenerate, saveSectionTitleFromHeader, toggleOutlineHeadingVisible, toggleSectionCollapse, updateOutlineHeadingTitle };
 }

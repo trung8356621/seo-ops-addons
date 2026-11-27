@@ -373,6 +373,35 @@ export default function useArticleEditorInsertAndSections({ activeBlockId, activ
             deleteBlock(payload.blockId, { skipConfirm: Boolean(payload.skipConfirm) });
             return true;
         }
+        if (name === 'duplicate_block') {
+            const sourceId = String(payload.blockId ?? payload.id ?? '').trim();
+            if (!sourceId) {
+                return false;
+            }
+            commitActiveBlock?.();
+            let createdId = null;
+            setBlocks((prev) => {
+                const index = prev.findIndex((block) => block.id === sourceId);
+                if (index < 0) {
+                    return prev;
+                }
+                const source = prev[index];
+                const clone = {
+                    ...source,
+                    id: `${String(source.type || 'block')}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                    image: source.image ? { ...source.image } : source.image,
+                };
+                createdId = clone.id;
+                const next = [...prev];
+                next.splice(index + 1, 0, clone);
+                return next;
+            });
+            if (createdId) {
+                setActiveBlockId(createdId);
+                setGlobalEditor(null);
+            }
+            return true;
+        }
         if (name === 'replace_article_document' && Array.isArray(payload.blocks)) {
             setBlocks(payload.blocks);
             return true;

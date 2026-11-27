@@ -12,7 +12,7 @@ use ReflectionMethod;
 use Tests\Support\ProjectRoot;
 
 /**
- * Regression: Add-to-Draft drawer routes all modes through PlanningDraftIntakeService.
+ * Regression: drawer destinations by mode (keyword → Idea Manager; others → Planning Draft).
  */
 final class AssignToContentProjectDrawerRoutingTest extends TestCase
 {
@@ -37,11 +37,16 @@ final class AssignToContentProjectDrawerRoutingTest extends TestCase
         self::assertStringNotContainsString("'title' => \$this->titleOverride", $source);
     }
 
-    public function test_keyword_submit_uses_intake_without_project_id_by_site(): void
+    public function test_keyword_submit_routes_to_idea_manager_not_planning_draft(): void
     {
         $source = $this->drawerSource();
+        $submitKeyword = $this->methodSource('submitKeyword');
 
-        self::assertStringContainsString('->addKeywords(', $source);
+        self::assertStringContainsString('IdeaManagerKeywordIntakeService::class', $source);
+        self::assertStringContainsString('->addKeywords(', $submitKeyword);
+        self::assertStringContainsString('IdeaManagerKeywordIntakeService', $submitKeyword);
+        self::assertStringNotContainsString('PlanningDraftIntakeService', $submitKeyword);
+        self::assertStringContainsString("'destination' => 'idea_manager'", $submitKeyword);
         self::assertStringNotContainsString(
             "\$assignData['project_id_'.\$siteId] = (int) (\$this->projectIdBySite[\$siteId] ?? 0);",
             $source,

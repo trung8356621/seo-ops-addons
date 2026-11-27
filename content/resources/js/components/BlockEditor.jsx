@@ -6,6 +6,7 @@ import { Copy, Merge, Trash2 } from 'lucide-react';
 import { t } from '../utils/i18n';
 import FaqAccordionPreview from './FaqAccordionPreview';
 import ActiveBlockEditor from './ActiveBlockEditor';
+import TableBlockEditor from './TableBlockEditor';
 
 function managedCtaPresentation(html) {
     const source = String(html ?? '');
@@ -69,6 +70,10 @@ function BlockEditor({
     onArmOutsideClickGuard,
     focusHeadingIndex = null,
     focusHeadingToken = 0,
+    onSetTablePrimary = null,
+    canOptimizeTable = false,
+    featuredSnippetThresholds = null,
+    onMarkSeoStale = null,
 }) {
     const blockHtml = displayContent ?? block.content;
     const isFaqShortcodeBlock = block.type === 'text' && isFaqPlaceholderHtml(blockHtml);
@@ -90,6 +95,27 @@ function BlockEditor({
                 supportsProductGallery={supportsProductGallery}
                 imagesLocked={introImagesLocked}
                 onArmOutsideClickGuard={onArmOutsideClickGuard}
+            />
+        );
+    }
+
+    if (block.type === 'table') {
+        return (
+            <TableBlockEditor
+                block={block}
+                isActive={isActive}
+                isHiddenInMerge={isHiddenInMerge}
+                canShiftMerge={canShiftMerge}
+                onActivate={onActivate}
+                onShiftMerge={onShiftMerge}
+                onUpdate={onUpdate}
+                onDelete={onDelete}
+                canDeleteBlock={canDeleteBlock}
+                onArmOutsideClickGuard={onArmOutsideClickGuard}
+                onSetPrimary={onSetTablePrimary}
+                canOptimize={canOptimizeTable}
+                featuredSnippetThresholds={featuredSnippetThresholds}
+                onMarkSeoStale={onMarkSeoStale}
             />
         );
     }

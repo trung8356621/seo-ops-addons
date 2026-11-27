@@ -46,25 +46,26 @@ final class ContentPlanningMockupUiContractTest extends TestCase
         self::assertStringNotContainsString('data-idea-action="improve"', $picker);
     }
 
-    public function test_ideas_panel_header_matches_mockup_create_head(): void
+    public function test_seo_audit_two_column_layout_links_to_idea_manager(): void
     {
         $draft = LegacyAddonPath::read('resources/views/components/content-project-draft-planner.blade.php');
         $css = LegacyAddonPath::read('resources/views/components/content-project-ops-styles.blade.php');
         $en = (string) file_get_contents(ProjectRoot::addonsPath().'/seo-content-ai-compat/lang/en/filament.php');
         $vi = (string) file_get_contents(ProjectRoot::addonsPath().'/seo-content-ai-compat/lang/vi/filament.php');
+        $picker = LegacyAddonPath::read('resources/views/components/content-project-idea-candidate-picker.blade.php');
 
-        self::assertStringContainsString('cp-plan-create-head', $draft);
-        self::assertStringContainsString('cp-plan-create-head__title', $draft);
-        self::assertStringContainsString('idea_candidate_tab_available', $draft);
-        self::assertStringContainsString('idea_candidate_tab_ai_short', $draft);
-        self::assertStringContainsString('data-idea-total-badge="1"', $draft);
-        self::assertStringContainsString('data-create-tab="ideas"', $draft);
-        self::assertStringContainsString('data-create-tab="ai"', $draft);
+        self::assertStringContainsString('data-planner-card="improve"', $draft);
+        self::assertStringContainsString('data-planner-card="site-planning"', $draft);
+        self::assertStringContainsString('data-planner-action="idea-manager"', $draft);
+        self::assertStringContainsString('idea_manager_nav_label', $draft);
+        self::assertStringNotContainsString('data-planner-card="create"', $draft);
+        self::assertStringNotContainsString('data-create-tab="ideas"', $draft);
         self::assertStringContainsString('.cp-plan-create-head', $css);
         self::assertStringContainsString("'idea_candidate_tab_ai_short'", $en);
         self::assertStringContainsString("'idea_candidate_tab_ai_short'", $vi);
         self::assertStringContainsString("'idea_candidate_action_create_short'", $en);
         self::assertStringContainsString("'idea_candidate_action_create_short'", $vi);
+        self::assertStringContainsString('data-idea-action="create"', $picker);
     }
 
     public function test_draft_jump_always_visible_as_planning_pool(): void

@@ -133,7 +133,9 @@ final class IdeaCandidatePlannerContractTest extends TestCase
         self::assertStringNotContainsString('data-idea-action="improve"', $picker);
         self::assertStringContainsString('data-idea-action="create"', $picker);
         self::assertStringNotContainsString('generateNewContentSuggestions', $concern);
-        self::assertStringContainsString('content-project-idea-candidate-picker', $blade);
+        // Ideas UI moved to Idea Manager; picker component + Livewire concern remain available.
+        self::assertStringNotContainsString('content-project-idea-candidate-picker', $blade);
+        self::assertStringContainsString('data-planner-action="idea-manager"', $blade);
         self::assertStringContainsString('data-idea-candidate-picker', $picker);
         self::assertStringContainsString('idea_candidate_heading', $picker);
         self::assertStringContainsString('cp-plan-card__scroll', $blade);

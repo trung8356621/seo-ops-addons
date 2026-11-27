@@ -110,15 +110,26 @@ final class ArticleEditorOutlineStructureUxTest extends TestCase
         $nav = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/utils/ctaSectionNavigator.js',
         );
+        $baseline = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/utils/outlineSectionBaseline.js',
+        );
 
-        self::assertStringContainsString('scrollEditorTargetIntoView', $outline);
+        self::assertStringContainsString('scrollEditorTargetIntoViewAsync', $outline);
         self::assertStringContainsString('jumpToSectionTop', $outline);
         self::assertStringContainsString('level === 2', $outline);
+        self::assertStringContainsString('rebuildCollapsedBaseline', $outline);
+        self::assertStringContainsString('outlineNavLockedRef', $outline);
         self::assertStringNotContainsString("block: 'center'", $outline);
+        self::assertStringNotContainsString('scrollToCollapsedSectionBaseline(', $outline);
         self::assertStringContainsString('scrollEditorTargetIntoView', $active);
         self::assertStringNotContainsString("block: 'center'", $active);
         self::assertStringContainsString('export function scrollEditorTargetIntoView', $nav);
+        self::assertStringContainsString('computeEditorScrollDestination', $nav);
         self::assertStringContainsString('stickyOffset', $nav);
+        self::assertStringContainsString('editorScrollOffset', $nav);
+        self::assertStringContainsString('buildCollapsedBaselineMap', $baseline);
+        self::assertStringContainsString('waitForStableElement', $baseline);
+        self::assertStringContainsString('measureEditorStickyHeaderHeight', $nav);
     }
 
     public function test_active_block_insert_bars_remain_in_editor_shell(): void
