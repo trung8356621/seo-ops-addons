@@ -59,7 +59,7 @@ final class StructuredRetrievalPlanner
         $parameters = $understanding->parameters;
         $parameters['limit_max'] = min((int) ($parameters['limit_max'] ?? ($understanding->depth === 'summary' ? 10 : 25)), 250);
         if (in_array('article_quality', $understanding->dataRequirements, true)) {
-            $parameters['task'] = 'low_score';
+            $parameters['task'] = ($parameters['highest_score'] ?? false) ? 'high_score' : 'low_score';
         }
         if (isset($parameters['topic_ref'])) {
             $modules = array_values(array_diff($modules, ['keywords']));

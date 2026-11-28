@@ -72,6 +72,21 @@ final class StructuredRagPipelineTest extends TestCase
         )->requiresRetrieval);
     }
 
+    public function test_current_article_reference_overrides_prior_topic(): void
+    {
+        $query = (new QueryUnderstandingService())->understand('Vậy kiểm tra article:42', [
+            ['role' => 'user', 'content' => 'Phân tích topic:12'],
+        ]);
+        self::assertSame('article:42', $query->scope);
+        self::assertArrayNotHasKey('topic_ref', $query->parameters);
+    }
+
+    public function test_strongest_assets_use_descending_ranking(): void
+    {
+        $query = (new QueryUnderstandingService())->understand('Tìm tài sản SEO mạnh nhất của website.');
+        self::assertSame('high_score', (new StructuredRetrievalPlanner())->plan($query)->parameters['task']);
+    }
+
     public function test_gsc_only_question_is_explicitly_excluded_without_unrelated_retrieval(): void
     {
         $understanding = (new QueryUnderstandingService())->understand('Cho tôi clicks và CTR Search Console của website này.');

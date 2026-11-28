@@ -44,6 +44,12 @@ final class StructuredRagPipeline
             return new StructuredRagResult('missing_capability', $understanding, $plan, null, null, null, $timings, [...$understanding->limitations, 'no_authorized_capability']);
         }
 
+        if (($understanding->parameters['dataset_export'] ?? false) === true) {
+            $timings['total'] = $this->elapsed($totalStarted);
+
+            return new StructuredRagResult('dataset_requested', $understanding, $plan, null, null, null, $timings, $understanding->limitations);
+        }
+
         $stageStarted = hrtime(true);
         $decision = new RetrievalDecision(
             true,

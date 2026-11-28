@@ -101,8 +101,10 @@ final class AgentQaInputController
             if (($result->understanding->parameters['dataset_export'] ?? false) === true) {
                 try {
                     $datasetManifest = $datasets->writeArticleInventory($siteId, $result->understanding->parameters);
+                    $resultData['status'] = 'dataset_ready';
                 } catch (\Throwable) {
                     $datasetManifest = ['status' => 'unavailable', 'reason' => 'dataset_packaging_failed'];
+                    $resultData['status'] = 'dataset_unavailable';
                 }
             }
             $diagnostics = [

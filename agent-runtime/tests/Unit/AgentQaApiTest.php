@@ -462,6 +462,14 @@ final class AgentQaApiTest extends TestCase
             });
         }
 
+        \Illuminate\Support\Facades\DB::connection('omi_seo_ai')->table('articles')->insert([
+            ['site_id' => 10, 'title' => 'WP published', 'status' => 'publish'],
+            ['site_id' => 10, 'title' => 'Editor published', 'status' => 'published'],
+            ['site_id' => 10, 'title' => 'Draft', 'status' => 'draft'],
+            ['site_id' => 10, 'title' => 'Trash', 'status' => 'trash'],
+            ['site_id' => 20, 'title' => 'Other site', 'status' => 'publish'],
+        ]);
+
         $response = $this->postJson('/api/agent-qa/v1/input-only', [
             'site_id' => 10,
             'message' => 'Xuất tối đa 250 bài đã xuất bản của website, mỗi bài chỉ cần tiêu đề và URL hoặc mã bài.',
@@ -470,9 +478,18 @@ final class AgentQaApiTest extends TestCase
             ->assertJsonPath('data.model_execution.answer_model_called', false)
             ->assertJsonPath('data.dataset_manifest.status', 'ready')
             ->assertJsonPath('data.dataset_manifest.format', 'jsonl')
+            ->assertJsonPath('data.dataset_manifest.matched_total', 2)
+            ->assertJsonPath('data.dataset_manifest.exported', 2)
+            ->assertJsonPath('data.dataset_manifest.preview_count', 2)
+            ->assertJsonPath('data.model_input', null)
             ->assertJsonPath('data.dataset_manifest.site_ref', 'site:10');
 
         $id = (string) $response->json('data.dataset_manifest.id');
+        $lines = file(storage_path('app/private/agent-qa-datasets/'.$id.'.jsonl'), FILE_IGNORE_NEW_LINES);
+        self::assertSame($response->json('data.dataset_manifest.preview'), array_map(
+            static fn (string $line): array => json_decode($line, true, 512, JSON_THROW_ON_ERROR),
+            $lines,
+        ));
         $this->get('/api/agent-qa/v1/datasets/'.$id, $this->authHeaders())
             ->assertOk()
             ->assertHeader('content-type', 'application/x-ndjson; charset=UTF-8');

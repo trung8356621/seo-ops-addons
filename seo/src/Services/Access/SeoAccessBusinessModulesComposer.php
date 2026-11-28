@@ -24,7 +24,7 @@ final class SeoAccessBusinessModulesComposer
     {
         $limit = max(1, min(250, $limit));
 
-        if ($task === 'low_score') {
+        if (in_array($task, ['low_score', 'high_score'], true)) {
             if ($this->audit === null) {
                 return ['site_ref' => 'site:'.$siteId, 'available' => false, 'reason' => 'audit_unavailable'];
             }
@@ -37,7 +37,8 @@ final class SeoAccessBusinessModulesComposer
                 resolvedSiteId: $siteId,
                 scopes: ['seo:read'],
             );
-            $result = $this->audit->rankedPublishedPosts($context, $limit);
+            $highest = $task === 'high_score';
+            $result = $this->audit->rankedPublishedPosts($context, $limit, $highest);
 
             return [
                 'schema' => 'seo.access.articles.audit-ranked.v1',
@@ -45,7 +46,7 @@ final class SeoAccessBusinessModulesComposer
                 'items' => $result['items'],
                 'total' => $result['total'],
                 'pagination' => ['requested' => $limit, 'returned' => count($result['items']), 'total' => $result['total']],
-                'selection' => ['reason' => 'published_low_score_posts', 'order' => 'seo_score_asc'],
+                'selection' => ['reason' => 'published_posts_with_stored_score', 'order' => $highest ? 'ranking_score_desc' : 'ranking_score_asc'],
             ];
         }
 
@@ -84,7 +85,9 @@ final class SeoAccessBusinessModulesComposer
             ->where('status', '!=', 'trash');
         $status = trim((string) ($filters['status'] ?? ''));
         if ($status !== '') {
-            $query->where('status', $status);
+            in_array($status, SeoArticle::PUBLISHED_STATUSES, true)
+                ? $query->whereIn('status', SeoArticle::PUBLISHED_STATUSES)
+                : $query->where('status', $status);
         }
         $search = trim((string) ($filters['search'] ?? ''));
         if ($search !== '') {

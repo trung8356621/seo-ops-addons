@@ -22,7 +22,8 @@ final class DatasetPackageWriter
         if ($siteId <= 0) throw new RuntimeException('Dataset site scope is required.');
         $this->cleanupExpired();
 
-        $requested = max(1, min($this->maxRows, (int) ($parameters['limit_max'] ?? $this->maxRows)));
+        $requested = max(1, (int) ($parameters['limit_max'] ?? $this->maxRows));
+        $limit = min($requested, $this->maxRows);
         $status = trim((string) ($parameters['status'] ?? ''));
         $directory = $this->directory();
         if (! is_dir($directory) && ! mkdir($directory, 0700, true) && ! is_dir($directory)) {
@@ -36,21 +37,29 @@ final class DatasetPackageWriter
         if ($handle === false) throw new RuntimeException('Dataset package cannot be opened.');
 
         $query = SeoArticle::query()->where('site_id', $siteId)->where('status', '!=', 'trash');
-        if ($status !== '') $query->where('status', $status);
+        if (in_array($status, SeoArticle::PUBLISHED_STATUSES, true)) {
+            $query->whereIn('status', SeoArticle::PUBLISHED_STATUSES);
+        } elseif ($status !== '') {
+            $query->where('status', $status);
+        }
         $matched = (clone $query)->count();
         $written = 0;
         $bytes = 0;
+        $preview = [];
         try {
-            foreach ($query->orderBy('id')->select(['id', 'title', 'slug', 'status'])->cursor() as $article) {
-                if ($written >= $requested) break;
-                $line = json_encode([
+            foreach ($query->orderBy('id')->limit($limit)->select(['id', 'title', 'slug', 'status'])->cursor() as $article) {
+                $row = [
                     'article_ref' => 'article:'.(int) $article->id,
                     'title' => (string) $article->title,
                     'slug' => $article->slug !== null ? (string) $article->slug : null,
                     'status' => (string) $article->status,
-                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)."\n";
-                if (! is_string($line) || $bytes + strlen($line) > $this->maxBytes) break;
+                ];
+                $line = json_encode($row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)."\n";
+                if ($bytes + strlen($line) > $this->maxBytes) break;
                 if (fwrite($handle, $line) !== strlen($line)) throw new RuntimeException('Dataset package write failed.');
+                if ($written < 25) {
+                    $preview[] = $row;
+                }
                 $bytes += strlen($line);
                 $written++;
             }
@@ -72,6 +81,9 @@ final class DatasetPackageWriter
             'filters' => ['status' => $status !== '' ? $status : 'not_trash'],
             'projection' => ['article_ref', 'title', 'slug', 'status'],
             'requested' => $requested,
+            'row_limit' => $limit,
+            'ordering' => ['article_id' => 'asc'],
+            'preview_count' => count($preview),
             'matched_total' => $matched,
             'exported' => $written,
             'omitted' => max(0, $matched - $written),
@@ -84,7 +96,7 @@ final class DatasetPackageWriter
         ];
         file_put_contents($directory.DIRECTORY_SEPARATOR.$id.'.manifest.json', json_encode($manifest, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), LOCK_EX);
 
-        return $manifest;
+        return $manifest + ['preview' => $preview];
     }
 
     /** @return array<string, mixed>|null */

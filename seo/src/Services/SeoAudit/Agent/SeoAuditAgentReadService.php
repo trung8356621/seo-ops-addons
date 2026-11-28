@@ -88,7 +88,7 @@ class SeoAuditAgentReadService
     }
 
     /** @return array{items: list<array<string, mixed>>, total: int} */
-    public function rankedPublishedPosts(AgentExecutionContext $context, int $limit): array
+    public function rankedPublishedPosts(AgentExecutionContext $context, int $limit, bool $highest = false): array
     {
         $siteId = (int) $context->resolvedSiteId;
         if ($siteId <= 0) {
@@ -98,16 +98,20 @@ class SeoAuditAgentReadService
         $score = SeoArticleProfile::query()->select('seo_score')
             ->whereColumn('article_id', 'articles.id')->limit(1);
         $query = $this->baseArticleQuery($siteId, 'post', true)
-            ->whereHas('seoProfile', static fn ($profile) => $profile
-                ->where('seo_score', '<', SeoScoringRulesRegistry::AUDIT_LOW_SCORE_THRESHOLD));
+            ->whereHas('seoProfile', static function ($profile) use ($highest): void {
+                $profile->whereNotNull('seo_score');
+                if (! $highest) {
+                    $profile->where('seo_score', '<', SeoScoringRulesRegistry::AUDIT_LOW_SCORE_THRESHOLD);
+                }
+            });
         $total = (clone $query)->reorder()->count();
         $ranked = $query->reorder()->select('articles.id')->addSelect(['ranking_score' => $score])
-            ->orderBy('ranking_score')->orderBy('articles.id')
+            ->orderBy('ranking_score', $highest ? 'desc' : 'asc')->orderBy('articles.id')
             ->limit(max(1, min(25, $limit)))->get();
         $items = [];
         foreach ($ranked as $candidate) {
             $article = $this->getArticle($context, (int) $candidate->id);
-            if ($article !== null) {
+            if ($article !== null && $article['rankable'] === true && is_numeric($article['seo_score']) && is_numeric($candidate->ranking_score)) {
                 $article['ranking_score'] = (float) $candidate->ranking_score;
                 $items[] = $article;
             }
@@ -301,7 +305,7 @@ class SeoAuditAgentReadService
         );
         if ($publishedOnly) {
             // WordPress sync stores publish; the editor also uses published.
-            $query->whereIn('status', ['publish', 'published']);
+            $query->whereIn('status', SeoArticle::PUBLISHED_STATUSES);
         }
 
         ArticleResource::applySeoAuditCandidateScope($query);

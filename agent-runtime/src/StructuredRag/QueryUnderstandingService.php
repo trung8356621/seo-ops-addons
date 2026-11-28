@@ -31,6 +31,9 @@ final class QueryUnderstandingService
 
         if ($articleIntent) $requirements[] = 'articles';
         if ($articleQuality) $requirements[] = 'article_quality';
+        if ($articleQuality && preg_match('/(?:mạnh nhất|điểm (?:seo )?cao nhất|highest.?scor)/iu', $text) === 1) {
+            $parameters['highest_score'] = true;
+        }
         if ($keywordIntent && preg_match('/(?:đang theo dõi|kho|danh sách|liệt kê|có mặt|keyword:)/iu', $effective) === 1) $requirements[] = 'keyword_inventory';
         if ($keywordIntent && ! in_array('keyword_inventory', $requirements, true)) $requirements[] = 'keyword_landscape';
         if ($topicIntent) $requirements[] = 'topic_coverage';
@@ -43,8 +46,9 @@ final class QueryUnderstandingService
             $requirements[] = 'technical_audit';
         }
 
+        $entityText = preg_match('/\b(?:article|topic|keyword):[1-9]\d*\b/i', $text) === 1 ? $text : $effective;
         foreach (['article', 'topic', 'keyword'] as $type) {
-            if (preg_match('/\b'.$type.':[1-9]\d*\b/i', $effective, $match) === 1) {
+            if (preg_match('/\b'.$type.':[1-9]\d*\b/i', $entityText, $match) === 1) {
                 $ref = strtolower($match[0]);
                 $parameters[$type.'_ref'] = $ref;
                 $parameters['entity_type'] = $type;
@@ -67,7 +71,10 @@ final class QueryUnderstandingService
         }
         if (preg_match('/(?:đã xuất bản|published)/iu', $effective) === 1) $parameters['status'] = 'published';
         if (preg_match('/(?:chỉ cần|mỗi bài chỉ cần).{0,60}(?:tiêu đề|title).{0,40}(?:url|mã bài|article id)/iu', $effective) === 1) $parameters['projection'] = 'article_identity';
-        if (($parameters['limit_max'] ?? 0) > 50 && in_array('articles', $requirements, true)) $parameters['dataset_export'] = true;
+        if (in_array('articles', $requirements, true)
+            && (($parameters['limit_max'] ?? 0) > 50 || preg_match('/\bjsonl\b/iu', $text) === 1)) {
+            $parameters['dataset_export'] = true;
+        }
 
         $decisionLanguage = preg_match('/(?:nên|ưu tiên|so sánh|vì sao|nguyên nhân|cải thiện|tối ưu|phân tích|đề xuất|cơ hội|chiến lược|mạnh nhất|chọn|quyết định|còn thiếu)/iu', $effective) === 1;
         $requiresAnalysis = ! $isGeneralKnowledge && $decisionLanguage;

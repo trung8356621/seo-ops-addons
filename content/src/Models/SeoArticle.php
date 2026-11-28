@@ -33,6 +33,8 @@ class SeoArticle extends Model
     /** @var string Bảng vật lý là `articles` (SEO / bài viết đồng bộ). */
     protected $table = 'articles';
 
+    public const PUBLISHED_STATUSES = ['publish', 'published'];
+
     protected $guarded = [];
 
     protected $casts = [
