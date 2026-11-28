@@ -24,6 +24,31 @@ final class SeoAccessBusinessModulesComposer
     {
         $limit = max(1, min(250, $limit));
 
+        if ($task === 'low_score') {
+            if ($this->audit === null) {
+                return ['site_ref' => 'site:'.$siteId, 'available' => false, 'reason' => 'audit_unavailable'];
+            }
+            $context = new AgentExecutionContext(
+                actorRef: 'seo-access',
+                actorType: 'agent',
+                tenantRef: 'seo-access',
+                siteRef: 'site:'.$siteId,
+                requestRef: 'seo-access:ranked-audit',
+                resolvedSiteId: $siteId,
+                scopes: ['seo:read'],
+            );
+            $result = $this->audit->rankedPublishedPosts($context, $limit);
+
+            return [
+                'schema' => 'seo.access.articles.audit-ranked.v1',
+                'site_ref' => 'site:'.$siteId,
+                'items' => $result['items'],
+                'total' => $result['total'],
+                'pagination' => ['requested' => $limit, 'returned' => count($result['items']), 'total' => $result['total']],
+                'selection' => ['reason' => 'published_low_score_posts', 'order' => 'seo_score_asc'],
+            ];
+        }
+
         if ($task === 'improve' && $this->audit !== null) {
             $context = new AgentExecutionContext(
                 actorRef: 'seo-access',

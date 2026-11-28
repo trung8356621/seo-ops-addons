@@ -58,7 +58,7 @@ final class KeywordRelationshipReadModel
         return $this->topicMcp ?? app(TopicMcpExclusionService::class);
     }
 
-    public function relationship(int $siteId, int $keywordId): ?KeywordRelationship
+    public function relationship(int $siteId, int $keywordId, bool $includeGsc = true): ?KeywordRelationship
     {
         if ($siteId <= 0 || $keywordId <= 0) {
             return null;
@@ -101,7 +101,7 @@ final class KeywordRelationshipReadModel
         $dna = $this->loadTopicDna($siteId, $topic !== null ? (int) $topic->id : 0);
         $related = $this->loadRelatedKeywords($siteId, $keywordId, $topic !== null ? (int) $topic->id : 0);
         $links = $this->loadInternalLinks($siteId, $focusArticles);
-        $gsc = $this->loadGsc($siteId, $keywordId);
+        $gsc = $includeGsc ? $this->loadGsc($siteId, $keywordId) : ['available' => false];
         $planning = $this->loadPlanning($siteId, (string) $keyword->phrase);
         $issues = $this->detectRelationIssues($topics, $focusArticles);
 

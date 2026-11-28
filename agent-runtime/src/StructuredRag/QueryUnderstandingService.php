@@ -16,7 +16,7 @@ final class QueryUnderstandingService
         $gscExcluded = preg_match('/(?:gsc|search console|clicks|impressions|ctr|vị trí trung bình)/iu', $effective) === 1;
 
         $siteObject = preg_match('/(?:website|site|trang|bài|article|nội dung|từ khóa|keyword|topic|chủ đề|kho|dữ liệu|audit|crawl|url|tài sản seo)/iu', $effective) === 1;
-        $siteAction = preg_match('/(?:đang|hiện có|có mặt|thuộc|gắn|liên kết|liệt kê|xuất|bao nhiêu|kiểm tra|cho tôi xem|tìm|mạnh nhất|ưu tiên|đánh giá|tình trạng)/iu', $effective) === 1;
+        $siteAction = preg_match('/(?<!\p{L})(?:đang|hiện có|có mặt|thuộc|gắn|liên kết|liệt kê|xuất|bao nhiêu|kiểm tra|cho tôi xem|tìm|mạnh nhất|ưu tiên|đánh giá|tình trạng)(?!\p{L})/iu', $effective) === 1;
         $definition = preg_match('/(?:là gì|nghĩa là gì|what is|giải thích|khác .{0,20} chỗ nào)/iu', $text) === 1;
         $isGeneralKnowledge = $definition && ! ($siteObject && $siteAction);
 
@@ -53,8 +53,11 @@ final class QueryUnderstandingService
         }
 
         $isDatasetRequest = preg_match('/(?:liệt kê|xuất|danh sách).{0,30}\d{1,4}/iu', $text) === 1;
-        $query = $this->quotedEntity($message) ?? ($isDatasetRequest ? null : $this->namedEntity($message, $topicIntent ? 'topic' : ($keywordIntent ? 'keyword' : ($articleIntent ? 'article' : null))));
-        if ($query !== null && ! isset($parameters['article_ref'], $parameters['topic_ref'], $parameters['keyword_ref'])) {
+        $query = $this->quotedEntity($message);
+        if ($query === null && ! $isDatasetRequest && preg_match('/(?:của bài|chi tiết bài)\s+/iu', $message) === 1) {
+            $query = $this->namedEntity($message, 'article');
+        }
+        if ($query !== null && $entities === []) {
             $parameters['entity_type'] = $topicIntent ? 'topic' : ($keywordIntent ? 'keyword' : 'article');
             $parameters['entity_query'] = $query;
         }

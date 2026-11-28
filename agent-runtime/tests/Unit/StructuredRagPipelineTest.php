@@ -67,6 +67,9 @@ final class StructuredRagPipelineTest extends TestCase
 
         self::assertFalse($understanding->requiresRetrieval);
         self::assertSame('general_knowledge', $understanding->intent);
+        self::assertFalse((new QueryUnderstandingService())->understand(
+            'Canonical khác redirect 301 chỗ nào? Giải thích ngắn, chưa cần áp dụng vào website của tôi.',
+        )->requiresRetrieval);
     }
 
     public function test_gsc_only_question_is_explicitly_excluded_without_unrelated_retrieval(): void
@@ -121,6 +124,8 @@ final class StructuredRagPipelineTest extends TestCase
         self::assertFalse($topic->resolvedContext['direct_response_eligible']);
         self::assertSame('keyword:6277', $keyword->parameters['keyword_ref']);
         self::assertTrue($keyword->resolvedContext['relationship_required']);
+        self::assertSame(['topics'], (new StructuredRetrievalPlanner())->plan($topic)->modules);
+        self::assertSame(['keyword_inventory'], (new StructuredRetrievalPlanner())->plan($keyword)->modules);
     }
 
     public function test_technical_audit_is_missing_instead_of_substituting_content_score(): void

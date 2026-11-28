@@ -87,6 +87,35 @@ class SeoAuditAgentReadService
         ];
     }
 
+    /** @return array{items: list<array<string, mixed>>, total: int} */
+    public function rankedPublishedPosts(AgentExecutionContext $context, int $limit): array
+    {
+        $siteId = (int) $context->resolvedSiteId;
+        if ($siteId <= 0) {
+            return ['items' => [], 'total' => 0];
+        }
+
+        $score = SeoArticleProfile::query()->select('seo_score')
+            ->whereColumn('article_id', 'articles.id')->limit(1);
+        $query = $this->baseArticleQuery($siteId, 'post', true)
+            ->whereHas('seoProfile', static fn ($profile) => $profile
+                ->where('seo_score', '<', SeoScoringRulesRegistry::AUDIT_LOW_SCORE_THRESHOLD));
+        $total = (clone $query)->reorder()->count();
+        $ranked = $query->reorder()->select('articles.id')->addSelect(['ranking_score' => $score])
+            ->orderBy('ranking_score')->orderBy('articles.id')
+            ->limit(max(1, min(25, $limit)))->get();
+        $items = [];
+        foreach ($ranked as $candidate) {
+            $article = $this->getArticle($context, (int) $candidate->id);
+            if ($article !== null) {
+                $article['ranking_score'] = (float) $candidate->ranking_score;
+                $items[] = $article;
+            }
+        }
+
+        return ['items' => $items, 'total' => $total];
+    }
+
     /**
      * Compact single Article audit detail scoped strictly to the working site.
      *

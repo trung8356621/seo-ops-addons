@@ -31,7 +31,12 @@ final class StructuredRetrievalPlanner
 
         $capabilities = [];
         $missing = [];
-        foreach ($understanding->dataRequirements as $requirement) {
+        $requirements = match ($understanding->parameters['entity_type'] ?? null) {
+            'keyword' => ['keyword_inventory'],
+            'topic' => ['topic_coverage'],
+            default => $understanding->dataRequirements,
+        };
+        foreach ($requirements as $requirement) {
             $candidates = $mapping[$requirement] ?? [];
             $accepted = false;
             foreach ($candidates as $capability) {
@@ -56,7 +61,9 @@ final class StructuredRetrievalPlanner
         if (in_array('article_quality', $understanding->dataRequirements, true)) {
             $parameters['task'] = 'low_score';
         }
-        if (! isset($parameters['topic_ref']) && in_array('topics', $modules, true) && in_array('keywords', $modules, true)) {
+        if (isset($parameters['topic_ref'])) {
+            $modules = array_values(array_diff($modules, ['keywords']));
+        } elseif (in_array('topics', $modules, true) && in_array('keywords', $modules, true)) {
             $modules = array_values(array_filter($modules, static fn (string $module): bool => $module !== 'topics'));
         }
 

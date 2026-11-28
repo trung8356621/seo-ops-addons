@@ -36,9 +36,9 @@ final class KeywordRelationshipGateway
         private readonly KeywordRelationshipReadModel $readModel,
     ) {}
 
-    public function forKeyword(int $siteId, int $keywordId): ?KeywordRelationship
+    public function forKeyword(int $siteId, int $keywordId, bool $includeGsc = true): ?KeywordRelationship
     {
-        return $this->readModel->relationship($siteId, $keywordId);
+        return $this->readModel->relationship($siteId, $keywordId, $includeGsc);
     }
 
     /**

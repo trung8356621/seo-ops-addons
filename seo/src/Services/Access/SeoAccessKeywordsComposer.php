@@ -59,6 +59,8 @@ class SeoAccessKeywordsComposer
         }
         if (preg_match('/^keyword:([1-9]\d*)$/i', $keywordRef, $match) === 1) {
             $queryBuilder->whereKey((int) $match[1]);
+        } elseif ($keywordRef !== '') {
+            throw new InvalidArgumentException('Invalid keyword_ref.');
         }
         $keywords = $queryBuilder
             ->orderBy('phrase')
@@ -77,11 +79,31 @@ class SeoAccessKeywordsComposer
             ];
         }
 
+        $lookup = null;
+        if ($phrase !== '' || $keywordRef !== '') {
+            $lookup = ['status' => match ($keywords->total()) {
+                0 => 'not_found',
+                1 => 'found',
+                default => 'ambiguous',
+            }];
+            if ($keywords->total() === 1 && isset($items[0])) {
+                $relationship = $this->relationship->forKeyword($siteId, $items[0]['id'], includeGsc: false);
+                $data = $relationship?->toArray();
+                if ($data !== null) {
+                    $data = array_intersect_key($data, array_flip(['site_id', 'keyword', 'topics', 'focus_articles', 'dna', 'meta']));
+                    unset($data['meta']['limits']['gsc_query_mappings']);
+                }
+                $lookup['relationship'] = $data;
+                $lookup['relationship_status'] = $data === null ? 'unavailable' : 'available';
+            }
+        }
+
         return [
             'schema' => self::SCHEMA_INVENTORY,
             'site_ref' => 'site:'.$siteId,
             'generated_at' => now()->toIso8601String(),
             'items' => $items,
+            ...($lookup === null ? [] : ['lookup' => $lookup]),
             'pagination' => [
                 'page' => $keywords->currentPage(),
                 'per_page' => $keywords->perPage(),
@@ -166,9 +188,11 @@ class SeoAccessKeywordsComposer
         foreach ($pageTopics as $topic) {
             $row = $this->landscapeRow($topic, $tokenPath);
             if ($name !== null) {
-                $row['dna'] = array_values($topic->dna);
-                $row['focus_articles'] = $this->loadFocusArticles($siteId, $topic->id);
-                $row['relationship_status'] = $row['focus_articles'] === [] ? 'no_linked_focus_article' : 'linked';
+                if ($total === 1) {
+                    $detail = $this->topicDetail($siteId, 'topic:'.$topic->id, $accessToken);
+                    $row = $detail['topic'] ?? $row;
+                    $row['relationship_status'] = $detail === null ? 'unavailable' : 'available';
+                }
             }
             $rows[] = $row;
         }
@@ -183,6 +207,11 @@ class SeoAccessKeywordsComposer
                 'coverage_counts' => $coverageCounts,
             ],
             'topics' => $rows,
+            ...($name === null ? [] : ['lookup' => ['status' => match ($total) {
+                0 => 'not_found',
+                1 => 'found',
+                default => 'ambiguous',
+            }]]),
             'pagination' => [
                 'page' => $page,
                 'per_page' => $perPage,
