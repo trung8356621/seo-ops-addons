@@ -961,4 +961,55 @@ MD;
         $this->assertContains('câu hỏi thường gặp', $keywords);
         $this->assertContains('hỏi đáp', $keywords);
     }
+
+    public function test_remove_faq_preserves_multi_section_article_with_question_h3_headings(): void
+    {
+        $parser = $this->parser();
+
+        $intro = implode(' ', array_fill(0, 160, 'nội_dung_mở_đầu'));
+        $sec1 = implode(' ', array_fill(0, 350, 'chi_tiết_phần_một'));
+        $sec2 = implode(' ', array_fill(0, 350, 'chi_tiết_phần_hai'));
+        $sec3 = implode(' ', array_fill(0, 350, 'chi_tiết_phần_ba'));
+        $conclusion = implode(' ', array_fill(0, 150, 'tổng_kết_bài_viết'));
+
+        $markdown = <<<MD
+# Hướng dẫn chọn túi vải canvas chuẩn xưởng
+
+{$intro}
+
+## Tổng quan về túi vải canvas
+
+### Tại sao doanh nghiệp nên chọn túi vải canvas?
+
+{$sec1} [[cta:phone]]
+
+### Làm thế nào để phân biệt vải canvas dày và mỏng?
+
+{$sec2} [[cta:zalo]]
+
+## Quy trình đặt may theo yêu cầu
+
+{$sec3}
+
+## Kết luận
+
+{$conclusion}
+MD;
+
+        $this->assertFalse($parser->shouldParseMarkdownAsStandaloneFaqSection($markdown));
+
+        $stripped = $parser->removeFaqAndAppendShortcodeFromContent($markdown);
+
+        $this->assertStringContainsString('## Tổng quan về túi vải canvas', $stripped);
+        $this->assertStringContainsString('### Tại sao doanh nghiệp nên chọn túi vải canvas?', $stripped);
+        $this->assertStringContainsString('### Làm thế nào để phân biệt vải canvas dày và mỏng?', $stripped);
+        $this->assertStringContainsString('## Quy trình đặt may theo yêu cầu', $stripped);
+        $this->assertStringContainsString('## Kết luận', $stripped);
+        $this->assertStringContainsString('chi_tiết_phần_một', $stripped);
+        $this->assertStringContainsString('chi_tiết_phần_hai', $stripped);
+        $this->assertStringContainsString('chi_tiết_phần_ba', $stripped);
+        $this->assertStringContainsString('tổng_kết_bài_viết', $stripped);
+        $this->assertStringContainsString('[[cta:phone]]', $stripped);
+        $this->assertStringContainsString('[[cta:zalo]]', $stripped);
+    }
 }

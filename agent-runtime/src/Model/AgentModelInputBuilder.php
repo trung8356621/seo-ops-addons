@@ -219,7 +219,7 @@ final class AgentModelInputBuilder
                 continue;
             }
             if (strlen($content) > 800) {
-                $content = substr($content, 0, 800);
+                $content = mb_strcut($content, 0, 800, 'UTF-8');
             }
             $out[] = ['role' => $role, 'content' => $content];
         }

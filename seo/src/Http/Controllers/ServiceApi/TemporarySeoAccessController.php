@@ -96,6 +96,7 @@ final class TemporarySeoAccessController
             'per_page' => $request->query('per_page'),
             'phrase' => $request->query('phrase'),
             'keyword_ref' => $request->query('keyword_ref'),
+            'search_mode' => $request->query('search_mode'),
         ]));
     }
 

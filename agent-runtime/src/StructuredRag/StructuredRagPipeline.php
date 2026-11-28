@@ -72,8 +72,10 @@ final class StructuredRagPipeline
         $timings['context_build'] = $this->elapsed($stageStarted);
         $limitations = array_values(array_unique([...$understanding->limitations, ...$context->limitations]));
 
-        if (($understanding->resolvedContext['direct_response_eligible'] ?? false) === true) {
-            $direct = $this->factual->compose($context->bundle, $message, $this->language($message));
+        if (($understanding->resolvedContext['direct_response_eligible'] ?? false) === true
+            && ! in_array($plan->parameters['task'] ?? null, ['low_score', 'high_score'], true)) {
+            $direct = $this->factual->composeStructuredListing($context->bundle, $message, $this->language($message))
+                ?? $this->factual->compose($context->bundle, $message, $this->language($message));
             if ($direct !== null) {
                 $timings['total'] = $this->elapsed($totalStarted);
 

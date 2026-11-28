@@ -1257,8 +1257,24 @@ class WorkflowParserService
             }
 
             if ($inFaqBlock) {
+                $headingLevel = $this->lineHeadingLevel($trimmed);
+                if (
+                    $headingLevel !== null
+                    && $headingLevel <= 2
+                    && ! $this->isFaqItemHeadingLine($trimmed)
+                    && ! $this->isFaqQuestionLine($trimmed)
+                ) {
+                    $inFaqBlock = false;
+                    $result[] = $line;
+
+                    continue;
+                }
+
                 if ($this->isFaqMarkdownSectionTerminatorLine($trimmed)) {
-                    break;
+                    $inFaqBlock = false;
+                    $result[] = $line;
+
+                    continue;
                 }
 
                 continue;
@@ -2156,20 +2172,26 @@ class WorkflowParserService
         }
 
         $questionHeadings = 0;
+        $nonQuestionHeadings = 0;
         foreach (preg_split('/\r\n|\r|\n/', $markdown) ?: [] as $line) {
             $trimmed = trim($line);
-            if ($this->lineHeadingLevel($trimmed) === null) {
+            $level = $this->lineHeadingLevel($trimmed);
+            if ($level === null) {
                 continue;
             }
 
-            if (! $this->isFaqItemHeadingLine($trimmed) && ! $this->isFaqQuestionLine($trimmed)) {
+            if ($this->isFaqItemHeadingLine($trimmed) || $this->isFaqQuestionLine($trimmed)) {
+                $questionHeadings++;
+
                 continue;
             }
 
-            $questionHeadings++;
+            // A document containing regular H1-H6 article headings (e.g. ## Giới thiệu, ### Lợi ích)
+            // is a structured multi-section article, never a standalone FAQ output.
+            $nonQuestionHeadings++;
         }
 
-        return $questionHeadings >= 2;
+        return $questionHeadings >= 2 && $nonQuestionHeadings === 0;
     }
 
     private function stripFaqAnswerLabelFromHtml(string $html): string

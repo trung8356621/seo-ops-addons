@@ -42,20 +42,30 @@ final class EvidenceContextBuilder
             }
 
             [$data, $sourceIncluded, $sourceOmitted] = $this->boundValue($source->data);
-            if ($sourceOmitted > 0 && is_array($data)) {
+            $entities = $this->entityCounts($source->data, $data);
+            if (is_array($data) && ($sourceIncluded > 0 || $sourceOmitted > 0 || $this->sourceTotal($source->data) !== null)) {
                 $data['_context_meta'] = [
-                    'truncated' => true,
+                    'truncated' => $sourceOmitted > 0,
                     'stage' => 'evidence_context',
                     'scope' => $bundle->scope->siteRef,
                     'source_total' => $this->sourceTotal($source->data),
                     'requested' => $this->requested($source->data, $source->request),
-                    'retrieved' => $sourceIncluded + $sourceOmitted,
+                    'matched' => $this->sourceTotal($source->data),
+                    'retrieved' => $entities['retrieved'],
+                    'included' => $entities['included'],
+                    'omitted' => $entities['omitted'],
+                    'nested' => [
+                        'included' => $sourceIncluded - $entities['included'],
+                        'omitted' => $sourceOmitted - $entities['omitted'],
+                    ],
                     'records_included' => $sourceIncluded,
                     'records_omitted' => $sourceOmitted,
                     'selection_reason' => 'source_order_with_nested_list_budget',
                     'next_page' => $this->nextPage($source->data),
                 ];
-                $limitations[] = 'records_truncated:'.$source->name;
+                if ($sourceOmitted > 0) {
+                    $limitations[] = 'records_truncated:'.$source->name;
+                }
             }
 
             $candidate = new RetrievalSource($source->name, $source->status, $source->request, is_array($data) ? $data : [], $source->reason);
@@ -81,6 +91,22 @@ final class EvidenceContextBuilder
             $included,
             $omitted,
         );
+    }
+
+    /** @return array{retrieved: int, included: int, omitted: int} */
+    private function entityCounts(array $before, array $after): array
+    {
+        foreach (['items', 'articles', 'topics', 'links', 'projects'] as $key) {
+            if (! isset($before[$key]) || ! is_array($before[$key]) || ! array_is_list($before[$key])) {
+                continue;
+            }
+            $retrieved = count($before[$key]);
+            $included = count($after[$key] ?? []);
+
+            return ['retrieved' => $retrieved, 'included' => $included, 'omitted' => $retrieved - $included];
+        }
+
+        return ['retrieved' => 0, 'included' => 0, 'omitted' => 0];
     }
 
     /** @return array{mixed, int, int} */

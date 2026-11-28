@@ -19,7 +19,7 @@ final class StructuredRetrievalPlanner
         $mapping = [
             'site_knowledge' => ['site.knowledge'],
             'articles' => ['articles.inventory'],
-            'article_quality' => ['seo_audit.worst_articles'],
+            'article_quality' => ($understanding->parameters['highest_score'] ?? false)
             'keyword_inventory' => ['keywords.inventory'],
             'keyword_landscape' => ['keywords.landscape'],
             'topic_coverage' => ['keywords.relationship'],
@@ -32,6 +32,7 @@ final class StructuredRetrievalPlanner
         $capabilities = [];
         $missing = [];
         $requirements = match ($understanding->parameters['entity_type'] ?? null) {
+            'article' => ['articles'],
             'keyword' => ['keyword_inventory'],
             'topic' => ['topic_coverage'],
             default => $understanding->dataRequirements,
@@ -60,6 +61,8 @@ final class StructuredRetrievalPlanner
         $parameters['limit_max'] = min((int) ($parameters['limit_max'] ?? ($understanding->depth === 'summary' ? 10 : 25)), 250);
         if (in_array('article_quality', $understanding->dataRequirements, true)) {
             $parameters['task'] = ($parameters['highest_score'] ?? false) ? 'high_score' : 'low_score';
+        } elseif ($understanding->requiresAnalysis && in_array('articles', $modules, true) && in_array('keywords', $modules, true)) {
+            $parameters['task'] = 'relationship_context';
         }
         if (isset($parameters['topic_ref'])) {
             $modules = array_values(array_diff($modules, ['keywords']));

@@ -13,6 +13,30 @@ use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalSource;
  */
 final class FactualAgentResponseComposer
 {
+    public function composeStructuredListing(RetrievalBundle $bundle, string $message, string $language): ?AgentResponse
+    {
+        $sources = array_values($bundle->sources);
+        $source = count($sources) === 1 ? $sources[0] : null;
+        if ($source === null || $source->status !== 'ok' || ! in_array($source->name, ['articles', 'keyword_inventory'], true)) {
+            return null;
+        }
+        $data = $source->data;
+        $total = $data['pagination']['total'] ?? null;
+        $items = $data['articles'] ?? $data['items'] ?? null;
+        if (! is_numeric($total) || ! is_array($items)) {
+            return null;
+        }
+        if (preg_match('/(?:bao nhiêu|tổng số|how many)/iu', $message) === 1
+            && preg_match('/(?:liệt kê|danh sách|list)/iu', $message) !== 1) {
+            return new AgentResponse(($language === 'vi' ? 'Tổng số bản ghi phù hợp: ' : 'Total matching records: ').$total, [], [], [$source->toArray()]);
+        }
+        $rows = array_values(array_filter(array_map(fn (array $item): array => $this->projectRow($item), $items)));
+        $table = $rows === [] ? $this->emptyList($language, $bundle) : $this->table($rows, $language, $bundle);
+        $summary = $language === 'vi' ? 'Hiển thị '.count($rows).'/'.$total.' bản ghi.' : 'Showing '.count($rows).' of '.$total.' records.';
+
+        return new AgentResponse($summary, $table->blocks, [], $table->sources);
+    }
+
     public function compose(RetrievalBundle $bundle, string $message, string $language): ?AgentResponse
     {
         if ($this->needsAnalysis($message, $bundle)) {

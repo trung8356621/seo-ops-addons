@@ -111,17 +111,82 @@ final class PromptTestPublishService implements ArticleBodyPublishPort
         // (stripTransientEditorMarkup / CTA blank unwrap). Writer re-runs this
         // canonicalize idempotently.
         $html = app(ArticleEditorPersistService::class)->canonicalizeBodyForPersist($html);
+        $faqs = is_array($cta['faqs'] ?? null) ? $cta['faqs'] : [];
+
+        $this->assertNoUnexpectedContentLoss($article, $markdown, $html, $faqs);
 
         return [
             'markdown' => $markdown,
             'html' => $html,
             'content_hash' => $this->contentConflictGuard->contentHash($html),
-            'faqs' => is_array($cta['faqs'] ?? null) ? $cta['faqs'] : [],
+            'faqs' => $faqs,
             'meta_description' => isset($import['meta_description'])
                 ? (trim((string) $import['meta_description']) !== '' ? trim((string) $import['meta_description']) : null)
                 : null,
             'h1_title' => trim((string) ($import['h1_title'] ?? '')),
         ];
+    }
+
+    /**
+     * Guard against silent post-processing truncation (e.g. FAQ/HTML stripping eating body sections).
+     *
+     * @param  list<array<string, mixed>>  $faqs
+     */
+    private function assertNoUnexpectedContentLoss(
+        SeoArticle $article,
+        string $markdown,
+        string $html,
+        array $faqs,
+    ): void {
+        $sourceWords = $this->countWords($markdown);
+        if ($sourceWords < 300) {
+            return;
+        }
+
+        $bodyWords = $this->countWords(strip_tags($html));
+        $faqWords = 0;
+        foreach ($faqs as $faq) {
+            if (! is_array($faq)) {
+                continue;
+            }
+            $faqWords += $this->countWords((string) ($faq['question'] ?? '').' '.(string) ($faq['answer'] ?? ''));
+        }
+
+        $retainedWords = $bodyWords + $faqWords;
+        $minExpected = (int) floor($sourceWords * 0.55);
+
+        if ($retainedWords >= $minExpected) {
+            return;
+        }
+
+        \Illuminate\Support\Facades\Log::warning('writing.trace.content_loss_detected', [
+            'article_id' => (int) ($article->id ?? 0),
+            'source_words' => $sourceWords,
+            'body_words' => $bodyWords,
+            'faq_words' => $faqWords,
+            'retained_words' => $retainedWords,
+            'min_expected_words' => $minExpected,
+            'faq_count' => count($faqs),
+        ]);
+
+        throw new \InvalidArgumentException(sprintf(
+            'Nội dung sau xử lý bị thiếu hụt bất thường (%d/%d từ, giữ lại %d%%).',
+            $retainedWords,
+            $sourceWords,
+            (int) round(($retainedWords / max(1, $sourceWords)) * 100),
+        ));
+    }
+
+    private function countWords(string $text): int
+    {
+        $plain = trim((string) preg_replace('/\s+/u', ' ', $text));
+        if ($plain === '') {
+            return 0;
+        }
+
+        $parts = preg_split('/\s+/u', $plain, -1, PREG_SPLIT_NO_EMPTY);
+
+        return is_array($parts) ? count($parts) : 0;
     }
 
     public function contentHash(string $body): string
@@ -224,6 +289,11 @@ final class PromptTestPublishService implements ArticleBodyPublishPort
                         && ! array_key_exists('slug', $update);
 
                     if (! $noop) {
+                        $docWriter = app(\Omnichannel\Addons\Content\Services\ArticleEditor\Document\ArticleEditorDocumentWriter::class);
+                        $docWriter->invalidateForLegacyBodyWrite($article, 'prompt_test_publish_legacy');
+                        if ($docWriter->columnsReady($article) && $article->isDirty('editor_document_status')) {
+                            $update['editor_document_status'] = $article->editor_document_status;
+                        }
                         $article->update($update);
                     }
 

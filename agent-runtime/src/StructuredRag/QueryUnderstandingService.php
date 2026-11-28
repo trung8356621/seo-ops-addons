@@ -23,7 +23,7 @@ final class QueryUnderstandingService
         $requirements = [];
         $entities = [];
         $parameters = [];
-        $articleIntent = preg_match('/(?:bài viết|bài cũ|article|nội dung hiện có|kho nội dung|url|tài sản seo)/iu', $effective) === 1;
+        $articleIntent = preg_match('/(?:bài viết|bài cũ|article|nội dung hiện có|kho nội dung|url|tài sản seo|\d+\s+bài\b)/iu', $effective) === 1;
         $articleQuality = preg_match('/(?:seo score|điểm seo|audit|on.?page|tối ưu bài|chất lượng|lỗi|điểm mạnh|điểm yếu|mạnh nhất|tài sản seo)/iu', $effective) === 1;
         $keywordIntent = preg_match('/(?:từ khóa|keyword|cụm từ khóa|truy vấn)/iu', $effective) === 1;
         $topicIntent = preg_match('/(?:topic|chủ đề|bao phủ|coverage|nội dung mới|phát triển nội dung|dna)/iu', $effective) === 1;
@@ -64,10 +64,13 @@ final class QueryUnderstandingService
         if ($query !== null && $entities === []) {
             $parameters['entity_type'] = $topicIntent ? 'topic' : ($keywordIntent ? 'keyword' : 'article');
             $parameters['entity_query'] = $query;
+            if (preg_match('/(?:chứa|contains)/iu', $text) === 1) {
+                $parameters['search_mode'] = preg_match('/(?:chính xác|exact)/iu', $text) === 1 ? 'exact_and_contains' : 'contains';
+            }
         }
 
-        if (preg_match('/(?:tối đa|top|lấy|liệt kê|xuất)\s*(\d{1,4})/iu', $text, $match) === 1) {
-            $parameters['limit_max'] = max(1, min(250, (int) $match[1]));
+        if (preg_match('/(?:tối đa|top|lấy|liệt kê|xuất)\s*(\d{1,4})|\b(\d{1,4})\s+(?:dòng|bài|rows?)\b/iu', $text, $match) === 1) {
+            $parameters['limit_max'] = max(1, min(250, (int) ($match[1] !== '' ? $match[1] : $match[2])));
         }
         if (preg_match('/(?:đã xuất bản|published)/iu', $effective) === 1) $parameters['status'] = 'published';
         if (preg_match('/(?:chỉ cần|mỗi bài chỉ cần).{0,60}(?:tiêu đề|title).{0,40}(?:url|mã bài|article id)/iu', $effective) === 1) $parameters['projection'] = 'article_identity';

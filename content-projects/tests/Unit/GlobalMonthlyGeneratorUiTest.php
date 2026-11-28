@@ -50,8 +50,13 @@ final class GlobalMonthlyGeneratorUiTest extends TestCase
         self::assertStringContainsString("activeTab === 'setup'", $src);
         self::assertStringContainsString('wire:model.live="planningMonth"', $src);
         self::assertStringContainsString('Auto Cost', $src);
-        self::assertStringContainsString('Free → Paid → Auto Rerun', $src);
-        self::assertStringNotContainsString('wire:model="aiCostPolicy"', $src);
+        self::assertStringContainsString("selectedModeMeta['description']", $src);
+        self::assertStringContainsString('wire:model.live="aiCostPolicy"', $src);
+        self::assertStringContainsString('wire:model.live="selectAllProjects"', $src);
+        self::assertStringContainsString('wire:model.live="selectedProjectIds"', $src);
+        self::assertStringContainsString('Free Split', $src);
+        self::assertStringContainsString('Paid Single', $src);
+        self::assertStringContainsString('data-gm-paid-warning="1"', $src);
         self::assertStringContainsString('wire:click="startBatch"', $src);
         self::assertStringContainsString('cursor-not-allowed', $src);
         self::assertStringContainsString('data-gm-start-block-reason', $src);

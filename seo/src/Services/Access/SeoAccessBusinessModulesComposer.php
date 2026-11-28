@@ -10,6 +10,11 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\ContentProj
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
 use Omnichannel\Addons\Seo\Services\SeoAudit\Agent\SeoAuditAgentReadService;
+use Illuminate\Support\Facades\DB;
+use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
+use Omnichannel\Addons\SearchFoundation\Models\Keyword;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicLinkedArticleCounter;
 
 /** Compact, site-scoped read projections for Agent business modules. */
 final class SeoAccessBusinessModulesComposer
@@ -45,6 +50,8 @@ final class SeoAccessBusinessModulesComposer
                 'site_ref' => 'site:'.$siteId,
                 'items' => $result['items'],
                 'total' => $result['total'],
+                'audit_counts' => array_intersect_key($result, array_flip(['audited_count', 'unaudited_count', 'eligible_count'])),
+                'relationships' => $this->articleRelationships($siteId, $result['items']),
                 'pagination' => ['requested' => $limit, 'returned' => count($result['items']), 'total' => $result['total']],
                 'selection' => ['reason' => 'published_posts_with_stored_score', 'order' => $highest ? 'ranking_score_desc' : 'ranking_score_asc'],
             ];
@@ -128,6 +135,7 @@ final class SeoAccessBusinessModulesComposer
             'schema' => 'seo.access.articles.v2',
             'site_ref' => 'site:'.$siteId,
             'articles' => $rows,
+            ...($task === 'relationship_context' ? ['relationships' => $this->articleRelationships($siteId, $rows)] : []),
             'pagination' => [
                 'requested' => $limit,
                 'returned' => count($rows),
@@ -141,6 +149,47 @@ final class SeoAccessBusinessModulesComposer
                 'reason' => $search !== '' ? 'title_match' : 'oldest_updated_first',
             ],
         ];
+    }
+
+    /** @param list<array<string, mixed>> $articles */
+    private function articleRelationships(int $siteId, array $articles): array
+    {
+        $ids = array_map(static fn (array $article): int => (int) substr($article['article_ref'], 8), array_slice($articles, 0, 25));
+        if ($ids === []) {
+            return ['status' => 'no_candidates', 'edges' => []];
+        }
+
+        $query = DB::connection('omi_seo_ai')->table('keyword_meta')
+            ->whereIn('meta_key', [KeywordMetaKey::siteMainArticleId($siteId), KeywordMetaKey::MainArticleId->value])
+            ->whereIn('meta_value', array_map('strval', $ids))
+            ->select('keyword_id')->distinct();
+        $matched = (clone $query)->count('keyword_id');
+        $keywordIds = $query->orderBy('keyword_id')->limit(25)->pluck('keyword_id')->map(static fn ($id): int => (int) $id)->all();
+        $bindings = app(TopicLinkedArticleCounter::class)->focusArticleIdMapForKeywords($siteId, $keywordIds);
+        $phrases = Keyword::query()->whereIn('id', $keywordIds)->pluck('phrase', 'id');
+        $memberships = SeoTopicKeyword::query()->where('site_id', $siteId)->whereIn('keyword_id', $keywordIds)
+            ->with('topic:id,site_id,name')->get(['keyword_id', 'topic_id'])->keyBy('keyword_id');
+        $edges = [];
+        foreach ($bindings as $keywordId => $articleId) {
+            if (! in_array($articleId, $ids, true)) {
+                continue;
+            }
+            $topic = $memberships->get($keywordId)?->topic;
+            $edges[] = [
+                'article_ref' => 'article:'.$articleId,
+                'keyword_ref' => 'keyword:'.$keywordId,
+                'keyword_phrase' => $phrases->get($keywordId),
+                'topic_ref' => $topic !== null && (int) $topic->site_id === $siteId ? 'topic:'.$topic->id : null,
+                'topic_name' => $topic !== null && (int) $topic->site_id === $siteId ? $topic->name : null,
+                'type' => 'keyword_focus_article',
+                'status' => 'confirmed',
+                'provenance' => ['focus' => 'keyword_meta', 'topic_membership' => 'seo_topic_keywords'],
+            ];
+        }
+
+        return ['status' => 'bounded_lookup', 'article_candidates' => count($ids),
+            'keyword_candidates' => ['matched' => $matched, 'retrieved' => count($keywordIds), 'omitted' => $matched - count($keywordIds)],
+            'edges' => $edges];
     }
 
     /** @return array<string, mixed>|null */

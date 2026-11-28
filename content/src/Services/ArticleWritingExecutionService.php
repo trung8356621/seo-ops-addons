@@ -962,6 +962,8 @@ class ArticleWritingExecutionService
         $body = (string) ($article->body ?? '');
         $persistedHash = $this->publisher->contentHash($body);
         $articleId = (int) $article->getKey();
+        $sourceWordCount = str_word_count(trim($generated));
+        $preparedWordCount = str_word_count(trim(strip_tags((string) ($prepared['html'] ?? ''))));
 
         if ($intendedHash === $persistedHash) {
             \Illuminate\Support\Facades\Log::info('writing.trace.persist', [
@@ -970,6 +972,8 @@ class ArticleWritingExecutionService
                 'expected_content_hash' => $intendedHash,
                 'persisted_content_hash' => $persistedHash,
                 'body_length' => strlen($body),
+                'source_word_count' => $sourceWordCount,
+                'prepared_word_count' => $preparedWordCount,
                 'mode' => 'already_applied',
             ]);
 

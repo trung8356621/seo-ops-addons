@@ -8,10 +8,13 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Contr
 
 final class StartGlobalMonthlyBatchCommand implements ContentProjectCommand
 {
+    /**
+     * @param  list<int>  $selectedProjectIds  Empty = all eligible projects in month.
+     */
     public function __construct(
         public readonly string $planningMonth,
-        /** Ignored for new starts — handler forces Auto Cost. Kept for BC/tests. */
         public readonly string $aiCostPolicy = 'auto_cost',
+        public readonly array $selectedProjectIds = [],
     ) {}
 
     public function name(): string

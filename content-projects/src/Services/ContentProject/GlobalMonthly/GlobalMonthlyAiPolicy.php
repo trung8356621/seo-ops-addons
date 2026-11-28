@@ -35,6 +35,34 @@ final class GlobalMonthlyAiPolicy
         return AiCostPolicy::tryFromMixed($value)->value;
     }
 
+    /**
+     * @return array<string, array{label: string, description: string}>
+     */
+    public static function modeOptions(): array
+    {
+        return [
+            self::AUTO_COST => [
+                'label' => 'Auto Cost',
+                'description' => 'Free → Paid → Auto Rerun',
+            ],
+            AiCostPolicy::FreeOnly->value => [
+                'label' => 'Free Split',
+                'description' => 'Chỉ chạy luồng Free Split (không fallback Paid)',
+            ],
+            AiCostPolicy::Default->value => [
+                'label' => 'Paid Single',
+                'description' => 'Chỉ chạy luồng Paid Single (không fallback Free)',
+            ],
+        ];
+    }
+
+    public static function modeLabel(mixed $value): string
+    {
+        $token = self::normalizeBatchPolicy($value);
+
+        return self::modeOptions()[$token]['label'] ?? 'Auto Cost';
+    }
+
     /** @deprecated Use normalizeBatchPolicy for batch tokens; kept for sticky Free/Paid child settings. */
     public static function normalize(mixed $value): AiCostPolicy
     {

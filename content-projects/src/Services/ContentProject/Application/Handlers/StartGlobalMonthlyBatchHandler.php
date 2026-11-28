@@ -26,9 +26,14 @@ final class StartGlobalMonthlyBatchHandler implements ContentProjectCommandHandl
             throw new InvalidArgumentException('Expected StartGlobalMonthlyBatchCommand.');
         }
 
-        // New batches always use Auto Cost. Legacy batches retain their snapshotted policy.
-        $policy = GlobalMonthlyAiPolicy::AUTO_COST;
-        $result = $this->orchestrator->start($command->planningMonth, $policy, $actor);
+        $policy = GlobalMonthlyAiPolicy::normalizeBatchPolicy(
+            $command->aiCostPolicy !== '' ? $command->aiCostPolicy : GlobalMonthlyAiPolicy::AUTO_COST,
+        );
+        $options = [];
+        if ($command->selectedProjectIds !== []) {
+            $options['selected_project_ids'] = $command->selectedProjectIds;
+        }
+        $result = $this->orchestrator->start($command->planningMonth, $policy, $actor, $options);
 
         if (! ($result['ok'] ?? false)) {
             $code = (($result['metadata']['reason'] ?? '') === 'lock_busy'

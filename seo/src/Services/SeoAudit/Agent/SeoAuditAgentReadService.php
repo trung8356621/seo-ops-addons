@@ -97,7 +97,14 @@ class SeoAuditAgentReadService
 
         $score = SeoArticleProfile::query()->select('seo_score')
             ->whereColumn('article_id', 'articles.id')->limit(1);
-        $query = $this->baseArticleQuery($siteId, 'post', true)
+        $scope = $this->baseArticleQuery($siteId, 'post', true);
+        $audited = (clone $scope)
+            ->whereHas('seoProfile', static fn ($profile) => $profile->whereNotNull('seo_score'))
+            ->whereHas('articleMetas', static fn ($meta) => $meta
+                ->where('meta_key', SeoScoringRulesRegistry::META_KEY_VIOLATIONS)
+                ->whereNotNull('meta_value'));
+        $auditedCount = (clone $audited)->reorder()->count();
+        $query = \Omnichannel\Addons\Seo\Support\SeoSystemPointRegistry::scopeOrdinaryQuality($audited, false)
             ->whereHas('seoProfile', static function ($profile) use ($highest): void {
                 $profile->whereNotNull('seo_score');
                 if (! $highest) {
@@ -109,15 +116,18 @@ class SeoAuditAgentReadService
             ->orderBy('ranking_score', $highest ? 'desc' : 'asc')->orderBy('articles.id')
             ->limit(max(1, min(25, $limit)))->get();
         $items = [];
+        $details = $this->articleDetailQuery($siteId)->whereIn('id', $ranked->modelKeys())->get()->keyBy('id');
         foreach ($ranked as $candidate) {
-            $article = $this->getArticle($context, (int) $candidate->id);
+            $model = $details->get($candidate->id);
+            $article = $model instanceof SeoArticle ? $this->projectArticleDetail($model) : null;
             if ($article !== null && $article['rankable'] === true && is_numeric($article['seo_score']) && is_numeric($candidate->ranking_score)) {
                 $article['ranking_score'] = (float) $candidate->ranking_score;
                 $items[] = $article;
             }
         }
 
-        return ['items' => $items, 'total' => $total];
+        return ['items' => $items, 'total' => $total, 'audited_count' => $auditedCount,
+            'unaudited_count' => (clone $scope)->reorder()->count() - $auditedCount, 'eligible_count' => $total];
     }
 
     /**
@@ -132,8 +142,14 @@ class SeoAuditAgentReadService
             return null;
         }
 
-        $article = SeoArticle::query()
-            ->where('id', $articleId)
+        $article = $this->articleDetailQuery($siteId)->whereKey($articleId)->first();
+
+        return $article instanceof SeoArticle ? $this->projectArticleDetail($article) : null;
+    }
+
+    private function articleDetailQuery(int $siteId): Builder
+    {
+        return SeoArticle::query()
             ->where('site_id', $siteId)
             ->where('status', '!=', 'trash')
             ->with([
@@ -148,13 +164,11 @@ class SeoAuditAgentReadService
                     ]);
                 },
                 'linkMaps.keyword.reviewReason',
-            ])
-            ->first();
+            ]);
+    }
 
-        if (! $article instanceof SeoArticle) {
-            return null;
-        }
-
+    private function projectArticleDetail(SeoArticle $article): array
+    {
         $audit = $this->auditResults->auditArticle($article);
         $profile = $article->seoProfile;
 

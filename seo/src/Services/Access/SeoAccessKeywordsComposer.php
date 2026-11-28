@@ -54,6 +54,18 @@ class SeoAccessKeywordsComposer
         $queryBuilder = $inventory->baseQuery($siteId);
         $phrase = trim((string) ($query['phrase'] ?? ''));
         $keywordRef = trim((string) ($query['keyword_ref'] ?? ''));
+        $mode = $query['search_mode'] ?? 'exact';
+        $candidates = null;
+        if ($phrase !== '' && in_array($mode, ['contains', 'exact_and_contains'], true)) {
+            $contains = (clone $queryBuilder)->whereRaw("phrase LIKE ? ESCAPE '!'", [
+                '%'.strtr($phrase, ['!' => '!!', '%' => '!%', '_' => '!_']).'%',
+            ]);
+            $candidates = [
+                'matched' => (clone $contains)->count(),
+                'items' => $contains->orderBy('phrase')->orderBy('id')->limit($perPage)->get(['id', 'phrase'])
+                    ->map(static fn ($keyword): array => ['keyword_ref' => 'keyword:'.$keyword->id, 'phrase' => $keyword->phrase])->all(),
+            ];
+        }
         if ($phrase !== '') {
             $queryBuilder->where('phrase', $phrase);
         }
@@ -103,7 +115,8 @@ class SeoAccessKeywordsComposer
             'site_ref' => 'site:'.$siteId,
             'generated_at' => now()->toIso8601String(),
             'items' => $items,
-            ...($lookup === null ? [] : ['lookup' => $lookup]),
+            ...($lookup === null || $mode === 'contains' ? [] : ['lookup' => $lookup]),
+            ...($candidates === null ? [] : ['contains_candidates' => $candidates]),
             'pagination' => [
                 'page' => $keywords->currentPage(),
                 'per_page' => $keywords->perPage(),

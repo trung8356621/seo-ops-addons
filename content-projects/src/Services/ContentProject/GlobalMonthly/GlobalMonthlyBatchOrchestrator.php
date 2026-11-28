@@ -52,6 +52,7 @@ final class GlobalMonthlyBatchOrchestrator
      *   max_items?: int,
      *   max_attempts?: int,
      *   allowed_task_ids?: list<int>,
+     *   selected_project_ids?: list<int>,
      *   disable_paid_fallback?: bool,
      *   auto_rerun_disabled?: bool,
      *   disable_auto_rerun?: bool,
@@ -111,6 +112,32 @@ final class GlobalMonthlyBatchOrchestrator
         }
 
         $snapshot = $this->snapshotBuilder->build($month);
+
+        $selectedProjectIds = [];
+        if (isset($options['selected_project_ids']) && is_array($options['selected_project_ids'])) {
+            $selectedProjectIds = array_values(array_unique(array_filter(
+                array_map('intval', $options['selected_project_ids']),
+                static fn (int $id): bool => $id > 0,
+            )));
+        }
+        if ($selectedProjectIds !== []) {
+            $selectedSet = array_flip($selectedProjectIds);
+            $filteredItems = array_values(array_filter(
+                is_array($snapshot['items'] ?? null) ? $snapshot['items'] : [],
+                static fn (array $row): bool => isset($selectedSet[(int) ($row['project_id'] ?? 0)]),
+            ));
+            foreach ($filteredItems as $i => &$row) {
+                $row['position'] = $i + 1;
+            }
+            unset($row);
+            $snapshot['items'] = $filteredItems;
+            $snapshot['eligible_count'] = count($filteredItems);
+            $snapshot['project_order'] = array_values(array_unique(array_map(
+                static fn (array $row): int => (int) ($row['project_id'] ?? 0),
+                $filteredItems,
+            )));
+        }
+
         if ($snapshot['eligible_count'] <= 0) {
             return [
                 'ok' => false,
@@ -148,7 +175,10 @@ final class GlobalMonthlyBatchOrchestrator
         $isAutoCost = GlobalMonthlyAiPolicy::isAutoCost($policyToken);
         $settings = [
             'ai_cost_policy' => $policyToken,
+            'requested_ai_mode' => $policyToken,
             'auto_cost' => $isAutoCost,
+            'selected_project_ids' => $snapshot['project_order'],
+            'selected_project_count' => count($snapshot['project_order']),
         ];
         if ($isAutoCost) {
             $settings['ai_generation_mode'] = GlobalMonthlyAiPolicy::AUTO_COST;
@@ -940,7 +970,19 @@ final class GlobalMonthlyBatchOrchestrator
                 }
             }
 
-            $settings = array_merge(GlobalMonthlyAiPolicy::childRunSettings($policy), [
+            $modeIsolationSettings = $policy->isFreeOnly()
+                ? [
+                    'global_auto_cost_strategy' => GlobalAutoGenerationPolicy::STRATEGY_FREE,
+                    'disable_paid_fallback' => true,
+                    'global_auto_cost_paid_only' => false,
+                ]
+                : [
+                    '_item_generation_mode' => 'paid_preferred',
+                    'global_auto_cost_strategy' => GlobalAutoGenerationPolicy::STRATEGY_PAID,
+                    'global_auto_cost_paid_only' => true,
+                ];
+
+            $settings = array_merge(GlobalMonthlyAiPolicy::childRunSettings($policy), $modeIsolationSettings, [
                 'global_batch_id' => $batchId,
                 'inherits_global_lock' => true,
                 'lazy_bulk' => true,
@@ -1914,6 +1956,27 @@ final class GlobalMonthlyBatchOrchestrator
                 }
             }
 
+            $policy = GlobalMonthlyAiPolicy::normalize($batch->ai_cost_policy);
+            $strategyToken = $policy->isFreeOnly()
+                ? GlobalAutoGenerationPolicy::STRATEGY_FREE
+                : GlobalAutoGenerationPolicy::STRATEGY_PAID;
+
+            $updatePayload = [
+                'status' => $mapped,
+                'project_run_id' => $projectRunId,
+                'run_item_id' => (int) $runItem->id,
+                'attempt_count' => max(1, (int) ($runItem->attempt ?? 1)),
+                'error_message' => $runItem->error_message !== null ? (string) $runItem->error_message : null,
+                'finished_at' => $runItem->finished_at ?? now(),
+                'updated_at' => now(),
+            ];
+            if ($this->hasBatchItemColumn('current_strategy')) {
+                $updatePayload['current_strategy'] = $strategyToken;
+            }
+            if ($mapped === SeoContentGlobalBatchItem::STATUS_SUCCEEDED && $this->hasBatchItemColumn('succeeded_via')) {
+                $updatePayload['succeeded_via'] = $policy->isFreeOnly() ? 'free' : 'paid';
+            }
+
             SeoContentGlobalBatchItem::query()
                 ->where('batch_id', $batchId)
                 ->where('task_id', $taskId)
@@ -1921,15 +1984,7 @@ final class GlobalMonthlyBatchOrchestrator
                     SeoContentGlobalBatchItem::STATUS_PENDING,
                     SeoContentGlobalBatchItem::STATUS_RUNNING,
                 ])
-                ->update([
-                    'status' => $mapped,
-                    'project_run_id' => $projectRunId,
-                    'run_item_id' => (int) $runItem->id,
-                    'attempt_count' => max(1, (int) ($runItem->attempt ?? 1)),
-                    'error_message' => $runItem->error_message !== null ? (string) $runItem->error_message : null,
-                    'finished_at' => $runItem->finished_at ?? now(),
-                    'updated_at' => now(),
-                ]);
+                ->update($updatePayload);
         }
 
         $this->recount($batch);

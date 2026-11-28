@@ -345,9 +345,8 @@ final class GlobalMonthlyBatchProgressReadModel
         $settings = is_array($batch->settings) ? $batch->settings : [];
         $isAutoCost = GlobalMonthlyAiPolicy::isAutoCost($batch->ai_cost_policy);
         $policyToken = GlobalMonthlyAiPolicy::normalizeBatchPolicy($batch->ai_cost_policy);
-        $aiModeLabel = $isAutoCost
-            ? 'Auto Cost'
-            : (AiCostPolicy::tryFromMixed($policyToken)->isFreeOnly() ? 'Free-Split' : 'Paid');
+        $requestedModeLabel = GlobalMonthlyAiPolicy::modeLabel($settings['requested_ai_mode'] ?? $policyToken);
+        $aiModeLabel = $requestedModeLabel;
 
         $currentStrategy = (string) ($settings['current_strategy'] ?? '');
         if ($currentStrategy === '' && $nowPlaying !== null) {
@@ -359,6 +358,21 @@ final class GlobalMonthlyBatchProgressReadModel
             $freeSucceeded = max($freeSucceeded, (int) ($settings['free_succeeded'] ?? 0));
             $paidFallbackSucceeded = max($paidFallbackSucceeded, (int) ($settings['paid_fallback_succeeded'] ?? 0));
         }
+
+        $actualModeLabel = match ($policyToken) {
+            GlobalMonthlyAiPolicy::AUTO_COST => ($freeSucceeded > 0 || $paidFallbackSucceeded > 0)
+                ? "Free {$freeSucceeded} · Paid {$paidFallbackSucceeded}"
+                : match ($currentStrategy) {
+                    GlobalAutoGenerationPolicy::STRATEGY_FREE => 'Free Split',
+                    GlobalAutoGenerationPolicy::STRATEGY_PAID => 'Paid Single',
+                    default => 'Auto Cost',
+                },
+            AiCostPolicy::FreeOnly->value => 'Free Split',
+            default => 'Paid Single',
+        };
+        $projectCount = is_array($batch->project_order) && $batch->project_order !== []
+            ? count(array_unique(array_filter($batch->project_order)))
+            : (int) ($settings['selected_project_count'] ?? $items->pluck('project_id')->unique()->filter()->count());
 
         $stopReason = null;
         if ((string) $batch->status === SeoContentGlobalBatch::STATUS_STOPPED_AI_UNAVAILABLE) {
@@ -385,6 +399,9 @@ final class GlobalMonthlyBatchProgressReadModel
                 'planning_month_label' => ContentProjectMonthContext::display($batch->planning_month),
                 'ai_cost_policy' => $policyToken,
                 'ai_mode_label' => $aiModeLabel,
+                'requested_mode_label' => $requestedModeLabel,
+                'actual_mode_label' => $actualModeLabel,
+                'project_count' => $projectCount,
                 'is_auto_cost' => $isAutoCost,
                 'started_at' => $batch->started_at?->toIso8601String(),
                 'finished_at' => $batch->finished_at?->toIso8601String(),

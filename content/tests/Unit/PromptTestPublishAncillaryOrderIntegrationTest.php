@@ -249,6 +249,99 @@ MD;
         });
     }
 
+    public function test_publish_article_preserves_full_multi_section_article_with_question_h3_faq_and_cta_through_editor_view(): void
+    {
+        $intro = implode(' ', array_fill(0, 160, 'mo_dau'));
+        $sec1 = implode(' ', array_fill(0, 450, 'phan_mot'));
+        $sec2 = implode(' ', array_fill(0, 450, 'phan_hai'));
+        $sec3 = implode(' ', array_fill(0, 450, 'phan_ba'));
+        $conclusion = implode(' ', array_fill(0, 150, 'ket_luan'));
+
+        $markdown = <<<MD
+# Hướng dẫn chi tiết chọn bao bì thân thiện môi trường
+
+{$intro}
+
+## Lợi ích khi sử dụng túi vải không dệt
+
+### Tại sao túi vải không dệt được ưa chuộng?
+
+{$sec1} [[cta:phone]]
+
+### Chi phí sản xuất túi vải tính như thế nào?
+
+{$sec2} [[cta:zalo]]
+
+## Quy trình đặt hàng và kiểm định chất lượng
+
+{$sec3}
+
+## Kết luận
+
+{$conclusion}
+
+## Câu hỏi thường gặp
+
+### Thời gian sản xuất mất bao lâu?
+Khoảng 5 đến 7 ngày làm việc.
+
+### Có hỗ trợ in logo không?
+Có, hỗ trợ in lụa và in chuyển nhiệt.
+MD;
+
+        $article = $this->makeArticle(9010, '', 'Old Title');
+        $publisher = $this->publisher();
+        $publisher->interceptBodyWriteForTests(
+            static fn (
+                array $input,
+                array $state,
+                callable $legacyWrite,
+                callable $actionWrite,
+                ?string $correlationId = null,
+            ): array => $legacyWrite(),
+        );
+
+        $result = $publisher->publishArticle($article, $markdown, []);
+
+        self::assertTrue($result['success'] ?? false, (string) ($result['message'] ?? ''));
+
+        $reloaded = SeoArticle::query()->find(9010);
+        self::assertNotNull($reloaded);
+        $reloaded->setRelation('seoProfile', null);
+        $reloaded->setRelation('featuredMediaState', null);
+        $reloaded->setRelation('publishingState', null);
+        $reloaded->setRelation('contentArchiveItem', null);
+        $view = app(\Omnichannel\Addons\Content\Services\ArticleEditorView::class)->forArticle($reloaded);
+        $editorBody = (string) ($view['content']['body'] ?? '');
+
+        self::assertStringContainsString('Lợi ích khi sử dụng túi vải không dệt', $editorBody);
+        self::assertStringContainsString('Tại sao túi vải không dệt được ưa chuộng?', $editorBody);
+        self::assertStringContainsString('Chi phí sản xuất túi vải tính như thế nào?', $editorBody);
+        self::assertStringContainsString('Quy trình đặt hàng và kiểm định chất lượng', $editorBody);
+        self::assertStringContainsString('Kết luận', $editorBody);
+        self::assertStringContainsString('phan_mot', $editorBody);
+        self::assertStringContainsString('phan_hai', $editorBody);
+        self::assertStringContainsString('phan_ba', $editorBody);
+        self::assertStringContainsString('ket_luan', $editorBody);
+        self::assertGreaterThan(1500, str_word_count(strip_tags($editorBody)));
+    }
+
+    public function test_prepare_article_content_rejects_unexpected_major_content_loss(): void
+    {
+        $article = $this->makeArticle(9011, '<p>Existing valid content</p>', 'Existing');
+        $publisher = $this->publisher();
+
+        $ref = new ReflectionClass($publisher);
+        $method = $ref->getMethod('assertNoUnexpectedContentLoss');
+        $method->setAccessible(true);
+
+        $longMarkdown = implode(' ', array_fill(0, 1000, 'word'));
+        $truncatedHtml = '<p>'.implode(' ', array_fill(0, 150, 'word')).'</p>';
+
+        $this->expectException(\InvalidArgumentException::class);
+        $method->invoke($publisher, $article, $longMarkdown, $truncatedHtml, []);
+    }
+
     private function makeArticle(int $id, string $body, string $title): SeoArticle
     {
         $article = new SeoArticle;

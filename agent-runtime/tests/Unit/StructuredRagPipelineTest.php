@@ -87,6 +87,16 @@ final class StructuredRagPipelineTest extends TestCase
         self::assertSame('high_score', (new StructuredRetrievalPlanner())->plan($query)->parameters['task']);
     }
 
+    public function test_explicit_jsonl_preserves_small_and_large_article_limits(): void
+    {
+        foreach ([3, 125, 250] as $limit) {
+            $query = (new QueryUnderstandingService())->understand("Xuất {$limit} bài đã xuất bản dưới dạng JSONL.");
+            self::assertTrue($query->requiresRetrieval);
+            self::assertTrue($query->parameters['dataset_export']);
+            self::assertSame($limit, $query->parameters['limit_max']);
+        }
+    }
+
     public function test_gsc_only_question_is_explicitly_excluded_without_unrelated_retrieval(): void
     {
         $understanding = (new QueryUnderstandingService())->understand('Cho tôi clicks và CTR Search Console của website này.');
@@ -183,6 +193,24 @@ final class StructuredRagPipelineTest extends TestCase
         self::assertLessThanOrEqual(30_000, $result->evidenceBytes);
     }
 
+    public function test_nested_truncation_does_not_change_entity_counts(): void
+    {
+        $context = (new EvidenceContextBuilder(maxRecordsPerList: 2))->build(new RetrievalBundle(
+            AgentProjectScope::site(6),
+            [new RetrievalSource('topics', 'ok', 'GET /keywords?per_page=1', [
+                'pagination' => ['total' => 1],
+                'topics' => [['topic_ref' => 'topic:1', 'dna' => ['a', 'b', 'c']]],
+            ])],
+        ));
+        $meta = $context->bundle->sources[0]->data['_context_meta'];
+        self::assertSame(1, $meta['requested']);
+        self::assertSame(1, $meta['matched']);
+        self::assertSame(1, $meta['retrieved']);
+        self::assertSame(1, $meta['included']);
+        self::assertSame(0, $meta['omitted']);
+        self::assertSame(['included' => 2, 'omitted' => 1], $meta['nested']);
+    }
+
     public function test_model_projection_does_not_apply_a_second_silent_topic_limit(): void
     {
         $topics = array_map(static fn (int $id): array => [
@@ -238,6 +266,8 @@ final class StructuredRagPipelineTest extends TestCase
         self::assertContains('/articles', $transport->paths);
         self::assertContains('/keywords', $transport->paths);
         self::assertStringContainsString('retrieval_bundle', $result->modelInput->exportText());
+        $input = json_decode($result->modelInput->messages[1]['content'], true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('keyword_meta', $input['retrieval_bundle']['sources'][0]['data']['relationships']['edges'][0]['provenance']['focus']);
         self::assertFalse($result->toArray()['model_execution']['answer_model_called']);
         self::assertFalse($result->toArray()['model_execution']['decision_model_called']);
     }
@@ -258,7 +288,10 @@ final class RecordingStructuredRagTransport implements SeoAccessTransport
         $path = str_replace('/api/v1/access/test', '', $path);
         $this->paths[] = $path;
         $data = match ($path) {
-            '/articles' => ['total' => 2, 'items' => [
+            '/articles' => ['total' => 2, 'relationships' => ['edges' => [[
+                'article_ref' => 'article:1', 'keyword_ref' => 'keyword:9', 'topic_ref' => 'topic:1',
+                'provenance' => ['focus' => 'keyword_meta'],
+            ]]], 'items' => [
                 ['article_ref' => 'article:1', 'title' => 'A', 'seo_score' => 35, 'reason_labels' => ['missing links']],
                 ['article_ref' => 'article:2', 'title' => 'B', 'seo_score' => 70, 'reason_labels' => []],
             ]],

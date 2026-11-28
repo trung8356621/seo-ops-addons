@@ -137,19 +137,21 @@
             [data-gm-progress-page] table.gm-progress-playlist col.gm-col-status { width: 8.5rem; }
             [data-gm-progress-page] table.gm-progress-playlist col.gm-col-duration { width: 9.5rem; }
 
-            /* Setup columns: # | Project | Bài chưa Generate | Bài lỗi | Trạng thái */
+            /* Setup columns: [] | # | Project | Bài chưa Generate | Bài lỗi | Trạng thái */
+            [data-gm-progress-page] table.gm-setup col.gm-setup-check { width: 2.5rem; }
             [data-gm-progress-page] table.gm-setup col.gm-setup-idx { width: 3.25rem; }
             [data-gm-progress-page] table.gm-setup col.gm-setup-project { width: auto; }
             [data-gm-progress-page] table.gm-setup col.gm-setup-pending { width: 11rem; }
             [data-gm-progress-page] table.gm-setup col.gm-setup-failed { width: 7.5rem; }
             [data-gm-progress-page] table.gm-setup col.gm-setup-status { width: 10rem; }
 
-            /* History columns: #Batch | Tháng | Trạng thái | OK/Fail | AI | Bắt đầu | Chi tiết */
-            [data-gm-progress-page] table.gm-history col.gm-hist-id { width: 5.5rem; }
-            [data-gm-progress-page] table.gm-history col.gm-hist-month { width: 7rem; }
-            [data-gm-progress-page] table.gm-history col.gm-hist-status { width: 8.5rem; }
-            [data-gm-progress-page] table.gm-history col.gm-hist-counts { width: 13rem; }
-            [data-gm-progress-page] table.gm-history col.gm-hist-ai { width: 7.5rem; }
+            /* History columns: #Batch | Tháng | Trạng thái | Kết quả | Project | AI Mode | Bắt đầu | Chi tiết */
+            [data-gm-progress-page] table.gm-history col.gm-hist-id { width: 5rem; }
+            [data-gm-progress-page] table.gm-history col.gm-hist-month { width: 6.5rem; }
+            [data-gm-progress-page] table.gm-history col.gm-hist-status { width: 8rem; }
+            [data-gm-progress-page] table.gm-history col.gm-hist-counts { width: 12rem; }
+            [data-gm-progress-page] table.gm-history col.gm-hist-projects { width: 5.5rem; }
+            [data-gm-progress-page] table.gm-history col.gm-hist-ai { width: 11rem; }
             [data-gm-progress-page] table.gm-history col.gm-hist-started { width: auto; }
             [data-gm-progress-page] table.gm-history col.gm-hist-action { width: 6.5rem; }
 
@@ -335,12 +337,33 @@
                         </select>
                     </div>
 
-                    <div class="flex items-center gap-2 flex-1 sm:max-w-xs">
-                        <span class="shrink-0 text-xs font-medium text-gray-700 dark:text-gray-300">Mode:</span>
-                        <span class="inline-flex items-center rounded-md bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 ring-1 ring-inset ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/30">
-                            Auto Cost
-                            <span class="ms-1.5 font-normal text-emerald-700/80 dark:text-emerald-300/80">Free → Paid → Auto Rerun</span>
-                        </span>
+                    @php
+                        $modeOptions = \Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalMonthlyAiPolicy::modeOptions();
+                        $selectedModeMeta = $modeOptions[$this->aiCostPolicy] ?? $modeOptions['auto_cost'];
+                        $selectedSummary = $this->selectedSummary();
+                        $totalProjectsCount = count($preflight['projects'] ?? []);
+                    @endphp
+                    <div class="flex flex-col gap-1 flex-1 sm:max-w-md">
+                        <div class="flex items-center gap-2">
+                            <label for="aiCostPolicy" class="shrink-0 text-xs font-medium text-gray-700 dark:text-gray-300">Mode:</label>
+                            <select
+                                id="aiCostPolicy"
+                                wire:model.live="aiCostPolicy"
+                                class="block w-full rounded-lg border-gray-300 py-1.5 px-2.5 text-xs sm:text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                            >
+                                @foreach ($modeOptions as $modeKey => $modeMeta)
+                                    <option value="{{ $modeKey }}">{{ $modeMeta['label'] }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <p class="text-[11px] text-gray-500 dark:text-gray-400">
+                            {{ $selectedModeMeta['description'] }}
+                        </p>
+                        @if ($this->aiCostPolicy === \Omnichannel\Addons\AiPrompt\Support\AiCostPolicy::Default->value)
+                            <p class="text-[11px] font-medium text-amber-700 dark:text-amber-300" data-gm-paid-warning="1">
+                                Cảnh báo: Chế độ Paid Single sử dụng model trả phí và không tự fallback sang Free.
+                            </p>
+                        @endif
                     </div>
 
                     <div class="sm:ms-auto shrink-0 flex flex-col items-stretch sm:items-end gap-1.5">
@@ -377,20 +400,22 @@
                     </div>
                 </div>
 
-                {{-- Compact summary: 7 Project | 68 bài cần Generate | X bài lỗi | Ready / Active execution / Recovery required --}}
-                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:bg-white/5 dark:text-gray-300">
-                    <span class="font-semibold text-gray-900 dark:text-white">{{ count($preflight['projects'] ?? []) }} Project</span>
+                {{-- Compact summary: Selected Projects | Selected Articles | Selected Failed | Mode | Status --}}
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:bg-white/5 dark:text-gray-300" data-gm-setup-summary>
+                    <span class="font-semibold text-gray-900 dark:text-white">{{ $selectedSummary['project_count'] }}/{{ $totalProjectsCount }} Project đã chọn</span>
                     <span class="text-gray-300 dark:text-gray-600">|</span>
-                    <span class="font-semibold text-gray-900 dark:text-white">{{ (int) ($preflight['eligible_count'] ?? 0) }} bài cần Generate</span>
+                    <span class="font-semibold text-gray-900 dark:text-white">{{ $selectedSummary['eligible_count'] }} bài cần Generate</span>
                     <span class="text-gray-300 dark:text-gray-600">|</span>
                     @php
-                        $totalFailed = (int) ($preflight['failed_count'] ?? 0);
+                        $totalFailed = $selectedSummary['failed_count'];
                     @endphp
                     @if ($totalFailed > 0)
                         <span class="font-semibold text-danger-600 dark:text-danger-400">{{ $totalFailed }} bài lỗi</span>
                     @else
                         <span class="text-gray-500 dark:text-gray-400">0 bài lỗi</span>
                     @endif
+                    <span class="text-gray-300 dark:text-gray-600">|</span>
+                    <span>Mode: <strong class="text-gray-900 dark:text-white">{{ $selectedModeMeta['label'] }}</strong></span>
                     <span class="text-gray-300 dark:text-gray-600">|</span>
                     @if ($lockState === \Omnichannel\Addons\ContentProjects\Services\ContentProject\GlobalMonthly\GlobalGenerationLock::STATE_HELD && ! empty($lockHolder['is_recoverable']))
                         <span class="font-medium text-amber-600 dark:text-amber-400">Recovery required ({{ $lockHolder['owner_label'] ?? 'Run #'.($lockHolder['owner_id'] ?? '') }})</span>
@@ -402,11 +427,12 @@
                 </div>
             </div>
 
-            {{-- Project list table: # | Project | Bài chưa Generate | Bài lỗi | Trạng thái --}}
+            {{-- Project list table: [] | # | Project | Bài chưa Generate | Bài lỗi | Trạng thái --}}
             <div data-gm-playlist-shell>
                 <div data-gm-playlist-scroll>
                     <table class="gm-table gm-setup text-sm">
                         <colgroup>
+                            <col class="gm-setup-check" />
                             <col class="gm-setup-idx" />
                             <col class="gm-setup-project" />
                             <col class="gm-setup-pending" />
@@ -415,6 +441,14 @@
                         </colgroup>
                         <thead>
                             <tr>
+                                <th>
+                                    <input
+                                        type="checkbox"
+                                        wire:model.live="selectAllProjects"
+                                        aria-label="Chọn tất cả Project"
+                                        class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800"
+                                    />
+                                </th>
                                 <th>#</th>
                                 <th>Project</th>
                                 <th>Bài chưa Generate</th>
@@ -440,6 +474,16 @@
                                     }
                                 @endphp
                                 <tr class="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+                                    <td>
+                                        <input
+                                            type="checkbox"
+                                            wire:model.live="selectedProjectIds"
+                                            value="{{ $pid }}"
+                                            @disabled($eligible <= 0)
+                                            aria-label="Chọn Project #{{ $pid }}"
+                                            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-600 dark:bg-gray-800"
+                                        />
+                                    </td>
                                     <td class="tabular-nums text-xs text-gray-500 dark:text-gray-400">
                                         {{ $loop->iteration }}
                                     </td>
@@ -496,7 +540,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="5" class="px-3 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+                                    <td colspan="6" class="px-3 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
                                         Không có project nào trong tháng {{ \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::display($this->planningMonth) }}.
                                     </td>
                                 </tr>
@@ -515,16 +559,27 @@
                 {{-- Now playing + Global batch meta --}}
                 <div data-gm-card>
                     <div class="mb-1.5 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 dark:text-gray-400">
-                        <div class="flex items-center gap-2">
+                        <div class="flex flex-wrap items-center gap-2">
                             <span>
                                 Trạng thái:
                                 <strong class="text-gray-800 dark:text-gray-200">{{ $batch['status_label'] ?? 'Chưa chạy' }}</strong>
                             </span>
                             <span class="text-gray-300 dark:text-gray-600">·</span>
                             <span>
-                                Mode:
-                                <strong class="text-gray-800 dark:text-gray-200">{{ $batch['ai_mode_label'] ?? 'Auto Cost' }}</strong>
+                                Mode yêu cầu:
+                                <strong class="text-gray-800 dark:text-gray-200">{{ $batch['requested_mode_label'] ?? $batch['ai_mode_label'] ?? 'Auto Cost' }}</strong>
                             </span>
+                            @if (! empty($batch['actual_mode_label']))
+                                <span class="text-gray-300 dark:text-gray-600">·</span>
+                                <span>
+                                    Thực tế:
+                                    <strong class="text-gray-800 dark:text-gray-200">{{ $batch['actual_mode_label'] }}</strong>
+                                </span>
+                            @endif
+                            @if (! empty($batch['project_count']))
+                                <span class="text-gray-300 dark:text-gray-600">·</span>
+                                <span>Phạm vi: <strong class="text-gray-800 dark:text-gray-200">{{ (int) $batch['project_count'] }} Project · {{ $total }} bài</strong></span>
+                            @endif
                             @if (! empty($overview['current_strategy_label']))
                                 <span class="text-gray-300 dark:text-gray-600">·</span>
                                 <span>Strategy: <strong class="text-gray-800 dark:text-gray-200">{{ $overview['current_strategy_label'] }}</strong></span>
@@ -912,6 +967,7 @@
                             <col class="gm-hist-month" />
                             <col class="gm-hist-status" />
                             <col class="gm-hist-counts" />
+                            <col class="gm-hist-projects" />
                             <col class="gm-hist-ai" />
                             <col class="gm-hist-started" />
                             <col class="gm-hist-action" />
@@ -922,6 +978,7 @@
                                 <th>Tháng</th>
                                 <th>Trạng thái</th>
                                 <th>Kết quả</th>
+                                <th>Project</th>
                                 <th>AI Mode</th>
                                 <th>Bắt đầu</th>
                                 <th></th>
@@ -934,6 +991,9 @@
                                     $isSuccess = $st === 'completed' || $st === 'succeeded';
                                     $isFailed = $st === 'failed';
                                     $isRunning = in_array($st, ['running', 'pending', 'stopping'], true);
+                                    $reqMode = (string) ($row['requested_mode_label'] ?? ($row['ai_cost_policy'] === 'auto_cost' ? 'Auto Cost' : ($row['ai_cost_policy'] === 'free_only' ? 'Free Split' : 'Paid Single')));
+                                    $freeOk = (int) ($row['free_succeeded'] ?? 0);
+                                    $paidOk = (int) ($row['paid_fallback_succeeded'] ?? 0);
                                 @endphp
                                 <tr class="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
                                     <td class="font-mono text-xs font-semibold text-gray-900 dark:text-white">
@@ -960,8 +1020,16 @@
                                         @endif
                                         <span class="text-gray-400">/ {{ $row['total_items'] }}</span>
                                     </td>
+                                    <td class="tabular-nums text-xs text-gray-600 dark:text-gray-300">
+                                        {{ (int) ($row['project_count'] ?? 0) }}
+                                    </td>
                                     <td class="text-xs text-gray-600 dark:text-gray-400">
-                                        {{ $row['ai_cost_policy'] === 'auto_cost' ? 'Auto Cost' : ($row['ai_cost_policy'] === 'free_only' ? 'Free-Split' : 'Paid') }}
+                                        <div class="font-medium text-gray-800 dark:text-gray-200">{{ $reqMode }}</div>
+                                        @if (! empty($row['is_auto_cost']) && ($freeOk > 0 || $paidOk > 0))
+                                            <div class="text-[11px] text-gray-500 dark:text-gray-400">
+                                                Free {{ $freeOk }} · Paid {{ $paidOk }}
+                                            </div>
+                                        @endif
                                     </td>
                                     <td class="tabular-nums text-xs text-gray-500">
                                         {{ $row['started_at'] ?? '—' }}
@@ -978,7 +1046,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="7" class="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                                    <td colspan="8" class="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                                         Chưa có đợt Generate nào trong lịch sử.
                                     </td>
                                 </tr>

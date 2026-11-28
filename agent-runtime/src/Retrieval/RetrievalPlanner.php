@@ -65,6 +65,9 @@ final class RetrievalPlanner
                 $query['keyword_ref'] = $decision->parameters['keyword_ref'];
             } elseif (($decision->parameters['entity_type'] ?? null) === 'keyword' && is_string($decision->parameters['entity_query'] ?? null)) {
                 $query['phrase'] = mb_substr(trim($decision->parameters['entity_query']), 0, 160);
+                if (in_array($decision->parameters['search_mode'] ?? null, ['contains', 'exact_and_contains'], true)) {
+                    $query['search_mode'] = $decision->parameters['search_mode'];
+                }
             }
         }
         if ($resource === 'articles') {
