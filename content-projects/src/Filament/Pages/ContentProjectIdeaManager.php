@@ -13,6 +13,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager\IdeaM
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager\IdeaManagerDistributionService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager\IdeaWorkspaceItemOps;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager\IdeaWorkspacePersistenceService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager\IdeaWorkspaceWarehouseReadService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\SitePlanningReadModel;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\Seo\Filament\Concerns\HidesFilamentPageHeader;
@@ -41,8 +42,8 @@ final class ContentProjectIdeaManager extends SeoPanelPage
     protected static string $view = 'seo-content-ai::filament.pages.content-project-idea-manager';
 
     /**
-     * Working warehouse site (seo_content_project_idea_workspaces ownership).
-     * Independent of sidebar Cluster source filter.
+     * Default owner site for newly seeded Ideas (not a Kho Idea search filter).
+     * Independent of sidebar Cluster source filter and of global warehouse read.
      */
     public ?int $filterSiteId = null;
 
@@ -75,6 +76,12 @@ final class ContentProjectIdeaManager extends SeoPanelPage
 
     public bool $clusterLoading = false;
 
+    /**
+     * Temporary runtime diagnostics (?idea_debug=1). Manager+ only. Read-only UI.
+     * Remove after missing-Idea browser root cause is confirmed.
+     */
+    public bool $ideaDebug = false;
+
     public static function getNavigationLabel(): string
     {
         return (string) __('seo-content-ai::filament.projects.idea_manager_nav_label');
@@ -102,6 +109,20 @@ final class ContentProjectIdeaManager extends SeoPanelPage
             : null;
         $this->refreshWorkspaceFromServer();
         $this->loadClusterSuggestions();
+        $this->ideaDebug = $this->resolveIdeaDebugFlag();
+    }
+
+    /**
+     * Admin/manager-only debug panel gate. Query must be exactly idea_debug=1.
+     */
+    protected function resolveIdeaDebugFlag(): bool
+    {
+        if (! SeoAccessControl::canAccessManagerFeatures()) {
+            return false;
+        }
+        $raw = request()->query('idea_debug');
+
+        return $raw === '1' || $raw === 1;
     }
 
     public function getTitle(): string|Htmlable
@@ -122,8 +143,9 @@ final class ContentProjectIdeaManager extends SeoPanelPage
             ? (int) $siteId
             : SeoAccessControl::globalSiteId();
 
-        // Global Domain updates working warehouse site — never overwrites an explicit target
-        // and never forces sourceFilterSiteId (sidebar Cluster filter stays user-controlled).
+        // Global Domain updates default seed owner only — never filters Kho Idea warehouse,
+        // never overwrites an explicit target, and never forces sourceFilterSiteId
+        // (sidebar Cluster filter stays user-controlled).
         $this->ensureConcreteGlobalWorkingSite($resolved);
         $this->refreshWorkspaceFromServer();
         $this->dispatch('idea-manager-site-changed', siteId: (int) ($this->filterSiteId ?? 0));
@@ -227,6 +249,67 @@ final class ContentProjectIdeaManager extends SeoPanelPage
     }
 
     /**
+     * Action A (read-only): Check selected Ideas against destination Article Focus Keywords.
+     *
+     * @param  list<array<string, mixed>>  $selectedItems
+     * @return array<string, mixed>
+     */
+    public function checkDistributionDuplicates(array $selectedItems): array
+    {
+        return $this->previewDistribution($selectedItems);
+    }
+
+    /**
+     * Action B: Distribute selected Ideas via canonical SEO Audit Generate Ideas workflow.
+     * Source Ideas remain reusable and are never consumed/deleted.
+     *
+     * @param  list<array<string, mixed>>  $selectedItems
+     * @return array<string, mixed>
+     */
+    public function distributeWithAi(array $selectedItems, string $requestKey = ''): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+        $targetId = (int) ($this->targetSiteId ?? 0);
+        if ($targetId <= 0) {
+            return [
+                'ok' => false,
+                'status' => 'failed',
+                'code' => 'missing_target_site',
+                'message' => (string) __('seo-content-ai::filament.projects.idea_manager_distribution_pick_target'),
+                'planner_run_id' => 0,
+            ];
+        }
+
+        return app(IdeaManagerDistributionService::class)->distributeWithAi(
+            $targetId,
+            $selectedItems,
+            $this->activeMonth,
+            $requestKey,
+            $this->actorId(),
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function pollDistributionRun(int $runId): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+
+        return app(IdeaManagerDistributionService::class)->pollRun($runId);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function reconcileDistributionRun(int $targetSiteId): ?array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+
+        return app(IdeaManagerDistributionService::class)->reconcileLatestRun($targetId = $targetSiteId);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function sitePlanningPayload(): array
@@ -293,35 +376,33 @@ final class ContentProjectIdeaManager extends SeoPanelPage
             'planned' => $planned,
             'target' => $target,
             'over_target' => $over,
-            'contract' => 'destination_idea_workspace',
+            'contract' => 'ai_new_content_generation',
         ];
     }
 
     public function refreshWorkspaceFromServer(): void
     {
-        $siteId = (int) ($this->filterSiteId ?? 0);
-        if ($siteId <= 0) {
-            $this->workspaceSnapshot = null;
-
-            return;
-        }
-
         try {
-            $this->workspaceSnapshot = app(IdeaWorkspacePersistenceService::class)->load($siteId, $this->actorId());
+            $this->workspaceSnapshot = app(IdeaWorkspaceWarehouseReadService::class)
+                ->loadAuthorized($this->actorId());
         } catch (Throwable) {
             $this->workspaceSnapshot = [
                 'status' => IdeaWorkspacePersistenceService::STATUS_FORBIDDEN,
-                'site_id' => $siteId,
+                'site_id' => 0,
                 'revision' => 0,
                 'note_items' => [],
                 'content_hash' => '',
                 'updated_at' => null,
                 'item_count' => 0,
+                'sites' => [],
+                'global' => true,
             ];
         }
     }
 
     /**
+     * Persist one owning workspace only — never a multi-site merged JSON dump.
+     *
      * @param  list<array<string, mixed>>  $items
      * @return array<string, mixed>
      */
@@ -329,12 +410,26 @@ final class ContentProjectIdeaManager extends SeoPanelPage
     {
         abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
         abort_unless(SeoAccessControl::canAccessSite($siteId), 403);
-        abort_unless($siteId === (int) ($this->filterSiteId ?? 0), 403);
+
+        // Strip warehouse-only keys; reject accidental cross-owner rows in this payload.
+        $owned = [];
+        foreach ($items as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $owner = (int) ($item['owner_site_id'] ?? $item['source_site_id'] ?? $siteId);
+            if ($owner > 0 && $owner !== $siteId) {
+                continue;
+            }
+            $clean = $item;
+            unset($clean['owner_site_id'], $clean['owner_domain'], $clean['warehouse_key']);
+            $owned[] = $clean;
+        }
 
         try {
             $result = app(IdeaWorkspacePersistenceService::class)->save(
                 $siteId,
-                $items,
+                $owned,
                 $expectedRevision,
                 $this->actorId(),
             );
@@ -351,37 +446,69 @@ final class ContentProjectIdeaManager extends SeoPanelPage
             ];
         }
 
+        // Keep Livewire snapshot as global read-model after a successful owner write.
         if (in_array($result['status'], [
             IdeaWorkspacePersistenceService::STATUS_OK,
             IdeaWorkspacePersistenceService::STATUS_NOOP,
         ], true)) {
-            $this->workspaceSnapshot = $result;
+            $this->refreshWorkspaceFromServer();
         }
 
         return $result;
     }
 
     /**
+     * Soft-reload global warehouse (default seed owner may change with $siteId).
+     *
      * @return array<string, mixed>
      */
     public function loadIdeaWorkspace(int $siteId): array
     {
         abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
-        abort_unless(SeoAccessControl::canAccessSite($siteId), 403);
+        if ($siteId > 0) {
+            abort_unless(SeoAccessControl::canAccessSite($siteId), 403);
+            $this->filterSiteId = $siteId;
+        }
 
-        $this->filterSiteId = $siteId;
         $this->refreshWorkspaceFromServer();
 
         $snap = is_array($this->workspaceSnapshot) ? $this->workspaceSnapshot : [
             'status' => IdeaWorkspacePersistenceService::STATUS_OK,
-            'site_id' => $siteId,
+            'site_id' => 0,
             'revision' => 0,
             'note_items' => [],
             'content_hash' => '',
             'updated_at' => null,
             'item_count' => 0,
+            'sites' => [],
+            'global' => true,
         ];
-        $snap['domain'] = (string) (Site::query()->whereKey($siteId)->value('domain') ?? '');
+        $snap['domain'] = $siteId > 0
+            ? (string) (Site::query()->whereKey($siteId)->value('domain') ?? '')
+            : '';
+        $snap['default_owner_site_id'] = (int) ($this->filterSiteId ?? 0);
+
+        return $snap;
+    }
+
+    /**
+     * Explicit global warehouse reload (focus / intake ping) — does not change seed owner.
+     *
+     * @return array<string, mixed>
+     */
+    public function loadGlobalIdeaWarehouse(): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+        $this->refreshWorkspaceFromServer();
+        $snap = is_array($this->workspaceSnapshot) ? $this->workspaceSnapshot : [
+            'status' => IdeaWorkspacePersistenceService::STATUS_OK,
+            'note_items' => [],
+            'item_count' => 0,
+            'sites' => [],
+            'global' => true,
+        ];
+        $snap['default_owner_site_id'] = (int) ($this->filterSiteId ?? 0);
+        $snap['domain'] = (string) ($this->workingSitePayload['domain'] ?? '');
 
         return $snap;
     }

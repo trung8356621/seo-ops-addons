@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\SeoAudit;
 
+use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectSuggestionDecision;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Illuminate\Support\Facades\DB;
@@ -88,6 +89,49 @@ final class SeoAuditSuggestionDecisionService
             ->delete();
 
         return ['dismissed' => 0, 'restored' => (int) $deleted];
+    }
+
+    public function countDismissedForSite(
+        SeoProject $project,
+        int $siteId,
+        string $sourceType = SeoContentProjectSuggestionDecision::SOURCE_SEO_AUDIT,
+    ): int {
+        if ($siteId <= 0) {
+            return 0;
+        }
+
+        return (int) $this->dismissedForSiteQuery($project, $siteId, $sourceType)->count();
+    }
+
+    public function clearDismissedForSite(
+        SeoProject $project,
+        int $siteId,
+        string $sourceType = SeoContentProjectSuggestionDecision::SOURCE_SEO_AUDIT,
+    ): int {
+        if ($siteId <= 0) {
+            return 0;
+        }
+
+        return (int) $this->dismissedForSiteQuery($project, $siteId, $sourceType)->delete();
+    }
+
+    /**
+     * @return \Illuminate\Database\Eloquent\Builder<SeoContentProjectSuggestionDecision>
+     */
+    private function dismissedForSiteQuery(SeoProject $project, int $siteId, string $sourceType): \Illuminate\Database\Eloquent\Builder
+    {
+        return SeoContentProjectSuggestionDecision::query()
+            ->where('project_id', (int) $project->getKey())
+            ->where('source_type', $sourceType)
+            ->where('decision', SeoContentProjectSuggestionDecision::DECISION_DISMISSED)
+            ->where(static function ($query) use ($siteId): void {
+                // Shared Draft rows may have site_id=NULL with site ownership on linked Article.
+                $query->where('site_id', $siteId)
+                    ->orWhere(static function ($legacy) use ($siteId): void {
+                        $legacy->whereNull('site_id')
+                            ->whereIn('article_id', SeoArticle::query()->select('id')->where('site_id', $siteId));
+                    });
+            });
     }
 
     public function markAccepted(

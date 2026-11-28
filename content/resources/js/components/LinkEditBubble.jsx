@@ -6,7 +6,6 @@ import { computeLinkBubblePosition } from '../utils/linkEditorAnchor';
 import { resolveLinkableSelectionRange } from '../utils/linkAnchorValidation';
 import { applyLinkToSelection } from '../utils/inlineLinkNormalizer';
 import { executeEditorCommand } from '../utils/editorCommands';
-import { openAssignToContentProject, AssignToContentProjectContract } from '../utils/assignToContentProject';
 import { t } from '../utils/i18n';
 
 const ARTICLE_SEARCH_DEBOUNCE_MS = 450;
@@ -176,42 +175,6 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
 
         return () => document.removeEventListener('mousedown', onDocMouseDown);
     }, [onClose]);
-
-    useEffect(() => {
-        const onPendingLinkReady = (event) => {
-            const detail = event?.detail ?? {};
-            const href = String(detail.placeholderHref ?? detail.placeholder_href ?? '').trim();
-            const searchUrl = String(detail.searchUrl ?? detail.search_url ?? '').trim();
-            const message = String(detail.message ?? '').trim();
-            if (message !== '') {
-                setAssignNotice(message);
-            }
-
-            // Never auto-insert #hash placeholders (legacy pending links).
-            if (href.startsWith('#')) {
-                if (searchUrl !== '') {
-                    setSearchUrlFallback(searchUrl);
-                }
-                return;
-            }
-
-            if (searchUrl !== '') {
-                setSearchUrlFallback(searchUrl);
-            }
-
-            // Auto-apply only real permalinks; Search URL requires explicit user click.
-            if (href === '') {
-                return;
-            }
-
-            applyPlaceholderLink(href);
-            inputRef.current?.focus();
-        };
-
-        window.addEventListener('pending-internal-link-ready', onPendingLinkReady);
-
-        return () => window.removeEventListener('pending-internal-link-ready', onPendingLinkReady);
-    }, [applyPlaceholderLink]);
 
     useLayoutEffect(() => {
         const container = containerRef?.current;
@@ -418,7 +381,7 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
         inputRef.current?.focus();
     }, [applyPlaceholderLink, searchUrlFallback]);
 
-    const handleAssignToContentProject = async () => {
+    const handleAddPhraseToIdeaManager = async () => {
         const phrase = (readEditorSelectionText(editor) || anchorPhrase).trim();
         if (!canSearchArticles || phrase === '') {
             setArticleSearchError(t('link_bubble_assign_select_text'));
@@ -429,16 +392,36 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
         setAssigning(true);
         setArticleSearchError('');
         setAssignNotice('');
-        setSearchUrlFallback('');
 
         try {
-            openAssignToContentProject({
-                mode: AssignToContentProjectContract.MODE_PENDING_LINK,
-                source: 'link_edit_bubble',
-                article_ids: [Number(articleId)],
-                site_ids: siteId != null && Number(siteId) > 0 ? [Number(siteId)] : [],
-                anchor_phrase: phrase,
-            });
+            const result = await callEditArticleLivewire('addPhraseToIdeaManager', phrase);
+            const status = String(result?.status ?? '');
+            const outcome = String(result?.outcome ?? '');
+            const message = String(result?.message ?? '').trim();
+            const committed = outcome === 'added'
+                || outcome === 'already_exists'
+                || status === 'added'
+                || status === 'partial'
+                || status === 'already_in_idea_manager';
+            if (!committed || outcome === 'error' || status === 'failed') {
+                setArticleSearchError(message || t('link_bubble_assign_failed'));
+                return;
+            }
+            if (outcome === 'already_exists' || status === 'already_in_idea_manager') {
+                setAssignNotice(message || t('link_bubble_idea_already'));
+            } else {
+                setAssignNotice(message || t('link_bubble_idea_added'));
+            }
+            try {
+                localStorage.setItem('seoOps:idea-manager:intake-ping', JSON.stringify({
+                    ts: Date.now(),
+                    site_id: Number(result?.site_id || 0),
+                    domain: String(result?.domain || ''),
+                    revision: Number(result?.revision || 0),
+                    idea_refs: Array.isArray(result?.idea_refs) ? result.idea_refs : [],
+                    phrase,
+                }));
+            } catch (_) { /* ignore quota */ }
         } catch (error) {
             const message = error instanceof Error ? error.message : t('link_bubble_assign_failed');
             setArticleSearchError(message);
@@ -488,7 +471,7 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
                             disabled={assigning || anchorPhrase.trim() === ''}
                             title={t('link_bubble_assign_content_project')}
                             onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => void handleAssignToContentProject()}
+                            onClick={() => void handleAddPhraseToIdeaManager()}
                         >
                             {assigning ? <Loader2 size={14} className="animate-spin" aria-hidden /> : null}
                             <span>{t('link_bubble_assign_content_project')}</span>

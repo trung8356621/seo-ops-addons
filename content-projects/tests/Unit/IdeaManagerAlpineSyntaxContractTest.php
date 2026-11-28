@@ -41,7 +41,7 @@ final class IdeaManagerAlpineSyntaxContractTest extends TestCase
         self::assertStringContainsString("'can_confirm' => count(\$rows) > 0", $src);
         self::assertStringNotContainsString('duplicates_block_confirm', $src);
         self::assertStringContainsString('semantic_similarity', $src);
-        self::assertStringContainsString('exact_destination_workspace', $src);
+        self::assertStringContainsString('exact_focus_keyword', $src);
     }
 
     private function scriptBody(string $blade): string

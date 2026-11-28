@@ -66,14 +66,16 @@ final class InternalLinkWordPressUrlPolicyContractTest extends TestCase
         self::assertStringNotContainsString('WordPressArticleContentService', $src);
     }
 
-    public function test_pending_resolve_uses_authoritative_wordpress_permalink_only(): void
+    public function test_pending_resolve_create_path_retired(): void
     {
         $src = (string) file_get_contents(
             (string) (new ReflectionClass(ArticlePendingInternalLinkService::class))->getFileName(),
         );
 
-        self::assertStringContainsString('WordPressInternalLinkTargetPolicy', $src);
-        self::assertStringContainsString('resolveAuthoritativePermalink', $src);
+        self::assertStringContainsString('Intentional no-ops', $src);
+        self::assertStringContainsString('IdeaManagerKeywordIntakeService::addPhrases', $src);
+        self::assertStringNotContainsString('resolveAuthoritativePermalink', $src);
+        self::assertStringNotContainsString('function createPending', $src);
         self::assertStringNotContainsString('getPermalinkBase', $src);
         self::assertStringNotContainsString('WordPressPermalinkBuilder', $src);
     }

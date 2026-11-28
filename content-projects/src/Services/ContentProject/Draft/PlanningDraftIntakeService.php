@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\Content\Services\ArticlePendingInternalLinkService;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
@@ -36,7 +35,6 @@ class PlanningDraftIntakeService
         private readonly SeoIssueProjectTaskAssignmentService $articleAssignment,
         private readonly KeywordProjectAssignmentService $keywordAssignment,
         private readonly SeoAnalyzerService $analyzer,
-        private readonly ArticlePendingInternalLinkService $pendingLinks,
     ) {}
 
     /**
@@ -447,88 +445,6 @@ class PlanningDraftIntakeService
             (string) __('seo-content-ai::filament.keyword.add_to_draft_completed'),
             (string) __('seo-content-ai::filament.article_list.already_in_draft'),
             $this->buildDraftSummaryMessage($summary),
-        );
-    }
-
-    public function addPendingLink(
-        int $articleId,
-        string $anchorPhrase,
-        ?int $actorId = null,
-    ): PlanningDraftIntakeResult {
-        $article = SeoArticle::query()->find($articleId);
-        if (! $article instanceof SeoArticle) {
-            return new PlanningDraftIntakeResult(
-                PlanningDraftIntakeResult::STATUS_FAILED,
-                null,
-                message: __('seo-content-ai::filament.keyword.workspace_article_not_found'),
-            );
-        }
-
-        $siteId = (int) ($article->site_id ?? 0);
-        if ($siteId <= 0) {
-            return new PlanningDraftIntakeResult(
-                PlanningDraftIntakeResult::STATUS_FAILED,
-                null,
-                message: __('seo-content-ai::filament.article_edit.pending_link_missing_site'),
-            );
-        }
-
-        $actorId = $actorId !== null && $actorId > 0
-            ? $actorId
-            : (auth()->id() !== null ? (int) auth()->id() : null);
-
-        try {
-            $draft = $this->ensureSharedDraft($actorId, $siteId);
-        } catch (Throwable $e) {
-            return new PlanningDraftIntakeResult(
-                PlanningDraftIntakeResult::STATUS_DRAFT_NOT_RESOLVED,
-                null,
-                message: $e->getMessage(),
-            );
-        }
-
-        $draftId = (int) $draft->getKey();
-        $result = $this->pendingLinks->assignFromEditor($article, $anchorPhrase, $draftId);
-
-        if (! ($result['success'] ?? false)) {
-            return new PlanningDraftIntakeResult(
-                PlanningDraftIntakeResult::STATUS_FAILED,
-                $draftId,
-                message: (string) ($result['message'] ?? __('seo-content-ai::filament.articles_optimal.assign_failed')),
-                articleIds: [$articleId],
-            );
-        }
-
-        $assigned = (bool) ($result['assigned_to_project'] ?? false);
-        $alreadyTarget = (bool) ($result['already_has_target'] ?? false);
-        $placeholderHref = trim((string) ($result['placeholder_href'] ?? ''));
-        // Guard: new path must never surface #hash placeholders to the editor.
-        if ($placeholderHref !== '' && str_starts_with($placeholderHref, '#')) {
-            $placeholderHref = '';
-        }
-        $searchUrl = trim((string) ($result['search_url'] ?? ''));
-
-        if ($alreadyTarget) {
-            return new PlanningDraftIntakeResult(
-                PlanningDraftIntakeResult::STATUS_ADDED,
-                $draftId,
-                message: (string) ($result['message'] ?? ''),
-                articleIds: [$articleId],
-                keywordIds: isset($result['keyword_id']) ? [(int) $result['keyword_id']] : [],
-                placeholderHref: $placeholderHref,
-                searchUrl: $searchUrl,
-            );
-        }
-
-        return new PlanningDraftIntakeResult(
-            $assigned ? PlanningDraftIntakeResult::STATUS_ADDED : PlanningDraftIntakeResult::STATUS_ALREADY_IN_DRAFT,
-            $draftId,
-            summary: ['added' => $assigned ? 1 : 0, 'duplicate' => $assigned ? 0 : 1],
-            message: (string) ($result['message'] ?? __('seo-content-ai::filament.article_list.add_to_draft_completed')),
-            articleIds: [$articleId],
-            keywordIds: isset($result['keyword_id']) ? [(int) $result['keyword_id']] : [],
-            placeholderHref: $placeholderHref,
-            searchUrl: $searchUrl,
         );
     }
 

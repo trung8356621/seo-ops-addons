@@ -4,251 +4,57 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Services;
 
-
-use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
-use Omnichannel\Addons\SearchFoundation\Services\KeywordMetaRepository;
-use Omnichannel\Addons\SearchFoundation\Services\ArticleKeywordLinkReconcileService;
-use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\ContentProjects\Services\KeywordProjectAssignmentService;
 use Omnichannel\Addons\SearchFoundation\Models\SeoPendingInternalLink;
-use Omnichannel\Addons\Seo\Services\SeoIssueProjectTaskAssignmentService;
-use Omnichannel\Addons\WordPress\Services\ArticleWordPressSyncFlagService;
-use Omnichannel\Addons\WordPress\Services\WordPressInternalLinkTargetPolicy;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
+/**
+ * Legacy Pending Internal Link helpers.
+ *
+ * Create / deferred-process workflows are retired (Idea Manager owns phrase intake).
+ * Historical SeoPendingInternalLink rows are left untouched (no delete/backfill).
+ * resolve* methods are intentional no-ops so WP sync / focus attach cannot mutate articles.
+ * Intentional no-ops: resolveForKeyword / resolveForMainArticle return 0.
+ */
 final class ArticlePendingInternalLinkService
 {
-    public function __construct(
-        private readonly KeywordPersistenceService $keywordPersistence,
-        private readonly KeywordMetaRepository $keywordMetaRepository,
-        private readonly WordPressInternalLinkTargetPolicy $linkTargetPolicy,
-        private readonly ArticleKeywordLinkReconcileService $articleReconcile,
-        private readonly KeywordProjectAssignmentService $keywordProjectAssignment,
-        private readonly SeoIssueProjectTaskAssignmentService $seoIssueAssignment,
-        private readonly SiteInternalLinkSearchUrlTemplate $searchUrlTemplate,
-    ) {}
-
     /**
-     * New Link Assistant path: published permalink → optional Search URL (user-chosen) →
-     * Content Project keyword idea only. Does NOT create #placeholder hrefs.
+     * @deprecated Pending Internal Link create path retired. Use IdeaManagerKeywordIntakeService::addPhrases.
      *
-     * Legacy SeoPendingInternalLink rows remain resolvable via resolveForKeyword().
-     *
-     * @return array{
-     *     success: bool,
-     *     placeholder_href?: string,
-     *     search_url?: string|null,
-     *     keyword_id?: int,
-     *     assigned_to_project?: bool,
-     *     already_has_target?: bool,
-     *     insert_mode?: string,
-     *     message?: string,
-     * }
+     * @return array{success: bool, message: string}
      */
     public function assignFromEditor(SeoArticle $sourceArticle, string $anchorPhrase, ?int $projectId = null): array
     {
-        $anchorPhrase = Keyword::decodePhrase(trim($anchorPhrase));
-        if ($anchorPhrase === '') {
-            return [
-                'success' => false,
-                'message' => __('seo-content-ai::filament.article_edit.pending_link_empty_phrase'),
-            ];
-        }
-
-        $siteId = (int) ($sourceArticle->site_id ?? 0);
-        if ($siteId <= 0) {
-            return [
-                'success' => false,
-                'message' => __('seo-content-ai::filament.article_edit.pending_link_missing_site'),
-            ];
-        }
-
-        $keyword = $this->keywordPersistence->upsert(
-            $anchorPhrase,
-            Keyword::TYPE_NORMAL,
-            $siteId,
-        );
-
-        if ($keyword === null) {
-            return [
-                'success' => false,
-                'message' => __('seo-content-ai::filament.article_edit.pending_link_keyword_failed'),
-            ];
-        }
-
-        $keywordId = (int) $keyword->id;
-        $mainArticleId = $this->keywordMetaRepository->getMainArticleIdForSite($keywordId, $siteId);
-        if ($mainArticleId !== null && $mainArticleId > 0) {
-            $targetUrl = $this->resolveArticleUrl(SeoArticle::query()->find($mainArticleId));
-            if ($targetUrl !== '') {
-                return [
-                    'success' => true,
-                    'placeholder_href' => $targetUrl,
-                    'search_url' => null,
-                    'keyword_id' => $keywordId,
-                    'assigned_to_project' => false,
-                    'already_has_target' => true,
-                    'insert_mode' => 'permalink',
-                    'message' => __('seo-content-ai::filament.article_edit.pending_link_existing_target'),
-                ];
-            }
-        }
-
-        $assignedToProject = false;
-        $message = __('seo-content-ai::filament.article_edit.pending_link_project_only');
-
-        if ($projectId !== null && $projectId > 0) {
-            $keyword->refresh();
-            $keyword->loadCount('mainArticles');
-
-            $existingProjectForSite = $this->keywordProjectAssignment->keywordAssignedContentProjectIdForSite($keyword, $siteId);
-            if ($existingProjectForSite === $projectId) {
-                $assignedToProject = true;
-                $message = __('seo-content-ai::filament.article_edit.pending_link_project_only');
-            } elseif ($existingProjectForSite !== null) {
-                return [
-                    'success' => false,
-                    'message' => $this->seoIssueAssignment->buildSummaryMessage([
-                        'added' => 0,
-                        'duplicate' => 0,
-                        'overflow' => 0,
-                        'domain_mismatch' => 0,
-                        'already_in_project' => 1,
-                    ]),
-                ];
-            } elseif (! $this->keywordProjectAssignment->canAssignKeyword($keyword)) {
-                return [
-                    'success' => false,
-                    'message' => __('seo-content-ai::filament.keyword.workspace_assign_denied'),
-                ];
-            } else {
-                $summary = $this->keywordProjectAssignment->assignKeywords(
-                    collect([$keyword]),
-                    $projectId,
-                    $siteId,
-                );
-                $added = (int) ($summary['added'] ?? 0);
-                $duplicate = (int) ($summary['duplicate'] ?? 0);
-
-                if ($added > 0 || $duplicate > 0) {
-                    $assignedToProject = true;
-                    $message = __('seo-content-ai::filament.article_edit.pending_link_project_only');
-                } else {
-                    return [
-                        'success' => false,
-                        'message' => $this->seoIssueAssignment->buildSummaryMessage($summary),
-                    ];
-                }
-            }
-        } else {
-            $message = __('seo-content-ai::filament.article_edit.pending_link_no_content_project');
-        }
-
-        $searchUrl = $this->searchUrlTemplate->buildUrl($siteId, $anchorPhrase);
-        if ($searchUrl !== null && $searchUrl !== '') {
-            return [
-                'success' => true,
-                'placeholder_href' => '',
-                'search_url' => $searchUrl,
-                'keyword_id' => $keywordId,
-                'assigned_to_project' => $assignedToProject,
-                'already_has_target' => false,
-                'insert_mode' => 'search_url',
-                'message' => __('seo-content-ai::filament.article_edit.pending_link_search_url_available'),
-            ];
-        }
+        unset($sourceArticle, $anchorPhrase, $projectId);
 
         return [
-            'success' => true,
-            'placeholder_href' => '',
-            'search_url' => null,
-            'keyword_id' => $keywordId,
-            'assigned_to_project' => $assignedToProject,
-            'already_has_target' => false,
-            'insert_mode' => 'project_only',
-            'message' => $message,
+            'success' => false,
+            'message' => 'Pending Internal Link create path is retired. Use Idea Manager phrase intake.',
         ];
     }
 
+    /**
+     * Deferred resolve retired — returns 0 without mutating articles or pending rows.
+     */
     public function resolveForKeyword(int $keywordId): int
     {
-        if ($keywordId <= 0) {
-            return 0;
-        }
+        unset($keywordId);
 
-        $pendingLinks = SeoPendingInternalLink::query()
-            ->where('keyword_id', $keywordId)
-            ->where('status', SeoPendingInternalLink::STATUS_PENDING)
-            ->with(['sourceArticle:id,site_id'])
-            ->get();
-
-        if ($pendingLinks->isEmpty()) {
-            return 0;
-        }
-
-        $resolved = 0;
-        $targetCache = [];
-
-        foreach ($pendingLinks as $pending) {
-            $siteId = (int) ($pending->sourceArticle?->site_id ?? 0);
-            $cacheKey = $siteId > 0 ? 'site:'.$siteId : 'legacy';
-            if (! array_key_exists($cacheKey, $targetCache)) {
-                $mainArticleId = $siteId > 0
-                    ? $this->keywordMetaRepository->getMainArticleIdForSite($keywordId, $siteId)
-                    : $this->keywordMetaRepository->getMainArticleId($keywordId);
-                if ($mainArticleId === null || $mainArticleId <= 0) {
-                    $targetCache[$cacheKey] = null;
-                } else {
-                    $targetArticle = SeoArticle::query()->with(['site', 'articleMetas'])->find($mainArticleId);
-                    if (
-                        ! $targetArticle instanceof SeoArticle
-                        || ($siteId > 0 && (int) ($targetArticle->site_id ?? 0) !== $siteId)
-                    ) {
-                        $targetCache[$cacheKey] = null;
-                    } else {
-                        $url = $this->resolveArticleUrl($targetArticle);
-                        $targetCache[$cacheKey] = $url !== ''
-                            ? ['id' => (int) $targetArticle->id, 'url' => $url]
-                            : null;
-                    }
-                }
-            }
-
-            $target = $targetCache[$cacheKey];
-            if (! is_array($target)) {
-                continue;
-            }
-
-            if ($this->resolvePendingLink($pending, $target['url'], $target['id'])) {
-                $resolved++;
-            }
-        }
-
-        return $resolved;
+        return 0;
     }
 
+    /**
+     * Deferred resolve retired — returns 0 without mutating articles or pending rows.
+     */
     public function resolveForMainArticle(SeoArticle $article): int
     {
-        $articleId = (int) $article->id;
-        if ($articleId <= 0) {
-            return 0;
-        }
+        unset($article);
 
-        $keywordIds = \Omnichannel\Addons\SearchFoundation\Models\KeywordMeta::query()
-            ->where('meta_key', \Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey::MainArticleId->value)
-            ->where('meta_value', (string) $articleId)
-            ->pluck('keyword_id');
-
-        $resolved = 0;
-        foreach ($keywordIds as $keywordId) {
-            $resolved += $this->resolveForKeyword((int) $keywordId);
-        }
-
-        return $resolved;
+        return 0;
     }
 
+    /**
+     * Pure HTML helper retained for historical placeholder cleanup / tests.
+     */
     public function replacePlaceholderInHtml(string $html, string $placeholderHash, string $targetUrl): string
     {
         $hash = trim($placeholderHash, '#');
@@ -274,128 +80,13 @@ final class ArticlePendingInternalLinkService
         return $next;
     }
 
-    private function resolvePendingLink(SeoPendingInternalLink $pending, string $targetUrl, int $targetArticleId): bool
-    {
-        $sourceArticle = SeoArticle::query()->with('articleMetas')->find((int) $pending->source_article_id);
-        if (! $sourceArticle instanceof SeoArticle) {
-            return false;
-        }
-
-        $currentHtml = $this->articleReconcile->resolveArticleContent($sourceArticle);
-        if ($currentHtml === '') {
-            return false;
-        }
-
-        $updatedHtml = $this->replacePlaceholderInHtml(
-            $currentHtml,
-            (string) $pending->placeholder_hash,
-            $targetUrl,
-        );
-
-        if ($updatedHtml === $currentHtml) {
-            return false;
-        }
-
-        DB::connection($sourceArticle->getConnectionName())->transaction(function () use (
-            $sourceArticle,
-            $updatedHtml,
-            $pending,
-            $targetUrl,
-            $targetArticleId,
-        ): void {
-            $sourceArticle->update(['body' => $updatedHtml]);
-            try {
-                $writer = app(\Omnichannel\Addons\Content\Services\ArticleEditor\Document\ArticleEditorDocumentWriter::class);
-                $writer->invalidateForLegacyBodyWrite($sourceArticle, 'pending_internal_link');
-                if ($sourceArticle->isDirty('editor_document_status')) {
-                    $sourceArticle->save();
-                }
-            } catch (\Throwable) {
-                // best-effort
-            }
-
-            $pending->update([
-                'status' => SeoPendingInternalLink::STATUS_RESOLVED,
-                'resolved_target_url' => $targetUrl,
-                'resolved_target_article_id' => $targetArticleId,
-                'resolved_at' => now(),
-            ]);
-
-            app(ArticleWordPressSyncFlagService::class)->markLocalEditPending($sourceArticle->fresh());
-        });
-
-        $this->articleReconcile->reconcileForArticle($sourceArticle->fresh(), $updatedHtml);
-
-        return true;
-    }
-
-    private function findReusablePending(
-        SeoArticle $sourceArticle,
-        int $keywordId,
-        string $anchorPhrase,
-    ): ?SeoPendingInternalLink {
-        return SeoPendingInternalLink::query()
-            ->where('source_article_id', (int) $sourceArticle->id)
-            ->where('keyword_id', $keywordId)
-            ->where('anchor_phrase', $anchorPhrase)
-            ->where('status', SeoPendingInternalLink::STATUS_PENDING)
-            ->first();
-    }
-
-    private function createPending(
-        SeoArticle $sourceArticle,
-        int $keywordId,
-        string $anchorPhrase,
-        int $siteId,
-    ): SeoPendingInternalLink {
-        return SeoPendingInternalLink::query()->create([
-            'site_id' => $siteId,
-            'source_article_id' => (int) $sourceArticle->id,
-            'keyword_id' => $keywordId,
-            'anchor_phrase' => $anchorPhrase,
-            'placeholder_hash' => $this->generateUniqueHash($anchorPhrase),
-            'status' => SeoPendingInternalLink::STATUS_PENDING,
-        ]);
-    }
-
     /**
-     * Human-readable placeholder fragment derived from the anchor phrase (e.g. #tu-khoa).
-     * Column limit is 16 chars; uniqueness suffix only when the base slug collides.
-     * Existing hex hashes remain valid for resolution.
+     * Model retained for admin cleaners; no create API.
+     *
+     * @return class-string<SeoPendingInternalLink>
      */
-    private function generateUniqueHash(string $anchorPhrase = ''): string
+    public static function pendingModelClass(): string
     {
-        $base = Str::slug($anchorPhrase);
-        if ($base === '') {
-            $base = 'tu-khoa';
-        }
-        $base = substr($base, 0, 16);
-
-        for ($attempt = 0; $attempt < 12; $attempt++) {
-            if ($attempt === 0) {
-                $hash = $base;
-            } else {
-                $suffix = substr(bin2hex(random_bytes(2)), 0, 4);
-                $trim = max(1, 16 - 1 - strlen($suffix));
-                $hash = substr($base, 0, $trim).'-'.$suffix;
-            }
-
-            if (! SeoPendingInternalLink::query()->where('placeholder_hash', $hash)->exists()) {
-                return $hash;
-            }
-        }
-
-        throw new \RuntimeException('Unable to generate unique pending internal link hash.');
-    }
-
-    private function resolveArticleUrl(?SeoArticle $article): string
-    {
-        if (! $article instanceof SeoArticle) {
-            return '';
-        }
-
-        $article->loadMissing('wordpressLink', 'articleMetas');
-
-        return trim((string) ($this->linkTargetPolicy->resolveAuthoritativePermalink($article) ?? ''));
+        return SeoPendingInternalLink::class;
     }
 }

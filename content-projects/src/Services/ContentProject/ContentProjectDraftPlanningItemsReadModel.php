@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\ContentProjects\Services\ContentProject;
 
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectItemOrigin;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
@@ -52,7 +53,12 @@ final class ContentProjectDraftPlanningItemsReadModel
             ->with([
                 'itemOrigin',
                 'article.seoProfile',
-                'article.articleMetas' => static fn ($q) => $q->where('meta_key', 'wp_permalink'),
+                'article.articleMetas' => static fn ($q) => $q->whereIn('meta_key', [
+                    'wp_permalink',
+                    ArticleContentClassification::META_CONTENT_TYPE,
+                    ArticleContentClassification::META_WP_POST_TYPE,
+                    ArticleContentClassification::META_WP_IS_TERM,
+                ]),
                 'site:id,domain',
             ])
             ->orderByDesc('updated_at')
@@ -229,7 +235,8 @@ final class ContentProjectDraftPlanningItemsReadModel
             $title = '#'.$taskId;
         }
 
-        $postTypeRaw = SeoProjectTask::normalizePostType($task->post_type ?? null);
+        $postTypeRaw = app(ContentProjectTaskPostTypeRecheckService::class)
+            ->resolveEffectiveForDisplay($task, $hasArticle ? $article : null);
         $isProductPostType = $postTypeRaw === SeoProjectTask::POST_TYPE_PRODUCT;
         $isCreate = SeoProjectTask::isNewArticleType($type);
         $isRewriteFamily = in_array($type, [SeoProjectTask::TYPE_REWRITE, SeoProjectTask::TYPE_IMPROVE], true);
@@ -353,9 +360,12 @@ final class ContentProjectDraftPlanningItemsReadModel
         ];
     }
 
-    private function postTypeLabel(string $postType): string
+    private function postTypeLabel(?string $postType): string
     {
-        $key = strtolower(trim($postType));
+        $key = strtolower(trim((string) ($postType ?? '')));
+        if ($key === '') {
+            return '—';
+        }
 
         return match ($key) {
             SeoProjectTask::POST_TYPE_POST, SeoProjectTask::POST_TYPE_ARTICLE => (string) __('seo-content-ai::filament.article_list.post_type_post'),
@@ -363,7 +373,7 @@ final class ContentProjectDraftPlanningItemsReadModel
             'page' => (string) __('seo-content-ai::filament.article_list.post_type_page'),
             SeoProjectTask::POST_TYPE_CATEGORY => (string) __('seo-content-ai::filament.article_list.post_type_category'),
             SeoProjectTask::POST_TYPE_PRODUCT_CATEGORY => (string) __('seo-content-ai::filament.article_list.post_type_product_category'),
-            default => $key !== '' ? ucfirst($key) : (string) __('seo-content-ai::filament.article_list.post_type_post'),
+            default => ucfirst($key),
         };
     }
 

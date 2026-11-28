@@ -151,13 +151,16 @@ final class IdeaManagerPhase2ContractTest extends TestCase
         self::assertStringNotContainsString('idea_manager_active_month', $blade);
     }
 
-    public function test_save_still_scoped_to_source_workspace_not_cross_site_dump(): void
+    public function test_save_still_scoped_to_owner_workspace_not_cross_site_dump(): void
     {
         $src = (string) file_get_contents(
             (string) (new ReflectionClass(ContentProjectIdeaManager::class))->getFileName()
         );
-        self::assertStringContainsString('abort_unless($siteId === (int) ($this->filterSiteId ?? 0), 403)', $src);
+        // Per-owner save: reject cross-owner rows; never dump multi-site JSON into one workspace.
+        self::assertStringContainsString('owner_site_id', $src);
+        self::assertStringContainsString('Strip warehouse-only keys', $src);
         self::assertStringNotContainsString('note_items from all sites', $src);
+        self::assertStringNotContainsString('abort_unless($siteId === (int) ($this->filterSiteId ?? 0), 403)', $src);
     }
 
     public function test_phase2_lang_keys(): void
@@ -183,7 +186,8 @@ final class IdeaManagerPhase2ContractTest extends TestCase
         self::assertStringContainsString('IdeaManagerKeywordIntakeService', $drawer);
         self::assertStringContainsString('PlanningDraftIntakeService', $drawer);
         self::assertStringContainsString('->addArticles(', $drawer);
-        self::assertStringContainsString('->addPendingLink(', $drawer);
+        self::assertStringNotContainsString('->addPendingLink(', $drawer);
+        self::assertStringContainsString('->addPhrases(', $drawer);
 
         $intake = (string) file_get_contents(
             (string) (new ReflectionClass(

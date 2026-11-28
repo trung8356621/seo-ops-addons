@@ -1334,8 +1334,8 @@ class CreateArticlesFromTaskService
 
     private function ensureArticlePostType(SeoArticle $article, TaskTestContext $context): void
     {
-        // Rewrite: giữ nguyên type bài có sẵn — không ghi đè product/article.
-        if ($context->projectTaskType === SeoProjectTask::TYPE_REWRITE) {
+        // Rewrite / Improve: giữ nguyên type bài có sẵn — không ghi đè product/page/article.
+        if (! SeoProjectTask::isNewArticleType((string) $context->projectTaskType)) {
             return;
         }
 

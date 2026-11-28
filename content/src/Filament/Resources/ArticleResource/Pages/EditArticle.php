@@ -44,7 +44,6 @@ use Omnichannel\Addons\Seo\Services\ArticleGoogleSerpPreviewService;
 use Omnichannel\Addons\Content\Services\ArticleInternalLinkSearchService;
 use Omnichannel\Addons\SearchFoundation\Services\ArticleKeywordLinkReconcileService;
 use Omnichannel\Addons\Media\Services\ArticleMediaLocalService;
-use Omnichannel\Addons\Content\Services\ArticlePendingInternalLinkService;
 use Omnichannel\Addons\ContentProjects\Services\ArticlePipelineRerunService;
 use Omnichannel\Addons\ContentProjects\Services\KeywordProjectAssignmentService;
 use Omnichannel\Addons\Content\Services\ArticleAiHistory\ArticleAiHistoryApplicationService;
@@ -5585,6 +5584,66 @@ class EditArticle extends SeoEditRecord
             ->buildUrl((int) $this->record->site_id, $keyword);
 
         return is_string($url) ? $url : '';
+    }
+
+    /**
+     * Article Editor phrase → Idea Manager (no Shared Planning Draft, no article mutate).
+     * Success only after committed persistence.
+     *
+     * @return array{
+     *   status: string,
+     *   outcome: string,
+     *   message: string,
+     *   summary: array<string, mixed>,
+     *   site_id: int,
+     *   domain: string,
+     *   workspace_id: int,
+     *   revision: int,
+     *   idea_refs: list<string>
+     * }
+     */
+    public function addPhraseToIdeaManager(string $phrase = ''): array
+    {
+        $phrase = trim($phrase);
+        $siteId = (int) ($this->record->site_id ?? 0);
+        if ($phrase === '' || $siteId <= 0) {
+            return [
+                'status' => 'failed',
+                'outcome' => 'error',
+                'message' => (string) __('seo-content-ai::filament.articles_optimal.assign_failed'),
+                'summary' => [],
+                'site_id' => $siteId,
+                'domain' => '',
+                'workspace_id' => 0,
+                'revision' => 0,
+                'idea_refs' => [],
+            ];
+        }
+
+        $result = app(
+            \Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager\IdeaManagerKeywordIntakeService::class
+        )->addPhrases([$phrase], [$siteId]);
+
+        $sites = is_array($result->summary['sites'] ?? null) ? $result->summary['sites'] : [];
+        $primary = is_array($sites[0] ?? null) ? $sites[0] : [];
+        $outcome = match ($result->status) {
+            \Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager\IdeaManagerKeywordIntakeResult::STATUS_ADDED,
+            \Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager\IdeaManagerKeywordIntakeResult::STATUS_PARTIAL => 'added',
+            \Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager\IdeaManagerKeywordIntakeResult::STATUS_ALREADY => 'already_exists',
+            default => 'error',
+        };
+
+        return [
+            'status' => $result->status,
+            'outcome' => $outcome,
+            'message' => $result->message,
+            'summary' => $result->summary,
+            'site_id' => (int) ($primary['site_id'] ?? $siteId),
+            'domain' => (string) ($primary['domain'] ?? ''),
+            'workspace_id' => (int) ($primary['workspace_id'] ?? 0),
+            'revision' => (int) ($primary['revision'] ?? 0),
+            'idea_refs' => is_array($primary['idea_refs'] ?? null) ? array_values($primary['idea_refs']) : [],
+        ];
     }
 
     public function generateFeaturedSnippetFromEditor(string $refBlockId, string $position = 'after'): void

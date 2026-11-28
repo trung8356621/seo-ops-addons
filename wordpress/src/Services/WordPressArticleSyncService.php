@@ -13,7 +13,6 @@ use Omnichannel\Addons\Content\Services\ArticleCtaPlaceholderService;
 use Omnichannel\Addons\Content\Services\ArticleEditorHtmlSanitizeService;
 use Omnichannel\Addons\Content\Services\ArticleFaqExtractDebugService;
 use Omnichannel\Addons\Content\Services\ArticleLastSavedTimestampService;
-use Omnichannel\Addons\Content\Services\ArticlePendingInternalLinkService;
 use Omnichannel\Addons\Content\Services\ArticlePostContentFaqPlaceholder;
 use Omnichannel\Addons\WordPress\Models\SeoArticleWpSyncJob;
 use Omnichannel\Addons\Media\Models\SeoMedia;
@@ -201,7 +200,7 @@ final class WordPressArticleSyncService
                     ['meta_value' => $permalink],
                 );
                 \Omnichannel\Addons\WordPress\Services\WordPressInternalLinkTargetPolicy::forgetSiteIndexCacheForArticle($article);
-                app(ArticlePendingInternalLinkService::class)->resolveForMainArticle($article->fresh());
+                // Pending Internal Link deferred resolve retired — Ideas go to Idea Manager.
             }
 
             return [
@@ -1019,7 +1018,7 @@ final class WordPressArticleSyncService
                 ['meta_value' => $remotePermalink],
             );
             \Omnichannel\Addons\WordPress\Services\WordPressInternalLinkTargetPolicy::forgetSiteIndexCacheForArticle($article);
-            app(ArticlePendingInternalLinkService::class)->resolveForMainArticle($article->fresh());
+            // Pending Internal Link deferred resolve retired — Ideas go to Idea Manager.
         }
 
         if ($postContent !== '' && trim((string) ($article->body ?? '')) !== $postContent) {

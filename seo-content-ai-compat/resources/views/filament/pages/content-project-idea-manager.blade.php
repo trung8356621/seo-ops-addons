@@ -4,9 +4,11 @@
         <style>
             .im-root { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
             .im-stepbar {
+                position: sticky; top: 0.5rem; z-index: 10;
                 display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
                 gap: 0.65rem; padding: 0.55rem 0.75rem;
                 border: 1px solid #e5e7eb; border-radius: 0.75rem; background: #fff;
+                box-shadow: 0 1px 2px rgba(0,0,0,.04);
             }
             .dark .im-stepbar { border-color: #374151; background: #111827; }
             .im-stepbar__left { display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem; min-width: 0; }
@@ -37,26 +39,46 @@
             }
             .im-side, .im-main, .im-right {
                 border: 1px solid #e5e7eb; border-radius: 0.75rem; background: #fff;
-                min-width: 0; display: flex; flex-direction: column; max-height: calc(100vh - 11rem);
+                min-width: 0; min-height: 36rem; display: flex; flex-direction: column;
+                height: calc(100vh - 6.5rem); overflow: hidden;
             }
             .dark .im-side, .dark .im-main, .dark .im-right { border-color: #374151; background: #111827; }
             .im-side__head, .im-main__head, .im-right__head {
                 display: flex; align-items: center; justify-content: space-between; gap: 0.4rem;
-                padding: 0.55rem 0.7rem; border-bottom: 1px solid #e5e7eb; flex: 0 0 auto;
+                padding: 0.5rem 0.7rem; border-bottom: 1px solid #e5e7eb; flex: 0 0 auto;
             }
             .dark .im-side__head, .dark .im-main__head, .dark .im-right__head { border-color: #374151; }
             .im-side__title, .im-main__title, .im-right__title { font-size: 0.8125rem; font-weight: 700; color: #111827; }
             .dark .im-side__title, .dark .im-main__title, .dark .im-right__title { color: #f9fafb; }
-            .im-side__body, .im-main__body, .im-right__body { padding: 0.65rem; overflow: auto; flex: 1 1 auto; min-height: 0; }
+            .im-side__body { padding: 0; overflow: hidden; flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+            .im-side__controls { flex: 0 0 auto; padding: 0.5rem 0.65rem; border-bottom: 1px solid #e5e7eb; display: flex; flex-direction: column; gap: 0.4rem; }
+            .dark .im-side__controls { border-color: #374151; }
+            .im-side__list { flex: 1 1 0; min-height: 0; overflow-y: auto; padding: 0.65rem; }
+            .im-main__body { padding: 0; overflow: hidden; flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+            .im-main__shell { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; overflow: hidden; }
+            .im-main__sticky { flex: 0 0 auto; padding: 0.45rem 0.65rem; border-bottom: 1px solid #e5e7eb; display: flex; flex-direction: column; gap: 0.35rem; background: #fff; }
+            .dark .im-main__sticky { border-color: #374151; background: #111827; }
+            .im-main__list { flex: 1 1 0; min-height: 0; overflow-y: auto; padding: 0.65rem; }
+            .im-right__body { padding: 0.55rem 0.65rem; overflow-y: auto; flex: 0 1 44%; min-height: 9rem; }
+            .im-right__body thead th { position: sticky; top: 0; z-index: 2; background: #fff; }
+            .dark .im-right__body thead th { background: #111827; }
             .im-right__foot {
-                flex: 0 0 auto;
-                padding: 0.65rem;
+                flex: 1 1 56%;
+                min-height: 12rem;
+                padding: 0;
                 border-top: 1px solid #e5e7eb;
                 background: #fff;
-                max-height: 42%;
-                overflow: auto;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
             }
             .dark .im-right__foot { border-color: #374151; background: #111827; }
+            .im-dist { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; overflow: hidden; }
+            .im-dist__head { flex: 0 0 auto; padding: 0.55rem 0.65rem 0.45rem; border-bottom: 1px solid #f3f4f6; display: flex; flex-direction: column; gap: 0.35rem; }
+            .dark .im-dist__head { border-color: #1f2937; }
+            .im-dist__scroll { flex: 1 1 0; min-height: 0; overflow-y: auto; padding: 0.4rem 0.65rem; }
+            .im-dist__actions { flex: 0 0 auto; padding: 0.5rem 0.65rem; border-top: 1px solid #e5e7eb; display: flex; flex-direction: column; gap: 0.35rem; background: #fff; }
+            .dark .im-dist__actions { border-color: #374151; background: #111827; }
             .im-side.is-collapsed .im-side__body, .im-side.is-collapsed .im-side__title { display: none; }
 
             .im-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
@@ -108,6 +130,21 @@
                 text-align: center; color: #6b7280; font-size: 0.8125rem; background: #fafafa;
             }
             .dark .im-empty { border-color: #4b5563; background: #0b1220; color: #9ca3af; }
+
+            .im-debug {
+                border: 1px solid #f59e0b; border-radius: 0.65rem; background: #fffbeb;
+                padding: 0.55rem 0.7rem; margin-bottom: 0.65rem; font-size: 0.72rem; color: #78350f;
+            }
+            .dark .im-debug { border-color: #b45309; background: rgba(120,53,15,.25); color: #fde68a; }
+            .im-debug summary { cursor: pointer; font-weight: 700; }
+            .im-debug__grid {
+                display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+                gap: 0.35rem 0.75rem; margin-top: 0.45rem;
+            }
+            .im-debug__k { opacity: 0.75; }
+            .im-debug__v { font-weight: 650; font-variant-numeric: tabular-nums; }
+            .im-debug__hist { margin-top: 0.45rem; max-height: 9rem; overflow: auto; font-family: ui-monospace, monospace; }
+            .im-debug__hist div { white-space: nowrap; }
 
             .im-card {
                 border: 1px solid #e5e7eb; border-radius: 0.65rem; background: #fff; padding: 0.7rem 0.8rem;
@@ -162,7 +199,7 @@
             .dark .im-dist__blocked { border-color: #92400e; background: rgba(146,64,14,.25); color: #fde68a; }
             .im-dist__meta { font-size: 0.78rem; color: #374151; display: grid; gap: 0.2rem; }
             .dark .im-dist__meta { color: #d1d5db; }
-            .im-dist__preview { max-height: 9rem; overflow: auto; font-size: 0.75rem; list-style: none; margin: 0; padding: 0; }
+            .im-dist__preview { font-size: 0.75rem; list-style: none; margin: 0; padding: 0; }
             .im-dist__preview li { padding: 0.25rem 0; border-bottom: 1px solid #f3f4f6; display: flex; gap: 0.4rem; align-items: flex-start; justify-content: space-between; }
             .dark .im-dist__preview li { border-color: #1f2937; }
             .im-dist__preview li.is-dup { color: #b45309; }
@@ -175,15 +212,19 @@
             .dark .im-dist__result.is-error { background: rgba(194,65,12,.2); color: #fdba74; }
             .im-dist__hint { font-size: 0.7rem; color: #6b7280; }
 
-            @media (max-width: 1200px) {
+            @media (max-width: 1200px), (max-height: 680px) {
                 .im-layout, .im-layout.is-collapsed {
                     grid-template-columns: minmax(12rem, 15rem) minmax(0, 1fr);
                 }
-                .im-right { grid-column: 1 / -1; max-height: none; }
+                .im-side, .im-main { height: calc(100vh - 6.5rem); min-height: 34rem; overflow: hidden; }
+                .im-right { grid-column: 1 / -1; height: auto; min-height: 0; max-height: 44rem; overflow: hidden; }
+                .im-right__body { flex: 0 0 auto; max-height: 18rem; }
+                .im-right__foot { flex: 1 1 0; min-height: 12rem; }
             }
-            @media (max-width: 900px) {
+            @media (max-width: 720px) {
                 .im-layout, .im-layout.is-collapsed { grid-template-columns: 1fr; }
-                .im-side, .im-main, .im-right { max-height: none; }
+                .im-side, .im-main { height: 70vh; min-height: 22rem; overflow: hidden; }
+                .im-right { height: auto; min-height: 0; max-height: none; overflow: hidden; }
                 .im-input { min-width: 100%; width: 100%; }
             }
         </style>
@@ -247,35 +288,38 @@
                         <span x-text="sidebarCollapsed ? '»' : '«'"></span>
                     </button>
                 </div>
-                <div class="im-side__body space-y-2" x-show="!sidebarCollapsed" x-cloak>
-                    <label class="text-xs font-semibold text-gray-500">{{ __('seo-content-ai::filament.projects.idea_manager_source_domain') }}</label>
-                    <select
-                        class="im-input w-full"
-                        style="width:100%;min-width:0"
-                        wire:change="setSourceSite(Number($event.target.value))"
-                    >
-                        @foreach ($sourceOptions as $opt)
-                            <option value="{{ $opt['id'] }}" @selected((int) ($sourceFilter['site_id'] ?? 0) === (int) $opt['id'])>
-                                {{ $opt['domain'] }}
-                            </option>
-                        @endforeach
-                    </select>
+                <div class="im-side__body" x-show="!sidebarCollapsed">
+                    <div class="im-side__controls">
+                        <label class="text-xs font-semibold text-gray-500">{{ __('seo-content-ai::filament.projects.idea_manager_source_domain') }}</label>
+                        <select
+                            class="im-input w-full"
+                            style="width:100%;min-width:0"
+                            wire:change="setSourceSite(Number($event.target.value))"
+                        >
+                            @foreach ($sourceOptions as $opt)
+                                <option value="{{ $opt['id'] }}" @selected((int) ($sourceFilter['site_id'] ?? 0) === (int) $opt['id'])>
+                                    {{ $opt['domain'] }}
+                                </option>
+                            @endforeach
+                        </select>
 
-                    <div class="im-actions" style="width:100%">
-                        <input type="search" class="im-input" style="flex:1;min-width:0;width:100%" wire:model="clusterSearch" placeholder="{{ __('seo-content-ai::filament.projects.idea_manager_cluster_search') }}" />
-                        <button type="button" class="im-btn im-btn--ghost" wire:click="applyClusterSearch">{{ __('seo-content-ai::filament.projects.idea_manager_cluster_apply') }}</button>
-                    </div>
-                    <select class="im-input w-full" style="width:100%;min-width:0" wire:model.live="clusterFilter">
-                        <option value="all">{{ __('seo-content-ai::filament.projects.idea_manager_cluster_filter_all') }}</option>
-                        <option value="mcp_low">{{ __('seo-content-ai::filament.projects.idea_manager_cluster_filter_mcp_low') }}</option>
-                        <option value="has_focus">{{ __('seo-content-ai::filament.projects.idea_manager_cluster_filter_has_focus') }}</option>
-                        <option value="no_focus">{{ __('seo-content-ai::filament.projects.idea_manager_cluster_filter_no_focus') }}</option>
-                    </select>
-                    <div wire:loading.flex wire:target="loadClusterSuggestions,applyClusterSearch,gotoClusterPage,updatedClusterFilter,setSourceSite" class="text-xs text-gray-500">
-                        {{ __('seo-content-ai::filament.projects.idea_manager_cluster_loading') }}
+                        <div class="im-actions" style="width:100%">
+                            <input type="search" class="im-input" style="flex:1;min-width:0;width:100%" wire:model="clusterSearch" placeholder="{{ __('seo-content-ai::filament.projects.idea_manager_cluster_search') }}" />
+                            <button type="button" class="im-btn im-btn--ghost" wire:click="applyClusterSearch">{{ __('seo-content-ai::filament.projects.idea_manager_cluster_apply') }}</button>
+                        </div>
+                        <select class="im-input w-full" style="width:100%;min-width:0" wire:model.live="clusterFilter">
+                            <option value="all">{{ __('seo-content-ai::filament.projects.idea_manager_cluster_filter_all') }}</option>
+                            <option value="mcp_low">{{ __('seo-content-ai::filament.projects.idea_manager_cluster_filter_mcp_low') }}</option>
+                            <option value="has_focus">{{ __('seo-content-ai::filament.projects.idea_manager_cluster_filter_has_focus') }}</option>
+                            <option value="no_focus">{{ __('seo-content-ai::filament.projects.idea_manager_cluster_filter_no_focus') }}</option>
+                        </select>
+                        <div wire:loading.flex wire:target="loadClusterSuggestions,applyClusterSearch,gotoClusterPage,updatedClusterFilter,setSourceSite" class="text-xs text-gray-500">
+                            {{ __('seo-content-ai::filament.projects.idea_manager_cluster_loading') }}
+                        </div>
                     </div>
 
-                    {{-- Cluster list driven by Alpine warehouse root via window events; mirror Livewire rows for first paint --}}
+                    <div class="im-side__list">
+                        {{-- Cluster list driven by Alpine warehouse root via window events; mirror Livewire rows for first paint --}}
                     <div
                         wire:ignore
                         x-data="ideaManagerClusterBridge({
@@ -309,7 +353,8 @@
                             <button type="button" class="im-btn im-btn--ghost" wire:click="gotoClusterPage({{ (int) $this->clusterPage + 1 }})">Next</button>
                         </div>
                     </div>
-                    <p class="text-[11px] text-gray-400 mt-2">{{ __('seo-content-ai::filament.projects.idea_manager_published_note') }}</p>
+                        <p class="text-[11px] text-gray-400 mt-2">{{ __('seo-content-ai::filament.projects.idea_manager_published_note') }}</p>
+                    </div>
                 </div>
             </aside>
 
@@ -327,6 +372,8 @@
                         sourceFilterSiteId: {{ (int) ($sourceFilter['site_id'] ?? 0) }},
                         sourceFilterDomain: @js((string) ($sourceFilter['domain'] ?? '')),
                         server: @js($server),
+                        debugEnabled: @js((bool) $this->ideaDebug),
+                        probeNeedle: @js((bool) $this->ideaDebug ? 'phong cách capsule wardrobe' : ''),
                         clusterRows: @js($this->clusterRows),
                         clusterTotal: {{ (int) $this->clusterTotal }},
                         activeTab: 'ideas',
@@ -380,7 +427,37 @@
                     </template>
 
                     <template x-if="siteId > 0">
-                        <div class="space-y-3">
+                        <div class="im-main__shell">
+                            <div class="im-main__sticky">
+                                <details x-show="debugEnabled" x-cloak class="im-debug" data-im-debug="1" open>
+                                <summary>Idea Manager runtime diagnostics (temporary)</summary>
+                                <div class="im-debug__grid">
+                                    <div><span class="im-debug__k">server_snapshot</span> <span class="im-debug__v" x-text="debugServerCount()"></span></div>
+                                    <div><span class="im-debug__k">livewire_delivered</span> <span class="im-debug__v" x-text="debugLivewireCount"></span></div>
+                                    <div><span class="im-debug__k">alpine_working_set</span> <span class="im-debug__v" x-text="(items || []).length"></span></div>
+                                    <div><span class="im-debug__k">filtered_visible</span> <span class="im-debug__v" x-text="filteredItems().length"></span></div>
+                                    <div><span class="im-debug__k">search</span> <span class="im-debug__v" x-text="JSON.stringify(search || '')"></span></div>
+                                    <div><span class="im-debug__k">sourceTypeFilter</span> <span class="im-debug__v" x-text="sourceTypeFilter"></span></div>
+                                    <div><span class="im-debug__k">sourceFilterSiteId</span> <span class="im-debug__v" x-text="sourceFilterSiteId + ' (cluster only)'"></span></div>
+                                    <div><span class="im-debug__k">working_siteId</span> <span class="im-debug__v" x-text="siteId"></span></div>
+                                    <div><span class="im-debug__k">dirty</span> <span class="im-debug__v" x-text="String(!!dirty)"></span></div>
+                                    <div><span class="im-debug__k">dirty_owners</span> <span class="im-debug__v" x-text="debugDirtyOwnerIds()"></span></div>
+                                    <div><span class="im-debug__k">site_revisions</span> <span class="im-debug__v" x-text="debugSiteRevisions()"></span></div>
+                                    <div><span class="im-debug__k">last_bootstrap_seq</span> <span class="im-debug__v" x-text="debugSeq"></span></div>
+                                    <div><span class="im-debug__k">last_event</span> <span class="im-debug__v" x-text="debugLastEvent || '—'"></span></div>
+                                    <div><span class="im-debug__k">last_at_ms</span> <span class="im-debug__v" x-text="debugLastAt || 0"></span></div>
+                                    <div><span class="im-debug__k">probe_in_server</span> <span class="im-debug__v" x-text="String(probePresentIn(serverMeta.note_items))"></span></div>
+                                    <div><span class="im-debug__k">probe_in_working</span> <span class="im-debug__v" x-text="String(probePresentIn(items))"></span></div>
+                                    <div><span class="im-debug__k">probe_in_filtered</span> <span class="im-debug__v" x-text="String(probePresentIn(filteredItems()))"></span></div>
+                                    <div><span class="im-debug__k">hydration_error</span> <span class="im-debug__v" x-text="debugHydrationError || 'none'"></span></div>
+                                </div>
+                                <div class="im-debug__hist">
+                                    <template x-for="(ev, i) in debugEvents" :key="'dbg-'+i+'-'+ev.seq">
+                                        <div x-text="ev.seq + ' ' + ev.name + ' ' + ev.before + '→' + ev.after + ' src=' + ev.source + (ev.owner ? (' owner=' + ev.owner) : '')"></div>
+                                    </template>
+                                </div>
+                            </details>
+
                             <div x-show="conflict" x-cloak class="im-conflict">
                                 <div class="font-semibold text-amber-900 dark:text-amber-100">{{ __('seo-content-ai::filament.projects.idea_manager_conflict_title') }}</div>
                                 <p class="mt-1 text-sm text-amber-800 dark:text-amber-200" x-text="conflictBodyText()"></p>
@@ -452,17 +529,19 @@
                                     </div>
                                 </template>
                             </div>
+                            </div>
 
-                            <template x-if="filteredItems().length === 0">
-                                <div class="im-empty">{{ __('seo-content-ai::filament.projects.idea_manager_empty') }}</div>
-                            </template>
+                            <div class="im-main__list">
+                                <template x-if="filteredItems().length === 0">
+                                    <div class="im-empty">{{ __('seo-content-ai::filament.projects.idea_manager_empty') }}</div>
+                                </template>
 
-                            <div class="space-y-2">
-                                <template x-for="item in filteredItems()" :key="item.cluster_ref">
-                                    <div class="im-card" :class="{ 'is-selected': isSelected(item.cluster_ref) }">
+                                <div class="space-y-2">
+                                <template x-for="item in filteredItems()" :key="itemKey(item)">
+                                    <div class="im-card" :class="{ 'is-selected': isSelected(itemKey(item)) }">
                                         <div class="im-card__top">
                                             <div class="min-w-0 flex-1 flex gap-2">
-                                                <input type="checkbox" class="mt-1" :checked="isSelected(item.cluster_ref)" x-on:change="toggleSelect(item.cluster_ref)" />
+                                                <input type="checkbox" class="mt-1" :checked="isSelected(itemKey(item))" x-on:change="toggleSelect(itemKey(item))" />
                                                 <div class="min-w-0 flex-1">
                                                     <div class="im-card__title" x-text="item.cluster_name_snapshot || item.seed_text"></div>
                                                     <div class="im-card__meta">
@@ -506,6 +585,7 @@
                                     </div>
                                 </template>
                             </div>
+                            </div>
                         </div>
                     </template>
                 </div>
@@ -536,71 +616,118 @@
                          x-on:im-selection-changed.window="onSelection($event.detail)"
                          x-on:idea-manager-target-changed.window="onTargetChanged($event.detail)"
                          x-on:idea-manager-active-month-changed.window="onActiveMonthChanged($event.detail)">
-                        <div class="font-semibold text-sm">{{ __('seo-content-ai::filament.projects.idea_manager_distribution_title') }}</div>
-                        <div class="im-dist__meta">
-                            <div><strong>{{ __('seo-content-ai::filament.projects.idea_manager_distribution_month') }}:</strong> <span x-text="activeMonthLabel"></span></div>
-                            <div>
-                                <strong>{{ __('seo-content-ai::filament.projects.idea_manager_distribution_target') }}:</strong>
-                                <span x-show="targetDomain" x-text="targetDomain"></span>
-                                <span class="text-gray-500" x-show="!targetDomain">{{ __('seo-content-ai::filament.projects.idea_manager_distribution_pick_target') }}</span>
+                        <div class="im-dist__head">
+                            <div class="font-semibold text-sm">{{ __('seo-content-ai::filament.projects.idea_manager_distribution_title') }}</div>
+                            <div class="im-dist__meta">
+                                <div><strong>{{ __('seo-content-ai::filament.projects.idea_manager_distribution_month') }}:</strong> <span x-text="activeMonthLabel"></span></div>
+                                <div>
+                                    <strong>{{ __('seo-content-ai::filament.projects.idea_manager_distribution_target') }}:</strong>
+                                    <span x-show="targetDomain" x-text="targetDomain"></span>
+                                    <span class="text-gray-500" x-show="!targetDomain">{{ __('seo-content-ai::filament.projects.idea_manager_distribution_pick_target') }}</span>
+                                </div>
+                                <div x-show="capacityLabel" x-cloak>
+                                    <strong>{{ __('seo-content-ai::filament.projects.idea_manager_distribution_capacity') }}:</strong>
+                                    <span x-text="capacityLabel"></span>
+                                </div>
+                                <div>
+                                    <strong>{{ __('seo-content-ai::filament.projects.idea_manager_distribution_selected') }}:</strong>
+                                    <span x-text="count"></span>
+                                    <span class="text-gray-400" x-show="count === 0"> — {{ __('seo-content-ai::filament.projects.idea_manager_distribution_pick_ideas') }}</span>
+                                </div>
+                                <div x-show="count > 0" x-cloak>
+                                    <span x-text="'{{ __('seo-content-ai::filament.projects.idea_manager_distribution_exact_count', ['count' => '__N__']) }}'.replace('__N__', String(exactCount))"></span>
+                                    ·
+                                    <span x-text="'{{ __('seo-content-ai::filament.projects.idea_manager_distribution_warn_count', ['count' => '__N__']) }}'.replace('__N__', String(warningCount))"></span>
+                                    ·
+                                    <span x-text="'{{ __('seo-content-ai::filament.projects.idea_manager_distribution_unknown_count', ['count' => '__N__']) }}'.replace('__N__', String(unknownCount))"></span>
+                                </div>
                             </div>
-                            <div x-show="capacityLabel" x-cloak>
-                                <strong>{{ __('seo-content-ai::filament.projects.idea_manager_distribution_capacity') }}:</strong>
-                                <span x-text="capacityLabel"></span>
+                            <div class="text-xs text-gray-500" x-show="checking" x-cloak>{{ __('seo-content-ai::filament.projects.idea_manager_distribution_checking') }}</div>
+                        </div>
+                        <div class="im-dist__scroll">
+                            <p class="im-dist__hint mb-1">{{ __('seo-content-ai::filament.projects.idea_manager_distribution_contract_hint') }}</p>
+                            <ul class="im-dist__preview" x-show="displayItems.length > 0" x-cloak>
+                                <template x-for="(it, i) in displayItems" :key="(it.warehouse_key || it.cluster_ref || 'item') + '-' + i">
+                                    <li :class="{ 'is-dup': it.exact_match, 'is-warn': it.warning && !it.exact_match }">
+                                        <div class="min-w-0 flex-1 space-y-0.5">
+                                            <div class="font-medium" x-text="it.name"></div>
+                                            <div class="im-dist__dup" x-show="it.exact_match" x-cloak>
+                                                <span>{{ __('seo-content-ai::filament.projects.idea_manager_distribution_exact_focus') }}</span>
+                                            </div>
+                                            <div class="im-dist__warn" x-show="it.warning && !it.exact_match && it.check_status !== 'unavailable'" x-cloak>
+                                                <span>{{ __('seo-content-ai::filament.projects.idea_manager_distribution_warn') }}</span>
+                                                <span x-show="it.similarity_score != null" x-text="'· ' + Number(it.similarity_score).toFixed(3)"></span>
+                                            </div>
+                                            <div class="text-[11px] text-amber-700 dark:text-amber-300" x-show="it.check_status === 'unavailable'" x-cloak>
+                                                {{ __('seo-content-ai::filament.projects.idea_manager_distribution_unknown_semantic') }}
+                                            </div>
+                                            <div class="text-[11px] text-gray-500" x-show="it.check_status === 'no_focus_keywords'" x-cloak>
+                                                {{ __('seo-content-ai::filament.projects.idea_manager_distribution_no_focus_keywords') }}
+                                            </div>
+                                            <div class="text-[11px] text-gray-500" x-show="it.check_status === 'analyzed' && !it.exact_match && !it.warning" x-cloak>
+                                                {{ __('seo-content-ai::filament.projects.idea_manager_distribution_no_match') }}
+                                            </div>
+                                            <div class="text-[11px] text-gray-600 dark:text-gray-300" x-show="it.focus_keyword" x-cloak>
+                                                <span>Focus Keyword: </span><strong x-text="it.focus_keyword"></strong>
+                                            </div>
+                                            <div class="text-[11px] text-gray-600 dark:text-gray-300 flex flex-wrap items-center gap-1.5" x-show="it.article_title" x-cloak>
+                                                <span>Article: <span x-text="it.article_title"></span></span>
+                                                <span class="im-pill" x-show="it.article_status_label" x-text="it.article_status_label"></span>
+                                                <a
+                                                    class="underline text-blue-600 dark:text-blue-400"
+                                                    x-show="it.article_edit_url"
+                                                    :href="it.article_edit_url"
+                                                    target="_blank"
+                                                    rel="noopener"
+                                                >{{ __('seo-content-ai::filament.projects.idea_manager_distribution_open_article') }}</a>
+                                            </div>
+                                        </div>
+                                        <button type="button" class="im-btn im-btn--ghost" x-on:click="untick(it.cluster_ref)">
+                                            {{ __('seo-content-ai::filament.projects.idea_manager_distribution_untick') }}
+                                        </button>
+                                    </li>
+                                </template>
+                            </ul>
+                        </div>
+                        <div class="im-dist__actions">
+                            <div class="im-dist__result" :class="{ 'is-error': result && !result.ok }" x-show="result" x-cloak>
+                                <span x-text="resultLabel()"></span>
+                                <template x-if="result && result.run_detail_url">
+                                    <a class="underline ml-2 font-semibold" :href="result.run_detail_url" target="_blank" rel="noopener">{{ __('seo-content-ai::filament.projects.idea_manager_distribution_view_run') }}</a>
+                                </template>
                             </div>
-                            <div>
-                                <strong>{{ __('seo-content-ai::filament.projects.idea_manager_distribution_selected') }}:</strong>
-                                <span x-text="count"></span>
-                                <span class="text-gray-400" x-show="count === 0"> — {{ __('seo-content-ai::filament.projects.idea_manager_distribution_pick_ideas') }}</span>
+                            <div class="text-xs text-blue-700 dark:text-blue-300 font-medium" x-show="generating" x-cloak>
+                                {{ __('seo-content-ai::filament.projects.idea_manager_distribution_generating') }}
                             </div>
-                            <div x-show="count > 0" x-cloak>
-                                <span x-text="'{{ __('seo-content-ai::filament.projects.idea_manager_distribution_warn_count', ['count' => '__N__']) }}'.replace('__N__', String(warningCount))"></span>
-                                ·
-                                <span x-text="'{{ __('seo-content-ai::filament.projects.idea_manager_distribution_exact_count', ['count' => '__N__']) }}'.replace('__N__', String(exactCount))"></span>
+                            <div class="text-xs text-amber-700 dark:text-amber-300 font-medium" x-show="reconciling" x-cloak>
+                                {{ __('seo-content-ai::filament.projects.idea_manager_distribution_reconciling') }}
+                            </div>
+                            <p class="im-dist__hint" x-show="!canDistributeNow() && !generating" x-cloak>
+                                {{ __('seo-content-ai::filament.projects.idea_manager_distribution_need_valid') }}
+                            </p>
+                            <div class="im-actions" style="width:100%">
+                                <button
+                                    type="button"
+                                    class="im-btn im-btn--ghost"
+                                    style="flex:1"
+                                    data-im-distribution-check="1"
+                                    :disabled="!canCheckNow()"
+                                    x-on:click="checkDuplicates()"
+                                >
+                                    {{ __('seo-content-ai::filament.projects.idea_manager_distribution_check_btn') }}
+                                </button>
+                                <button
+                                    type="button"
+                                    class="im-btn im-btn--primary"
+                                    style="flex:1.3"
+                                    data-im-distribution-confirm="1"
+                                    :disabled="!canDistributeNow()"
+                                    x-on:click="distributeWithAi()"
+                                >
+                                    {{ __('seo-content-ai::filament.projects.idea_manager_distribution_ai_btn') }}
+                                </button>
                             </div>
                         </div>
-                        <p class="im-dist__hint">{{ __('seo-content-ai::filament.projects.idea_manager_distribution_contract_hint') }}</p>
-                        <div class="text-xs text-gray-500" x-show="checking" x-cloak>{{ __('seo-content-ai::filament.projects.idea_manager_distribution_checking') }}</div>
-                        <ul class="im-dist__preview" x-show="displayItems.length > 0" x-cloak>
-                            <template x-for="(it, i) in displayItems" :key="it.cluster_ref || i">
-                                <li :class="{ 'is-dup': it.exact_match, 'is-warn': it.warning && !it.exact_match }">
-                                    <div class="min-w-0 flex-1">
-                                        <div x-text="it.name"></div>
-                                        <div class="im-dist__dup" x-show="it.exact_match" x-cloak>
-                                            <span>{{ __('seo-content-ai::filament.projects.idea_manager_distribution_exact') }}</span>
-                                            <span x-show="it.matched" x-text="'· ' + (it.matched || '')"></span>
-                                            <span x-show="it.matched_type" class="text-gray-400 font-normal" x-text="'[' + (it.matched_type || '') + ']'"></span>
-                                        </div>
-                                        <div class="im-dist__warn" x-show="it.warning && !it.exact_match && it.check_status !== 'unavailable'" x-cloak>
-                                            <span>{{ __('seo-content-ai::filament.projects.idea_manager_distribution_warn') }}</span>
-                                            <span x-show="it.similarity_score != null" x-text="'· score ' + Number(it.similarity_score).toFixed(3)"></span>
-                                            <span x-show="it.matched" x-text="'· ' + (it.matched || '')"></span>
-                                            <span x-show="it.matched_type" class="text-gray-400 font-normal" x-text="'[' + (it.matched_type || '') + ']'"></span>
-                                        </div>
-                                        <div class="text-[11px] text-amber-700 dark:text-amber-300" x-show="it.check_status === 'unavailable'" x-cloak>
-                                            {{ __('seo-content-ai::filament.projects.idea_manager_distribution_unknown') }}
-                                        </div>
-                                        <div class="text-[11px] text-gray-400" x-show="it.reason && it.check_status !== 'unavailable'" x-text="it.reason"></div>
-                                    </div>
-                                    <button type="button" class="im-btn im-btn--ghost" x-on:click="untick(it.cluster_ref)">
-                                        {{ __('seo-content-ai::filament.projects.idea_manager_distribution_untick') }}
-                                    </button>
-                                </li>
-                            </template>
-                        </ul>
-                        <div class="im-dist__result" :class="{ 'is-error': result && !result.ok }" x-show="result" x-cloak x-text="resultLabel()"></div>
-                        <p class="im-dist__hint" x-show="!canConfirmNow() && !confirming" x-cloak>
-                            {{ __('seo-content-ai::filament.projects.idea_manager_distribution_need_valid') }}
-                        </p>
-                        <button
-                            type="button"
-                            class="im-btn im-btn--primary"
-                            data-im-distribution-confirm="1"
-                            :disabled="!canConfirmNow()"
-                            x-on:click="confirm()"
-                        >
-                            {{ __('seo-content-ai::filament.projects.idea_manager_distribution_confirm') }}
-                        </button>
                     </div>
                 </div>
             </section>
@@ -634,42 +761,66 @@
                 analysisByRef: {},
                 warningCount: 0,
                 exactCount: 0,
+                unknownCount: 0,
                 checking: false,
+                generating: false,
+                reconciling: false,
                 confirming: false,
+                pendingRequestKey: '',
+                activeRunId: 0,
                 result: null,
                 _timer: null,
+                _pollTimer: null,
                 _reqSeq: 0,
 
                 get displayItems() {
                     // Selection is SSOT — analysis overlays evidence; never hide while checking.
-                    return (this.items || []).map((it) => {
+                    return (this.items || []).map((it, i) => {
                         const ref = it.cluster_ref;
+                        const wkey = it.warehouse_key || ((it.owner_site_id || it.source_site_id || 0) + ':' + (ref || i));
                         const name = it.name || it.cluster_name_snapshot || ref;
                         const ev = this.analysisByRef[ref] || {};
                         return {
+                            warehouse_key: wkey,
                             cluster_ref: ref,
                             name: name,
                             exact_match: !!ev.exact_match,
                             warning: !!ev.warning,
-                            check_status: ev.check_status || (this.checking ? 'pending' : 'analyzed'),
+                            check_status: ev.check_status || (this.checking ? 'pending' : 'unchecked'),
                             similarity_score: (ev.similarity_score !== undefined) ? ev.similarity_score : null,
                             matched: ev.matched || null,
                             matched_type: ev.matched_type || null,
+                            focus_keyword: ev.focus_keyword || null,
+                            article_id: ev.article_id || null,
+                            article_title: ev.article_title || null,
+                            article_status: ev.article_status || null,
+                            article_status_label: ev.article_status_label || null,
+                            article_edit_url: ev.article_edit_url || null,
                             reason: ev.reason || null,
                         };
                     });
                 },
 
-                init() {
-                    if (this.count > 0 && this.targetSiteId > 0) {
-                        this.schedulePreview();
-                    }
+                init() {},
+
+                canCheckNow() {
+                    return this.targetSiteId > 0
+                        && this.items.length > 0
+                        && !this.checking
+                        && !this.generating
+                        && !this.reconciling;
+                },
+
+                canDistributeNow() {
+                    return this.targetSiteId > 0
+                        && this.items.length > 0
+                        && !this.generating
+                        && !this.reconciling
+                        && !this.confirming;
                 },
 
                 canConfirmNow() {
-                    return this.targetSiteId > 0
-                        && this.items.length > 0
-                        && !this.confirming;
+                    return this.canDistributeNow();
                 },
 
                 onSelection(detail) {
@@ -677,7 +828,8 @@
                     this.count = Number(d.count || 0);
                     this.items = Array.isArray(d.items) ? d.items : [];
                     this.result = null;
-                    // Drop analysis for removed refs; keep others until refresh.
+                    this.pendingRequestKey = '';
+                    // Invalidate stale check results for removed refs; keep others until user re-checks.
                     const keep = {};
                     for (const it of this.items) {
                         if (this.analysisByRef[it.cluster_ref]) {
@@ -686,7 +838,6 @@
                     }
                     this.analysisByRef = keep;
                     this.recomputeCounts();
-                    this.schedulePreview();
                 },
 
                 onTargetChanged(detail) {
@@ -697,11 +848,12 @@
                     this.targetSiteId = Number(raw || 0);
                     if (d.domain) this.targetDomain = String(d.domain);
                     this.result = null;
-                    // Invalidate analysis only — keep selected items visible.
+                    this.pendingRequestKey = '';
+                    // Invalidate stale check results — keep selected items intact.
                     this.analysisByRef = {};
                     this.warningCount = 0;
                     this.exactCount = 0;
-                    this.schedulePreview();
+                    this.unknownCount = 0;
                 },
 
                 onActiveMonthChanged(detail) {
@@ -713,17 +865,19 @@
                             this.activeMonthLabel = parts[1] + '/' + parts[0];
                         }
                     }
-                    this.schedulePreview();
+                    this.pendingRequestKey = '';
                 },
 
                 recomputeCounts() {
-                    let w = 0, e = 0;
+                    let w = 0, e = 0, u = 0;
                     for (const it of this.displayItems) {
                         if (it.exact_match) e += 1;
                         else if (it.warning) w += 1;
+                        else if (it.check_status === 'unavailable') u += 1;
                     }
                     this.warningCount = w;
                     this.exactCount = e;
+                    this.unknownCount = u;
                 },
 
                 schedulePreview() {
@@ -779,6 +933,12 @@
                                 similarity_score: (row.similarity_score !== undefined) ? row.similarity_score : null,
                                 matched: row.matched || null,
                                 matched_type: row.matched_type || null,
+                                focus_keyword: row.focus_keyword || null,
+                                article_id: row.article_id || null,
+                                article_title: row.article_title || null,
+                                article_status: row.article_status || null,
+                                article_status_label: row.article_status_label || null,
+                                article_edit_url: row.article_edit_url || null,
                                 reason: row.reason || null,
                             };
                         }
@@ -810,55 +970,135 @@
                     window.dispatchEvent(new CustomEvent('im-untick', { detail: { cluster_ref: ref } }));
                 },
 
-                async confirm() {
-                    if (!this.canConfirmNow()) {
-                        this.result = {
-                            ok: false,
-                            distributed: 0,
-                            already_present: 0,
-                            failed: 0,
-                            duplicate: 0,
-                            message: 'confirm_not_eligible',
-                        };
-                        return;
+                async checkDuplicates() {
+                    return this.refreshPreview();
+                },
+
+                async distributeWithAi() {
+                    if (!this.canDistributeNow()) return;
+                    const confirmTpl = @js(__('seo-content-ai::filament.projects.idea_manager_distribution_ai_confirm'));
+                    const msg = String(confirmTpl)
+                        .replace(':count', String(this.items.length))
+                        .replace(':domain', String(this.targetDomain || ('#' + this.targetSiteId)))
+                        .replace(':month', String(this.activeMonthLabel || ''));
+                    if (!window.confirm(msg)) return;
+
+                    if (!this.pendingRequestKey) {
+                        this.pendingRequestKey = (window.crypto && typeof window.crypto.randomUUID === 'function')
+                            ? window.crypto.randomUUID()
+                            : ('req-' + Date.now() + '-' + Math.random().toString(36).slice(2));
                     }
+
+                    this.generating = true;
                     this.confirming = true;
                     this.result = null;
                     try {
-                        const res = await this.$wire.confirmDistribution(this.items);
-                        this.result = res || { ok: false, message: 'empty_response' };
-                        // Copy, never consume: keep selection + warehouse; only refresh dest advisory.
-                        // Source Ideas are not deleted/hidden by Confirm (server: source_unchanged).
-                        await this.refreshPreview();
+                        const res = await this.$wire.distributeWithAi(this.items, this.pendingRequestKey);
+                        if (!res || !res.ok || !res.planner_run_id) {
+                            this.result = {
+                                ok: false,
+                                status: 'failed',
+                                message: (res && res.message) ? res.message : 'AI generation failed',
+                                run_detail_url: (res && res.run_detail_url) || null,
+                            };
+                            this.generating = false;
+                            this.confirming = false;
+                            return;
+                        }
+                        this.activeRunId = Number(res.planner_run_id);
+                        this.startRunPolling(this.activeRunId);
                     } catch (e) {
-                        this.result = {
-                            ok: false,
-                            distributed: 0,
-                            already_present: 0,
-                            failed: this.items.length,
-                            duplicate: 0,
-                            message: 'request_failed',
-                        };
+                        // Network timeout / disconnect: reconcile with server before allowing retry.
+                        await this.reconcileAfterTimeout();
+                    }
+                },
+
+                startRunPolling(runId) {
+                    if (this._pollTimer) clearTimeout(this._pollTimer);
+                    const tick = async () => {
+                        try {
+                            const poll = await this.$wire.pollDistributionRun(runId);
+                            if (poll && poll.terminal) {
+                                this.generating = false;
+                                this.confirming = false;
+                                this.pendingRequestKey = '';
+                                this.result = {
+                                    ok: !!poll.ok,
+                                    status: poll.status,
+                                    added: Number(poll.added || 0),
+                                    duplicate_skipped: Number(poll.duplicate_skipped || 0),
+                                    message: poll.error || '',
+                                    run_detail_url: poll.run_detail_url || null,
+                                };
+                                return;
+                            }
+                        } catch (_e) {}
+                        this._pollTimer = setTimeout(tick, 2500);
+                    };
+                    this._pollTimer = setTimeout(tick, 1500);
+                },
+
+                async reconcileAfterTimeout() {
+                    this.reconciling = true;
+                    try {
+                        const run = await this.$wire.reconcileDistributionRun(this.targetSiteId);
+                        if (run && run.found && !run.terminal) {
+                            this.activeRunId = Number(run.planner_run_id || 0);
+                            this.reconciling = false;
+                            if (this.activeRunId > 0) {
+                                this.startRunPolling(this.activeRunId);
+                                return;
+                            }
+                        }
+                        if (run && run.found && run.terminal) {
+                            this.result = {
+                                ok: !!run.ok,
+                                status: run.status,
+                                added: Number(run.added || 0),
+                                duplicate_skipped: Number(run.duplicate_skipped || 0),
+                                message: run.error || '',
+                                run_detail_url: run.run_detail_url || null,
+                            };
+                            this.pendingRequestKey = '';
+                        } else {
+                            this.result = {
+                                ok: false,
+                                status: 'failed',
+                                message: 'Request timed out',
+                            };
+                        }
+                    } catch (_e) {
+                        this.result = { ok: false, status: 'failed', message: 'Reconcile failed' };
                     } finally {
+                        this.reconciling = false;
+                        this.generating = false;
                         this.confirming = false;
                     }
                 },
 
+                async confirm() {
+                    return this.distributeWithAi();
+                },
+
                 resultLabel() {
                     if (!this.result) return '';
-                    const tpl = @js(__('seo-content-ai::filament.projects.idea_manager_distribution_success'));
-                    return String(tpl)
-                        .replace(':ok', String(this.result.distributed || 0))
-                        .replace(':already', String(this.result.already_present || 0))
-                        .replace(':failed', String(this.result.failed || 0))
-                        .replace(':dup', String(this.result.duplicate || 0));
+                    if (!this.result.ok) {
+                        const failTpl = @js(__('seo-content-ai::filament.projects.idea_manager_distribution_ai_failed'));
+                        return String(failTpl).replace(':error', String(this.result.message || 'error'));
+                    }
+                    const okTpl = @js(__('seo-content-ai::filament.projects.idea_manager_distribution_ai_success'));
+                    return String(okTpl)
+                        .replace(':added', String(this.result.added || 0))
+                        .replace(':skipped', String(this.result.duplicate_skipped || 0));
                 },
             };
         }
 
         function ideaManagerRoot(cfg) {
+            const IM_GLOBAL_DRAFT = 'seoOps:idea-manager:draft:v2:global';
             const IM_PREFIX = 'seoOps:idea-manager:draft:v1:site:';
             const AUDIT_PREFIX = 'seoOps:content-planner:audit-notes:v2:site:';
+            const INTAKE_PING = 'seoOps:idea-manager:intake-ping';
             const DEBOUNCE_MS = 3000;
             const MAX_SYNC_MS = 30000;
 
@@ -872,12 +1112,15 @@
                 labels: cfg.labels || {},
                 items: [],
                 baseRevision: 0,
-                serverMeta: { revision: 0, updated_at: null, item_count: 0, note_items: [] },
+                siteRevisions: {},
+                dirtyOwners: {},
+                serverMeta: { revision: 0, updated_at: null, item_count: 0, note_items: [], sites: {} },
                 dirty: false,
                 editGeneration: 0,
                 syncStatus: 'synced',
                 conflict: false,
                 conflictBannerOpen: false,
+                conflictSiteId: 0,
                 search: '',
                 manualDraft: '',
                 dnaDrafts: {},
@@ -899,9 +1142,97 @@
                 inflightGeneration: 0,
                 lastSyncAttemptAt: 0,
                 _forceOverwrite: false,
+                _forceOverwriteSiteId: 0,
+
+                // Temporary runtime diagnostics (?idea_debug=1, manager+). Read-only.
+                debugEnabled: !!cfg.debugEnabled,
+                debugProbeNeedle: String(cfg.probeNeedle || ''),
+                debugLivewireCount: Number((cfg.server && cfg.server.item_count) || ((cfg.server && cfg.server.note_items) || []).length || 0),
+                debugSeq: 0,
+                debugLastEvent: '',
+                debugLastAt: 0,
+                debugHydrationError: '',
+                debugEvents: [],
 
                 init() {
-                    this.bootstrapFromServer(cfg.server);
+                    try {
+                        this.bootstrapFromServer(cfg.server);
+                    } catch (e) {
+                        this.debugHydrationError = 'init_bootstrap:' + String((e && e.message) || e || 'error');
+                    }
+                    // Livewire re-fetch: first-paint snapshot alone must not be the only source of truth.
+                    queueMicrotask(() => this.softReloadGlobal());
+                    const onVis = () => {
+                        if (document.visibilityState === 'visible') this.softReloadGlobal();
+                    };
+                    const onFocus = () => this.softReloadGlobal();
+                    const onStorage = (e) => {
+                        if (e && e.key === INTAKE_PING) this.softReloadGlobal();
+                    };
+                    window.addEventListener('focus', onFocus);
+                    document.addEventListener('visibilitychange', onVis);
+                    window.addEventListener('storage', onStorage);
+                },
+
+                itemKey(it) {
+                    if (!it) return '';
+                    if (it.warehouse_key) return String(it.warehouse_key);
+                    const owner = Number(it.owner_site_id || it.source_site_id || 0);
+                    return owner + ':' + String(it.cluster_ref || '');
+                },
+
+                ownerOf(it) {
+                    return Number((it && (it.owner_site_id || it.source_site_id)) || this.siteId || 0);
+                },
+
+                /** Bounded mutation trace — counts/owner only; never Idea text or draft JSON. */
+                traceWorkingSetReplace(name, before, after, source, owner) {
+                    this.debugSeq += 1;
+                    this.debugLastEvent = String(name || '');
+                    this.debugLastAt = Date.now();
+                    if (!this.debugEnabled) return;
+                    const row = {
+                        seq: this.debugSeq,
+                        name: String(name || ''),
+                        before: Number(before || 0),
+                        after: Number(after || 0),
+                        source: String(source || ''),
+                        owner: owner ? Number(owner) : 0,
+                    };
+                    this.debugEvents = [...(this.debugEvents || []), row].slice(-20);
+                },
+
+                setWorkingItems(next, name, source, owner) {
+                    const before = Array.isArray(this.items) ? this.items.length : 0;
+                    const list = Array.isArray(next) ? next : [];
+                    this.items = list;
+                    this.traceWorkingSetReplace(name, before, list.length, source, owner);
+                },
+
+                debugServerCount() {
+                    return Array.isArray(this.serverMeta?.note_items) ? this.serverMeta.note_items.length : 0;
+                },
+
+                debugDirtyOwnerIds() {
+                    const ids = Object.keys(this.dirtyOwners || {}).filter((k) => this.dirtyOwners[k]);
+                    return ids.length ? ids.join(',') : '—';
+                },
+
+                debugSiteRevisions() {
+                    const parts = [];
+                    for (const sid of Object.keys(this.siteRevisions || {})) {
+                        parts.push(sid + ':' + Number(this.siteRevisions[sid]?.revision || 0));
+                    }
+                    return parts.length ? parts.join(',') : '—';
+                },
+
+                probePresentIn(list) {
+                    const needle = this.normalizeKey(this.debugProbeNeedle || '');
+                    if (!needle || !Array.isArray(list)) return false;
+                    return list.some((it) => {
+                        const name = this.normalizeKey((it && (it.cluster_name_snapshot || it.seed_text)) || '');
+                        return name === needle;
+                    });
                 },
 
                 onClusterRows(detail) {
@@ -920,94 +1251,320 @@
                 },
 
                 ideaProvenanceDomain(item) {
-                    const stamped = String((item && item.source_domain) || '').trim();
+                    const stamped = String((item && (item.source_domain || item.owner_domain)) || '').trim();
                     if (stamped) return stamped;
-                    // Legacy items without provenance: warehouse ownership domain (stable across source filter).
                     return this.siteDomain || ('#' + this.siteId);
                 },
 
-                // Global Domain / working warehouse ownership change only.
+                // Default seed-owner change only — Kho Idea stays global (no single-site remount).
                 onSiteChanged(nextId) {
                     const id = Number(nextId || 0);
-                    if (this.siteId > 0 && this.dirty) this.persistDraft();
+                    if (this.dirty) this.persistDraft();
                     this.siteId = id;
-                    this.conflict = false;
                     this.importPreview = null;
                     this.bulkPreview = null;
                     this.legacyScan = null;
                     this.legacyDismissed = false;
-                    this.selected = {};
-                    this.emitSelection();
                     if (id <= 0) {
-                        this.items = [];
-                        this.baseRevision = 0;
-                        this.dirty = false;
-                        this.syncStatus = 'synced';
+                        this.siteDomain = '';
                         return;
                     }
                     this.$wire.loadIdeaWorkspace(id).then((snap) => {
                         this.siteDomain = String((snap && snap.domain) || '');
-                        this.bootstrapFromServer(snap);
+                        if (!this.dirty) {
+                            this.bootstrapFromServer(snap);
+                        } else {
+                            this.applyServerSiteMeta(snap);
+                            this.detectRevisionConflicts();
+                        }
                     });
                 },
 
-                bootstrapFromServer(snap) {
-                    const server = snap && typeof snap === 'object' ? snap : {
-                        revision: 0, note_items: [], updated_at: null, item_count: 0
-                    };
+                applyServerSiteMeta(server) {
+                    const sites = (server && server.sites && typeof server.sites === 'object') ? server.sites : {};
+                    this.siteRevisions = {};
+                    for (const key of Object.keys(sites)) {
+                        const row = sites[key] || {};
+                        this.siteRevisions[String(key)] = {
+                            revision: Number(row.revision || 0),
+                            domain: String(row.domain || ''),
+                            item_count: Number(row.item_count || 0),
+                            updated_at: row.updated_at || null,
+                        };
+                    }
                     this.serverMeta = {
-                        revision: Number(server.revision || 0),
+                        revision: 0,
                         updated_at: server.updated_at || null,
                         item_count: Number(server.item_count || (server.note_items || []).length || 0),
                         note_items: Array.isArray(server.note_items) ? server.note_items : [],
+                        sites,
+                        global: true,
                     };
-                    const draft = this.readDraft(this.siteId);
-                    if (draft && draft.dirty) {
-                        this.items = Array.isArray(draft.note_items) ? draft.note_items : [];
-                        this.baseRevision = Number(draft.base_revision || 0);
-                        this.editGeneration = Number(draft.edit_generation || 0);
-                        this.dirty = true;
-                        this.syncStatus = 'editing';
-                        if (this.baseRevision !== this.serverMeta.revision) {
-                            this.conflict = true;
-                            this.conflictBannerOpen = true;
-                        } else {
-                            this.scheduleSave(false);
+                },
+
+                detectRevisionConflicts() {
+                    const local = this.readGlobalDraft();
+                    const localRevs = (local && local.site_revisions) ? local.site_revisions : {};
+                    let conflict = false;
+                    for (const sid of Object.keys(this.dirtyOwners || {})) {
+                        const localRev = Number(localRevs[sid] ?? this.siteRevisions[sid]?.revision ?? 0);
+                        const serverRev = Number(this.siteRevisions[sid]?.revision ?? 0);
+                        if (localRev !== serverRev) {
+                            conflict = true;
+                            this.conflictSiteId = Number(sid);
+                            break;
                         }
-                        this.scanLegacyAudit();
-                        return;
                     }
-                    this.items = Array.isArray(this.serverMeta.note_items) ? structuredClone(this.serverMeta.note_items) : [];
-                    this.baseRevision = this.serverMeta.revision;
-                    this.dirty = false;
-                    this.syncStatus = 'synced';
-                    this.writeDraft({ dirty: false });
-                    this.scanLegacyAudit();
+                    // Also compare any local draft revision map against server when dirty.
+                    if (!conflict && this.dirty) {
+                        for (const sid of Object.keys(localRevs)) {
+                            const serverRev = this.siteRevisions[sid];
+                            if (!serverRev) continue;
+                            if (Number(localRevs[sid]) !== Number(serverRev.revision || 0)) {
+                                conflict = true;
+                                this.conflictSiteId = Number(sid);
+                                break;
+                            }
+                        }
+                    }
+                    this.conflict = conflict;
+                    this.conflictBannerOpen = conflict;
+                    return conflict;
+                },
+
+                unwrapReactive(value) {
+                    let cur = value;
+                    for (let i = 0; i < 4; i++) {
+                        if (!cur || typeof cur !== 'object') break;
+                        const next = (window.Alpine && typeof window.Alpine.raw === 'function')
+                            ? window.Alpine.raw(cur)
+                            : cur;
+                        if (!next || next === cur) break;
+                        cur = next;
+                    }
+                    return cur;
+                },
+
+                toPlainCloneable(value, seen = null) {
+                    const raw = this.unwrapReactive(value);
+                    if (raw === null || typeof raw !== 'object') {
+                        return (typeof raw === 'function' || typeof raw === 'symbol') ? undefined : raw;
+                    }
+                    if (raw instanceof Date) return new Date(raw.getTime());
+                    if (raw instanceof RegExp) return new RegExp(raw.source, raw.flags);
+                    const visited = seen || new WeakSet();
+                    if (visited.has(raw)) return undefined;
+                    visited.add(raw);
+                    try {
+                        if (Array.isArray(raw)) {
+                            const arr = [];
+                            for (let i = 0; i < raw.length; i++) {
+                                const el = this.toPlainCloneable(raw[i], visited);
+                                arr.push(el === undefined ? null : el);
+                            }
+                            return arr;
+                        }
+                        const out = {};
+                        for (const key of Object.keys(raw)) {
+                            const v = raw[key];
+                            if (typeof v === 'function' || typeof v === 'symbol') continue;
+                            out[key] = this.toPlainCloneable(v, visited);
+                        }
+                        return out;
+                    } finally {
+                        visited.delete(raw);
+                    }
+                },
+
+                clonePlainItem(item) {
+                    if (!item || typeof item !== 'object') return null;
+                    const plain = this.toPlainCloneable(item);
+                    if (!plain || typeof plain !== 'object' || Array.isArray(plain)) return null;
+                    return typeof structuredClone === 'function' ? structuredClone(plain) : plain;
+                },
+
+                clonePlainItems(list) {
+                    const rawList = this.unwrapReactive(list);
+                    if (!Array.isArray(rawList)) return [];
+                    const out = [];
+                    for (let i = 0; i < rawList.length; i++) {
+                        try {
+                            const cloned = this.clonePlainItem(rawList[i]);
+                            if (cloned) out.push(cloned);
+                        } catch (_e) {
+                            // Isolate malformed item so valid warehouse Ideas still hydrate.
+                        }
+                    }
+                    return out;
+                },
+
+                /**
+                 * Local-first for dirty owners; always keep server Ideas from clean owners.
+                 * Prevents a site-1 dirty draft from hiding site-4 warehouse Ideas.
+                 */
+                reconcileGlobalWorkingSet(serverItems, draftItems, dirtyOwners) {
+                    const server = Array.isArray(serverItems) ? serverItems : [];
+                    const draft = Array.isArray(draftItems) ? draftItems : [];
+                    const dirty = {};
+                    if (dirtyOwners && typeof dirtyOwners === 'object') {
+                        for (const k of Object.keys(dirtyOwners)) {
+                            if (dirtyOwners[k]) {
+                                const sid = String(Number(k) || 0);
+                                if (sid !== '0') dirty[sid] = true;
+                            }
+                        }
+                    }
+                    const partition = (list) => {
+                        const out = {};
+                        for (const it of list) {
+                            if (!it || typeof it !== 'object') continue;
+                            const owner = String(this.ownerOf(it) || 0);
+                            if (owner === '0') continue;
+                            if (!out[owner]) out[owner] = [];
+                            out[owner].push(it);
+                        }
+                        return out;
+                    };
+                    if (Object.keys(dirty).length === 0) {
+                        const seen = {};
+                        const out = [];
+                        for (const it of draft) {
+                            if (!it || typeof it !== 'object') continue;
+                            const key = this.itemKey(it);
+                            seen[key] = true;
+                            out.push(it);
+                        }
+                        for (const it of server) {
+                            if (!it || typeof it !== 'object') continue;
+                            const key = this.itemKey(it);
+                            if (seen[key]) continue;
+                            out.push(it);
+                        }
+                        return out;
+                    }
+                    const serverBy = partition(server);
+                    const draftBy = partition(draft);
+                    const owners = Array.from(new Set([
+                        ...Object.keys(serverBy),
+                        ...Object.keys(draftBy),
+                    ])).sort();
+                    const out = [];
+                    for (const sid of owners) {
+                        const rows = dirty[sid] ? (draftBy[sid] || []) : (serverBy[sid] || []);
+                        for (const it of rows) out.push(it);
+                    }
+                    return out;
+                },
+
+                bootstrapFromServer(snap) {
+                    try {
+                        const server = snap && typeof snap === 'object' ? snap : {
+                            revision: 0, note_items: [], updated_at: null, item_count: 0, sites: {}
+                        };
+                        this.applyServerSiteMeta(server);
+                        this.debugLivewireCount = Array.isArray(this.serverMeta.note_items)
+                            ? this.serverMeta.note_items.length
+                            : Number(server.item_count || 0);
+                        const serverItems = this.clonePlainItems(
+                            Array.isArray(server.note_items) ? server.note_items : this.serverMeta.note_items
+                        );
+                        const draft = this.readGlobalDraft();
+                        if (draft && draft.dirty) {
+                            const draftItems = this.clonePlainItems(draft.note_items);
+                            this.dirtyOwners = (draft.dirty_owners && typeof draft.dirty_owners === 'object')
+                                ? { ...draft.dirty_owners }
+                                : {};
+                            // NEVER replace the global warehouse with a single-site dirty draft.
+                            const merged = this.reconcileGlobalWorkingSet(serverItems, draftItems, this.dirtyOwners);
+                            this.setWorkingItems(merged, 'bootstrap_dirty_reconcile', 'draft+server', this.siteId);
+                            this.editGeneration = Number(draft.edit_generation || 0);
+                            this.dirty = true;
+                            this.syncStatus = 'editing';
+                            this.baseRevision = 0;
+                            this.debugHydrationError = '';
+                            this.persistDraft();
+                            if (this.detectRevisionConflicts()) {
+                                // Stale local vs server (e.g. Editor intake advanced revision) — never autosave.
+                            } else {
+                                this.scheduleSave(false);
+                            }
+                            this.scanLegacyAudit();
+                            return;
+                        }
+                        this.setWorkingItems(serverItems, 'bootstrap_server', 'server', this.siteId);
+                        this.baseRevision = 0;
+                        this.dirty = false;
+                        this.dirtyOwners = {};
+                        this.conflict = false;
+                        this.conflictBannerOpen = false;
+                        this.syncStatus = 'synced';
+                        this.debugHydrationError = '';
+                        this.writeGlobalDraft({ dirty: false });
+                        this.scanLegacyAudit();
+                    } catch (e) {
+                        this.debugHydrationError = 'bootstrap:' + String((e && e.message) || e || 'error');
+                    }
+                },
+
+                softReloadGlobal() {
+                    if (this.inflight) return;
+                    this.$wire.loadGlobalIdeaWarehouse().then((snap) => {
+                        if (this.inflight) return;
+                        // Clean tab: adopt server warehouse (shows Editor intake immediately).
+                        if (!this.dirty && !this.conflict) {
+                            this.bootstrapFromServer(snap);
+                            return;
+                        }
+                        // Dirty tab: merge clean-owner server Ideas; never silent-overwrite dirty owners.
+                        try {
+                            this.applyServerSiteMeta(snap);
+                            this.debugLivewireCount = Array.isArray(this.serverMeta.note_items)
+                                ? this.serverMeta.note_items.length
+                                : Number((snap && snap.item_count) || 0);
+                            const serverItems = this.clonePlainItems(
+                                Array.isArray(snap && snap.note_items) ? snap.note_items : this.serverMeta.note_items
+                            );
+                            const draftItems = this.clonePlainItems(this.items);
+                            const merged = this.reconcileGlobalWorkingSet(serverItems, draftItems, this.dirtyOwners);
+                            this.setWorkingItems(merged, 'soft_reload_dirty_merge', 'livewire+local', this.siteId);
+                            this.debugHydrationError = '';
+                            this.persistDraft();
+                            this.detectRevisionConflicts();
+                        } catch (e) {
+                            this.debugHydrationError = 'soft_reload:' + String((e && e.message) || e || 'error');
+                        }
+                    }).catch((e) => {
+                        this.debugHydrationError = 'soft_reload_wire:' + String((e && e.message) || e || 'error');
+                    });
                 },
 
                 draftKey(siteId) { return IM_PREFIX + String(siteId || 0); },
                 auditKey(siteId) { return AUDIT_PREFIX + String(siteId || 0); },
 
-                readDraft(siteId) {
+                readGlobalDraft() {
                     try {
-                        const raw = localStorage.getItem(this.draftKey(siteId));
+                        const raw = localStorage.getItem(IM_GLOBAL_DRAFT);
                         if (!raw) return null;
                         const parsed = JSON.parse(raw);
-                        if (!parsed || Number(parsed.site_id) !== Number(siteId)) return null;
+                        if (!parsed || Number(parsed.v) !== 2) return null;
                         return parsed;
                     } catch (e) { return null; }
                 },
 
-                writeDraft(extra = {}) {
-                    if (this.siteId <= 0) return;
+                writeGlobalDraft(extra = {}) {
                     try {
-                        localStorage.setItem(this.draftKey(this.siteId), JSON.stringify({
-                            v: 1,
-                            site_id: this.siteId,
-                            base_revision: this.baseRevision,
+                        const site_revisions = {};
+                        for (const sid of Object.keys(this.siteRevisions || {})) {
+                            site_revisions[sid] = Number(this.siteRevisions[sid]?.revision || 0);
+                        }
+                        localStorage.setItem(IM_GLOBAL_DRAFT, JSON.stringify({
+                            v: 2,
                             note_items: this.items,
                             dirty: this.dirty,
+                            dirty_owners: this.dirtyOwners,
+                            site_revisions,
                             edit_generation: this.editGeneration,
+                            default_owner_site_id: this.siteId,
                             updated_at_ms: Date.now(),
                             last_sync_attempt_at_ms: this.lastSyncAttemptAt,
                             last_sync_error: this.syncStatus === 'unsynced_error' ? 'error' : null,
@@ -1016,12 +1573,21 @@
                     } catch (e) {}
                 },
 
-                persistDraft() { this.writeDraft(); },
+                persistDraft() { this.writeGlobalDraft(); },
 
-                markDirty() {
+                markDirty(ownerSiteId = null) {
                     this.editGeneration += 1;
                     this.dirty = true;
                     this.syncStatus = 'editing';
+                    const oid = Number(ownerSiteId || 0);
+                    if (oid > 0) {
+                        this.dirtyOwners[String(oid)] = true;
+                    } else {
+                        for (const it of this.items) {
+                            const o = this.ownerOf(it);
+                            if (o > 0) this.dirtyOwners[String(o)] = true;
+                        }
+                    }
                     this.persistDraft();
                     this.scheduleSave(false);
                 },
@@ -1038,8 +1604,24 @@
                     }
                 },
 
+                partitionByOwner() {
+                    const out = {};
+                    for (const it of this.items) {
+                        const owner = this.ownerOf(it);
+                        if (owner <= 0) continue;
+                        const clean = this.clonePlainItem(it);
+                        if (!clean) continue;
+                        const key = String(owner);
+                        if (!out[key]) out[key] = [];
+                        // Keep owner_site_id for server-side reject of cross-owner rows; server strips warehouse keys.
+                        clean.owner_site_id = owner;
+                        out[key].push(clean);
+                    }
+                    return out;
+                },
+
                 async flushSave() {
-                    if (!this.dirty || this.siteId <= 0) return;
+                    if (!this.dirty) return;
                     if (this.inflight) {
                         this.pendingResave = true;
                         return;
@@ -1047,10 +1629,20 @@
                     if (this.conflict && !this._forceOverwrite) return;
 
                     const genAtSend = this.editGeneration;
-                    const expected = this._forceOverwrite
-                        ? this.serverMeta.revision
-                        : this.baseRevision;
-                    const payload = structuredClone(this.items);
+                    const partitions = this.partitionByOwner();
+                    let owners = Object.keys(this.dirtyOwners || {}).filter((sid) => partitions[sid]);
+                    if (this._forceOverwrite && this._forceOverwriteSiteId > 0) {
+                        owners = [String(this._forceOverwriteSiteId)];
+                    } else if (owners.length === 0) {
+                        owners = Object.keys(partitions);
+                    }
+                    if (owners.length === 0) {
+                        this.dirty = false;
+                        this.syncStatus = 'synced';
+                        this.persistDraft();
+                        return;
+                    }
+
                     this.inflight = true;
                     this.inflightGeneration = genAtSend;
                     this.syncStatus = 'saving';
@@ -1058,16 +1650,73 @@
                     this.persistDraft();
 
                     try {
-                        const result = await this.$wire.saveIdeaWorkspace(this.siteId, payload, expected);
-                        this.handleSaveResult(result, genAtSend);
+                        for (const sid of owners) {
+                            const siteId = Number(sid);
+                            const payload = partitions[sid] || [];
+                            const meta = this.siteRevisions[sid] || { revision: 0 };
+                            const serverRev = Number(
+                                (this.serverMeta.sites && this.serverMeta.sites[sid]
+                                    ? this.serverMeta.sites[sid].revision
+                                    : meta.revision) || 0
+                            );
+                            const expected = (this._forceOverwrite && Number(this._forceOverwriteSiteId) === siteId)
+                                ? serverRev
+                                : Number(meta.revision || 0);
+                            const result = await this.$wire.saveIdeaWorkspace(siteId, payload, expected);
+                            const status = result?.status || 'error';
+                            if (status === 'conflict') {
+                                this.conflictSiteId = siteId;
+                                if (result.sites) this.applyServerSiteMeta(result);
+                                else {
+                                    this.siteRevisions[sid] = {
+                                        revision: Number(result.revision || 0),
+                                        domain: String(result.domain || this.siteRevisions[sid]?.domain || ''),
+                                        item_count: Number(result.item_count || 0),
+                                        updated_at: result.updated_at || null,
+                                    };
+                                    this.serverMeta.revision = Number(result.revision || 0);
+                                    this.serverMeta.item_count = Number(result.item_count || 0);
+                                    this.serverMeta.updated_at = result.updated_at || null;
+                                }
+                                this.conflict = true;
+                                this.conflictBannerOpen = true;
+                                this.dirty = true;
+                                this.syncStatus = 'unsynced_error';
+                                this.persistDraft();
+                                return;
+                            }
+                            if (status !== 'ok' && status !== 'noop') {
+                                this.syncStatus = 'unsynced_error';
+                                this.dirty = true;
+                                this.persistDraft();
+                                return;
+                            }
+                            this.siteRevisions[sid] = {
+                                revision: Number(result.revision || meta.revision || 0),
+                                domain: String(this.siteRevisions[sid]?.domain || ''),
+                                item_count: Number(result.item_count || payload.length),
+                                updated_at: result.updated_at || null,
+                            };
+                            delete this.dirtyOwners[sid];
+                        }
+                        const newer = this.editGeneration > genAtSend;
+                        if (!newer && Object.keys(this.dirtyOwners).length === 0) {
+                            this.dirty = false;
+                            this.syncStatus = 'synced';
+                        } else {
+                            this.dirty = true;
+                            this.syncStatus = 'editing';
+                        }
+                        this.persistDraft();
                     } catch (e) {
                         this.syncStatus = 'unsynced_error';
                         this.persistDraft();
                     } finally {
                         this.inflight = false;
                         this._forceOverwrite = false;
+                        this._forceOverwriteSiteId = 0;
                         if (this.maxSyncTimer) { clearTimeout(this.maxSyncTimer); this.maxSyncTimer = null; }
-                        if (this.pendingResave || (this.dirty && this.editGeneration > genAtSend)) {
+                        if (this.pendingResave || (this.dirty && this.editGeneration > genAtSend && !this.conflict)) {
                             this.pendingResave = false;
                             this.scheduleSave(false);
                         }
@@ -1075,17 +1724,10 @@
                 },
 
                 handleSaveResult(result, genAtSend) {
+                    // Legacy single-site path kept for conflict banner helpers; flushSave handles multi-owner.
                     const status = result?.status || 'error';
                     const newer = this.editGeneration > genAtSend;
-
                     if (status === 'conflict') {
-                        this.serverMeta = {
-                            revision: Number(result.revision || 0),
-                            updated_at: result.updated_at || null,
-                            item_count: Number(result.item_count || (result.note_items || []).length || 0),
-                            note_items: Array.isArray(result.note_items) ? result.note_items : [],
-                        };
-                        // Never overwrite newer working set with conflict body.
                         this.conflict = true;
                         this.conflictBannerOpen = true;
                         this.dirty = true;
@@ -1093,13 +1735,7 @@
                         this.persistDraft();
                         return;
                     }
-
                     if (status === 'ok' || status === 'noop') {
-                        const newRev = Number(result.revision || this.baseRevision);
-                        this.baseRevision = newRev;
-                        this.serverMeta.revision = newRev;
-                        this.serverMeta.updated_at = result.updated_at || this.serverMeta.updated_at;
-                        this.serverMeta.item_count = Number(result.item_count || this.items.length);
                         if (!newer) {
                             this.dirty = false;
                             this.syncStatus = 'synced';
@@ -1110,7 +1746,6 @@
                         this.persistDraft();
                         return;
                     }
-
                     this.syncStatus = 'unsynced_error';
                     this.dirty = true;
                     this.persistDraft();
@@ -1133,6 +1768,7 @@
                 filteredItems() {
                     const q = (this.search || '').trim().toLowerCase();
                     const src = this.sourceTypeFilter || 'all';
+                    // Global warehouse: search is independent of sourceFilterSiteId / destination.
                     return this.items.filter((it) => {
                         if (src !== 'all') {
                             const t = String(it?.source_type || 'cluster');
@@ -1142,7 +1778,10 @@
                         }
                         if (!q) return true;
                         const name = String(it.cluster_name_snapshot || it.seed_text || '').toLowerCase();
-                        return name.includes(q) || String(it.cluster_ref || '').toLowerCase().includes(q);
+                        const domain = String(it.source_domain || it.owner_domain || '').toLowerCase();
+                        return name.includes(q)
+                            || String(it.cluster_ref || '').toLowerCase().includes(q)
+                            || domain.includes(q);
                     });
                 },
 
@@ -1151,13 +1790,14 @@
                 },
 
                 selectedItems() {
-                    return this.items.filter((it) => this.selected[it.cluster_ref]);
+                    return this.items.filter((it) => this.selected[this.itemKey(it)]);
                 },
 
                 emitSelection() {
                     const items = this.selectedItems().map((it) => ({
                         source_type: it.source_type || 'cluster',
                         cluster_ref: it.cluster_ref,
+                        warehouse_key: this.itemKey(it),
                         cluster_name_snapshot: it.cluster_name_snapshot || it.seed_text || it.cluster_ref,
                         name: it.cluster_name_snapshot || it.seed_text || it.cluster_ref,
                         seed_text: it.seed_text ?? null,
@@ -1165,22 +1805,24 @@
                         target_dna_count: it.target_dna_count,
                         target_mode: it.target_mode || 'manual',
                         dna: Array.isArray(it.dna) ? it.dna : [],
-                        source_site_id: Number(it.source_site_id || this.siteId || 0) || null,
-                        source_domain: String(it.source_domain || this.siteDomain || ''),
+                        source_site_id: Number(it.source_site_id || it.owner_site_id || this.siteId || 0) || null,
+                        source_domain: String(it.source_domain || it.owner_domain || this.siteDomain || ''),
+                        owner_site_id: Number(it.owner_site_id || it.source_site_id || 0) || null,
                     }));
                     const detail = { count: items.length, items, sourceSiteId: this.siteId, sourceDomain: this.siteDomain };
                     window.__imSelection = detail;
                     window.dispatchEvent(new CustomEvent('im-selection-changed', { detail }));
                 },
 
-                toggleSelect(ref) {
-                    this.selected[ref] = !this.selected[ref];
+                toggleSelect(refOrKey) {
+                    const key = String(refOrKey || '');
+                    this.selected[key] = !this.selected[key];
                     this.emitSelection();
                 },
 
                 selectAllVisible() {
                     for (const it of this.filteredItems()) {
-                        this.selected[it.cluster_ref] = true;
+                        this.selected[this.itemKey(it)] = true;
                     }
                     this.emitSelection();
                 },
@@ -1190,14 +1832,26 @@
                     this.emitSelection();
                 },
 
-                isSelected(ref) { return !!this.selected[ref]; },
+                isSelected(refOrKey) { return !!this.selected[String(refOrKey || '')]; },
 
                 untickFromDistribution(ref) {
                     if (!ref) return;
+                    // Untick by cluster_ref across owners (distribution event).
+                    let changed = false;
+                    for (const it of this.items) {
+                        if (String(it.cluster_ref) === String(ref)) {
+                            const key = this.itemKey(it);
+                            if (this.selected[key]) {
+                                delete this.selected[key];
+                                changed = true;
+                            }
+                        }
+                    }
                     if (this.selected[ref]) {
                         delete this.selected[ref];
-                        this.emitSelection();
+                        changed = true;
                     }
+                    if (changed) this.emitSelection();
                 },
 
                 normalizeKey(s) {
@@ -1228,7 +1882,8 @@
                     if (!seed) return;
                     if (this.findDup(null, seed)) { this.manualDraft = ''; return; }
                     const ref = 'manual:' + (crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '') : String(Date.now()));
-                    this.items.push({
+                    const owner = this.siteId;
+                    const item = {
                         source_type: 'manual_seed',
                         cluster_ref: ref,
                         cluster_name_snapshot: seed,
@@ -1237,12 +1892,16 @@
                         target_dna_count: 5,
                         target_mode: 'manual',
                         dna: [],
-                        source_site_id: this.siteId,
+                        source_site_id: owner,
                         source_domain: this.siteDomain || '',
-                    });
+                        owner_site_id: owner,
+                        owner_domain: this.siteDomain || '',
+                        warehouse_key: owner + ':' + ref,
+                    };
+                    this.items.push(item);
                     this.manualDraft = '';
                     this.expanded[ref] = true;
-                    this.markDirty();
+                    this.markDirty(owner);
                     this.scanLegacyAudit();
                 },
 
@@ -1253,15 +1912,22 @@
 
                 confirmBulk() {
                     if (!this.bulkPreview || !Array.isArray(this.bulkPreview.valid)) return;
-                    for (const item of this.bulkPreview.valid) {
-                        if (!this.findDup(item.cluster_ref, item.cluster_name_snapshot || item.seed_text)) {
+                    const owner = this.siteId;
+                    for (const raw of this.bulkPreview.valid) {
+                        if (!this.findDup(raw.cluster_ref, raw.cluster_name_snapshot || raw.seed_text)) {
+                            const item = { ...raw };
+                            item.source_site_id = Number(item.source_site_id || owner);
+                            item.source_domain = String(item.source_domain || this.siteDomain || '');
+                            item.owner_site_id = owner;
+                            item.owner_domain = this.siteDomain || '';
+                            item.warehouse_key = owner + ':' + String(item.cluster_ref || '');
                             this.items.push(item);
                         }
                     }
                     this.bulkPreview = null;
                     this.bulkText = '';
                     this.showBulk = false;
-                    this.markDirty();
+                    this.markDirty(owner);
                     this.scanLegacyAudit();
                 },
 
@@ -1347,18 +2013,25 @@
 
                 confirmAuditImport() {
                     if (!this.importPreview) return;
-                    for (const item of this.importPreview.importable) {
-                        if (!this.findDup(item.cluster_ref, item.cluster_name_snapshot)) {
+                    const owner = this.siteId;
+                    for (const raw of this.importPreview.importable) {
+                        if (!this.findDup(raw.cluster_ref, raw.cluster_name_snapshot)) {
+                            const item = { ...raw };
+                            item.source_site_id = Number(item.source_site_id || owner);
+                            item.source_domain = String(item.source_domain || this.siteDomain || '');
+                            item.owner_site_id = owner;
+                            item.owner_domain = this.siteDomain || '';
+                            item.warehouse_key = owner + ':' + String(item.cluster_ref || '');
                             this.items.push(item);
                         }
                     }
                     this.importPreview = null;
-                    this.markDirty();
+                    this.markDirty(owner);
                     this.scanLegacyAudit();
                 },
 
                 setTarget(ref, value) {
-                    const item = this.items.find((it) => it.cluster_ref === ref);
+                    const item = this.items.find((it) => it.cluster_ref === ref || this.itemKey(it) === ref);
                     if (!item) return;
                     let n = parseInt(value, 10);
                     if (!Number.isFinite(n) || n < 1) n = 1;
@@ -1367,7 +2040,7 @@
                     if (n < specified) n = specified;
                     item.target_dna_count = n;
                     item.target_mode = 'manual';
-                    this.markDirty();
+                    this.markDirty(this.ownerOf(item));
                 },
 
                 specifiedCount(item) {
@@ -1377,7 +2050,7 @@
                 addDna(ref) {
                     const phrase = String(this.dnaDrafts[ref] || '').trim();
                     if (!phrase) return;
-                    const item = this.items.find((it) => it.cluster_ref === ref);
+                    const item = this.items.find((it) => it.cluster_ref === ref || this.itemKey(it) === ref);
                     if (!item) return;
                     item.dna = Array.isArray(item.dna) ? item.dna : [];
                     const key = this.normalizeKey(phrase);
@@ -1390,24 +2063,31 @@
                     const specified = this.specifiedCount(item);
                     if (Number(item.target_dna_count || 0) < specified) item.target_dna_count = specified;
                     this.dnaDrafts[ref] = '';
-                    this.markDirty();
+                    this.markDirty(this.ownerOf(item));
                 },
 
                 removeDna(ref, index) {
-                    const item = this.items.find((it) => it.cluster_ref === ref);
+                    const item = this.items.find((it) => it.cluster_ref === ref || this.itemKey(it) === ref);
                     if (!item || !Array.isArray(item.dna)) return;
                     item.dna.splice(index, 1);
-                    this.markDirty();
+                    this.markDirty(this.ownerOf(item));
                 },
 
                 removeItem(ref) {
                     if (!window.confirm(this.labels.deleteConfirm)) return;
-                    this.items = this.items.filter((it) => it.cluster_ref !== ref);
-                    if (this.selected[ref]) {
+                    const victim = this.items.find((it) => it.cluster_ref === ref || this.itemKey(it) === ref);
+                    const owner = victim ? this.ownerOf(victim) : 0;
+                    const key = victim ? this.itemKey(victim) : String(ref || '');
+                    const next = this.items.filter((it) => this.itemKey(it) !== key && it.cluster_ref !== ref);
+                    this.setWorkingItems(next, 'remove_item', 'ui', owner);
+                    if (this.selected[key]) {
+                        delete this.selected[key];
+                        this.emitSelection();
+                    } else if (this.selected[ref]) {
                         delete this.selected[ref];
                         this.emitSelection();
                     }
-                    this.markDirty();
+                    this.markDirty(owner);
                     this.scanLegacyAudit();
                 },
 
@@ -1425,6 +2105,8 @@
                     // Provenance = Cluster source filter at add-time — never live sidebar remount.
                     const provenanceSiteId = this.sourceFilterSiteId > 0 ? this.sourceFilterSiteId : this.siteId;
                     const provenanceDomain = this.sourceFilterDomain || this.siteDomain || '';
+                    // Owning workspace for persistence = default seed owner (working site), not source filter.
+                    const owner = this.siteId;
                     this.items.push({
                         source_type: 'cluster',
                         cluster_ref: row.cluster_ref,
@@ -1436,53 +2118,65 @@
                         dna,
                         source_site_id: provenanceSiteId,
                         source_domain: provenanceDomain,
+                        owner_site_id: owner,
+                        owner_domain: this.siteDomain || '',
+                        warehouse_key: owner + ':' + String(row.cluster_ref || ''),
                     });
                     this.expanded[row.cluster_ref] = true;
-                    this.markDirty();
+                    this.markDirty(owner);
                     this.tab = 'ideas';
                     this.scanLegacyAudit();
                 },
 
                 conflictBodyText() {
+                    const sid = String(this.conflictSiteId || 0);
+                    const localRev = Number((this.readGlobalDraft()?.site_revisions || {})[sid] || this.siteRevisions[sid]?.revision || 0);
+                    const serverRev = Number(this.siteRevisions[sid]?.revision || this.serverMeta.revision || 0);
                     return String(this.labels.conflictBody || '')
-                        .replace(':server', String(this.serverMeta.revision))
-                        .replace(':local', String(this.baseRevision));
+                        .replace(':server', String(serverRev))
+                        .replace(':local', String(localRev));
                 },
                 conflictLocalText() {
                     return String(this.labels.conflictLocal || '')
                         .replace(':count', String(this.items.length))
-                        .replace(':rev', String(this.baseRevision));
+                        .replace(':rev', String(this.conflictSiteId || this.baseRevision));
                 },
                 conflictServerText() {
+                    const sid = String(this.conflictSiteId || 0);
+                    const meta = this.siteRevisions[sid] || {};
                     return String(this.labels.conflictServer || '')
-                        .replace(':count', String(this.serverMeta.item_count))
-                        .replace(':rev', String(this.serverMeta.revision))
-                        .replace(':updated', String(this.serverMeta.updated_at || '—'));
+                        .replace(':count', String(meta.item_count || this.serverMeta.item_count || 0))
+                        .replace(':rev', String(meta.revision || this.serverMeta.revision || 0))
+                        .replace(':updated', String(meta.updated_at || this.serverMeta.updated_at || '—'));
                 },
 
                 confirmKeepMine() {
                     if (!window.confirm(this.labels.keepMineConfirm)) return;
                     this._forceOverwrite = true;
+                    this._forceOverwriteSiteId = Number(this.conflictSiteId || this.siteId || 0);
                     this.conflict = false;
                     this.conflictBannerOpen = false;
                     this.dirty = true;
+                    if (this._forceOverwriteSiteId > 0) {
+                        this.dirtyOwners[String(this._forceOverwriteSiteId)] = true;
+                    }
                     this.scheduleSave(true);
                 },
 
                 confirmLoadServer() {
                     if (!window.confirm(this.labels.loadServerConfirm)) return;
-                    this.items = structuredClone(this.serverMeta.note_items || []);
-                    this.baseRevision = this.serverMeta.revision;
-                    this.dirty = false;
-                    this.conflict = false;
-                    this.conflictBannerOpen = false;
-                    this.syncStatus = 'synced';
-                    this.persistDraft();
-                    this.scanLegacyAudit();
+                    this.$wire.loadGlobalIdeaWarehouse().then((snap) => {
+                        this.dirty = false;
+                        this.dirtyOwners = {};
+                        this.conflict = false;
+                        this.conflictBannerOpen = false;
+                        this.conflictSiteId = 0;
+                        this.bootstrapFromServer(snap);
+                    });
                 },
 
                 dismissConflict() {
-                    // Closing conflict UI must keep local draft.
+                    // Closing conflict UI must keep local draft — never silent force overwrite.
                     this.conflictBannerOpen = false;
                     this.conflict = true;
                     this.dirty = true;

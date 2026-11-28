@@ -5,20 +5,16 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Content\Tests\Unit;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\ContentProjects\Models\SeoProject;
-use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\Content\Services\ArticlePendingInternalLinkService;
-use App\Addons\SeoContentAi\Tests\Compat\UsesSeoDatabase;
-use Illuminate\Foundation\Testing\DatabaseTransactions;
-use Tests\TestCase;
+use Omnichannel\Addons\SearchFoundation\Models\SeoPendingInternalLink;
+use PHPUnit\Framework\TestCase;
+use ReflectionClass;
 
+/**
+ * Pending Internal Link create/process retired; HTML helper + model retained.
+ */
 final class ArticlePendingInternalLinkServiceTest extends TestCase
 {
-    use DatabaseTransactions;
-    use UsesSeoDatabase;
-
-    protected $connectionsToTransact = ['omi_seo_ai'];
-
     public function test_replace_placeholder_in_html_swaps_hash_href(): void
     {
         $service = app(ArticlePendingInternalLinkService::class);
@@ -28,40 +24,6 @@ final class ArticlePendingInternalLinkServiceTest extends TestCase
 
         $this->assertStringContainsString('href="https://shop.test/thoi-trang-ben-vung"', $next);
         $this->assertStringNotContainsString('#a1b2c3d4', $next);
-    }
-
-    public function test_assign_from_editor_never_creates_hash_placeholder_in_new_path(): void
-    {
-        $src = (string) file_get_contents(
-            (string) (new \ReflectionClass(ArticlePendingInternalLinkService::class))->getFileName(),
-        );
-
-        $start = strpos($src, 'public function assignFromEditor');
-        self::assertNotFalse($start);
-        $end = strpos($src, 'public function resolveForKeyword', $start);
-        self::assertNotFalse($end);
-        $body = substr($src, $start, $end - $start);
-
-        self::assertStringContainsString('searchUrlTemplate', $body);
-        self::assertStringContainsString("'insert_mode'", $body);
-        self::assertStringNotContainsString('createPending', $body);
-        self::assertStringNotContainsString('findReusablePending', $body);
-    }
-
-    public function test_placeholder_hash_generator_uses_anchor_slug_not_random_hex(): void
-    {
-        $src = (string) file_get_contents(
-            (string) (new \ReflectionClass(ArticlePendingInternalLinkService::class))->getFileName(),
-        );
-
-        $this->assertStringContainsString('generateUniqueHash($anchorPhrase)', $src);
-        $this->assertStringContainsString('Str::slug($anchorPhrase)', $src);
-        $this->assertStringContainsString("'tu-khoa'", $src);
-        $this->assertStringNotContainsString('bin2hex(random_bytes(4))', $src);
-        $this->assertMatchesRegularExpression(
-            "/\\\$base = substr\\(\\\$base, 0, 16\\)/",
-            $src,
-        );
     }
 
     public function test_replace_placeholder_supports_slug_style_hash(): void
@@ -75,59 +37,30 @@ final class ArticlePendingInternalLinkServiceTest extends TestCase
         $this->assertStringNotContainsString('#tu-khoa', $next);
     }
 
-    public function test_assign_from_editor_fails_when_keyword_already_in_other_project(): void
+    public function test_assign_from_editor_is_retired_failure(): void
     {
-        $this->requireSeoDatabaseConnection();
+        $article = new SeoArticle();
+        $result = app(ArticlePendingInternalLinkService::class)->assignFromEditor($article, 'phrase', 1);
 
-        \Illuminate\Support\Carbon::setTestNow('2026-07-13 10:00:00');
+        self::assertFalse($result['success'] ?? true);
+        self::assertNotSame('', trim((string) ($result['message'] ?? '')));
+    }
 
-        $siteId = 2;
-        $sourceArticle = SeoArticle::query()->create([
-            'site_id' => $siteId,
-            'title' => 'Source article',
-            'slug' => 'source-article',
-            'body' => '<p>anchor text here</p>',
-        ]);
+    public function test_resolve_methods_are_noop(): void
+    {
+        $service = app(ArticlePendingInternalLinkService::class);
+        self::assertSame(0, $service->resolveForKeyword(42));
+        self::assertSame(0, $service->resolveForMainArticle(new SeoArticle()));
+    }
 
-        $otherProject = SeoProject::query()->create([
-            'name' => 'Other project',
-            'site_id' => $siteId,
-            'month' => '2026-07-01',
-            'status' => SeoProject::STATUS_MANUAL,
-            'user_id' => 1,
-            'total_tasks' => 1,
-        ]);
-
-        $phrase = 'thời trang bền vững';
-
-        SeoProjectTask::query()->create([
-            'project_id' => (int) $otherProject->id,
-            'site_id' => $siteId,
-            'type' => SeoProjectTask::TYPE_NEW_KEYWORD,
-            'source_content' => $phrase,
-            'post_type' => SeoProjectTask::POST_TYPE_ARTICLE,
-            'target_date' => '2026-07-01',
-            'status' => SeoProjectTask::STATUS_PENDING,
-        ]);
-
-        $targetProject = SeoProject::query()->create([
-            'name' => 'Target project',
-            'site_id' => $siteId,
-            'month' => '2026-07-01',
-            'status' => SeoProject::STATUS_MANUAL,
-            'user_id' => 1,
-            'total_tasks' => 0,
-        ]);
-
-        $result = app(ArticlePendingInternalLinkService::class)->assignFromEditor(
-            $sourceArticle,
-            $phrase,
-            (int) $targetProject->id,
+    public function test_create_path_removed_from_service_source(): void
+    {
+        $src = (string) file_get_contents(
+            (string) (new ReflectionClass(ArticlePendingInternalLinkService::class))->getFileName(),
         );
-
-        $this->assertFalse($result['success'] ?? true);
-        $this->assertNotSame('', trim((string) ($result['message'] ?? '')));
-
-        \Illuminate\Support\Carbon::setTestNow();
+        self::assertStringNotContainsString('function createPending', $src);
+        self::assertStringNotContainsString('SeoPendingInternalLink::query()->create', $src);
+        self::assertStringNotContainsString('generateUniqueHash', $src);
+        self::assertSame(SeoPendingInternalLink::class, ArticlePendingInternalLinkService::pendingModelClass());
     }
 }

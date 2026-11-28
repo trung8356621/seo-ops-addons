@@ -125,9 +125,7 @@ final class KeywordFocusAttach
         // Drop stale duplicate target_url so it cannot shadow WordPress permalinks.
         $metaRepository->setSiteTargetUrl($keywordId, $siteId, null);
 
-        if ($wpPostId > 0) {
-            app(\Omnichannel\Addons\Content\Services\ArticlePendingInternalLinkService::class)->resolveForKeyword($keywordId);
-        }
+        // Pending Internal Link deferred resolve retired — Ideas go to Idea Manager.
 
         return $keywordId;
     }

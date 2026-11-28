@@ -32,16 +32,16 @@ final class PlanningDraftIntakeContractTest extends TestCase
         self::assertSame('draft_not_resolved', PlanningDraftIntakeResult::STATUS_DRAFT_NOT_RESOLVED);
     }
 
-    public function test_pending_link_intake_forwards_placeholder_href(): void
+    public function test_pending_link_intake_removed_from_planning_draft_service(): void
     {
         $src = (string) file_get_contents(
             (string) (new ReflectionClass(PlanningDraftIntakeService::class))->getFileName(),
         );
-        self::assertStringContainsString("(\$result['placeholder_href']", $src);
-        self::assertStringContainsString("(\$result['search_url']", $src);
-        self::assertStringContainsString('placeholderHref:', $src);
-        self::assertStringContainsString('searchUrl:', $src);
+        self::assertStringNotContainsString('function addPendingLink', $src);
+        self::assertStringNotContainsString('ArticlePendingInternalLinkService', $src);
+        self::assertStringNotContainsString('assignFromEditor', $src);
 
+        // Result DTO may still expose legacy fields for BC; service no longer fills them.
         $result = new PlanningDraftIntakeResult(
             PlanningDraftIntakeResult::STATUS_ADDED,
             12,
@@ -64,7 +64,7 @@ final class PlanningDraftIntakeContractTest extends TestCase
         self::assertStringContainsString('function addArticles', $src);
         self::assertStringContainsString('function addKeywords', $src);
         self::assertStringContainsString('function addVocabularyPhrases', $src);
-        self::assertStringContainsString('function addPendingLink', $src);
+        self::assertStringNotContainsString('function addPendingLink', $src);
         self::assertStringContainsString('articleNeedsKeyword', $src);
         self::assertStringContainsString('KeywordFocusAttach::syncMainKeyword', $src);
         self::assertStringContainsString('STATUS_DRAFT', $src);
@@ -166,6 +166,9 @@ final class PlanningDraftIntakeContractTest extends TestCase
         );
 
         self::assertStringContainsString('PlanningDraftIntakeService', $drawer);
-        self::assertStringContainsString('addVocabularyPhrases', $drawer);
+        self::assertStringContainsString('->addArticles(', $drawer);
+        self::assertStringContainsString('IdeaManagerKeywordIntakeService', $drawer);
+        self::assertStringNotContainsString('->addVocabularyPhrases(', $drawer);
+        self::assertStringNotContainsString('->addPendingLink(', $drawer);
     }
 }

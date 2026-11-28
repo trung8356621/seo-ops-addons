@@ -128,6 +128,13 @@ final class AssignToContentProjectUiArchitectureGuardTest extends TestCase
         self::assertStringContainsString('assign-to-content-project-drawer', $provider);
         self::assertStringContainsString("@livewire('assign-to-content-project-drawer')", str_replace("\\'", "'", $provider));
         self::assertStringContainsString('AssignToContentProjectDrawer::class', $provider);
+        // Article Editor must NOT mount the Draft drawer (Idea Manager phrase intake only).
+        self::assertStringContainsString("seo/articles/*/edit", $provider);
+        self::assertStringContainsString('seo/articles/create', $provider);
+        self::assertMatchesRegularExpression(
+            "/seo\\/articles\\/\\*\\/edit[\\s\\S]{0,240}return new HtmlString\\(''\\)/",
+            $provider,
+        );
     }
 
     public function test_legacy_centered_modal_partial_removed(): void
@@ -286,7 +293,9 @@ final class AssignToContentProjectUiArchitectureGuardTest extends TestCase
         $drawer = (string) file_get_contents(
             (new ReflectionClass(AssignToContentProjectDrawer::class))->getFileName()
         );
-        self::assertStringContainsString('addVocabularyPhrases', $drawer);
+        self::assertStringContainsString('->addPhrases(', $drawer);
+        self::assertStringNotContainsString('->addVocabularyPhrases(', $drawer);
+        self::assertStringContainsString('function addPhraseToIdeaManager', $editArticle);
     }
 
     public function test_drawer_routes_through_planning_draft_intake_service(): void
@@ -297,8 +306,9 @@ final class AssignToContentProjectUiArchitectureGuardTest extends TestCase
         self::assertStringContainsString('PlanningDraftIntakeService', $drawer);
         self::assertStringContainsString('IdeaManagerKeywordIntakeService', $drawer);
         self::assertStringContainsString('->addArticles(', $drawer);
-        self::assertStringContainsString('->addPendingLink(', $drawer);
-        self::assertStringContainsString('->addVocabularyPhrases(', $drawer);
+        self::assertStringNotContainsString('->addPendingLink(', $drawer);
+        self::assertStringNotContainsString('pending-internal-link-ready', $drawer);
+        self::assertStringContainsString('->addPhrases(', $drawer);
         self::assertStringContainsString('shouldAutoSubmitAfterPrepare', $drawer);
         self::assertStringContainsString('preflightOpen', $drawer);
         self::assertStringNotContainsString('ArticleResource::assignArticlesFromFormData', $drawer);
@@ -306,6 +316,9 @@ final class AssignToContentProjectUiArchitectureGuardTest extends TestCase
         $submitKeyword = self::extractPhpMethod($drawer, 'submitKeyword');
         self::assertStringContainsString('IdeaManagerKeywordIntakeService::class', $submitKeyword);
         self::assertStringNotContainsString('PlanningDraftIntakeService', $submitKeyword);
+        $submitVocab = self::extractPhpMethod($drawer, 'submitVocabularyItems');
+        self::assertStringContainsString('IdeaManagerKeywordIntakeService::class', $submitVocab);
+        self::assertStringContainsString('->addPhrases(', $submitVocab);
     }
 
     public function test_keyword_detail_opens_assign_via_window_event_not_mount_action(): void

@@ -514,7 +514,9 @@ final class SeoProjectTaskSyncService
         $payload = [
             'site_id' => $row->siteId,
             'type' => $row->type,
-            'post_type' => $row->postType,
+            'post_type' => SeoProjectTask::isNewArticleType($row->type)
+                ? $row->postType
+                : ($task->post_type ?? $row->postType),
             'source_content' => $row->sourceContent,
             'source_key' => $row->sourceKey,
             'keyword' => $row->keyword,

@@ -32,14 +32,12 @@ final class AssignToContentProjectContract
 
     public const MODE_KEYWORD = 'keyword';
 
-    public const MODE_PENDING_LINK = 'pending_link';
-
-    /** Batch planning phrases (Vocabulary → Lập kế hoạch). Creates TYPE_CREATE items only. */
+    /** Batch planning phrases (Vocabulary → Idea Manager warehouse). */
     public const MODE_VOCABULARY_ITEMS = 'vocabulary_items';
 
     public const LABEL_KEY = 'seo-content-ai::filament.article_list.add_to_draft';
 
-    /** Keyword mode destination label — Idea Manager warehouse (not Planning Draft). */
+    /** Keyword / vocabulary / phrase destination label — Idea Manager warehouse (not Planning Draft). */
     public const KEYWORD_LABEL_KEY = 'seo-content-ai::filament.article_list.add_to_idea_manager';
 
     public static function label(): string
@@ -49,7 +47,7 @@ final class AssignToContentProjectContract
 
     public static function labelForMode(string $mode): string
     {
-        if ($mode === self::MODE_KEYWORD) {
+        if (in_array($mode, [self::MODE_KEYWORD, self::MODE_VOCABULARY_ITEMS], true)) {
             return __(self::KEYWORD_LABEL_KEY);
         }
 
@@ -88,10 +86,13 @@ final class AssignToContentProjectContract
     public static function normalizePayload(array $detail): array
     {
         $mode = (string) ($detail['mode'] ?? self::MODE_ARTICLE);
+        // Retired: pending_link (Future / Pending Internal Link). Fall back to article.
+        if ($mode === 'pending_link') {
+            $mode = self::MODE_ARTICLE;
+        }
         if (! in_array($mode, [
             self::MODE_ARTICLE,
             self::MODE_KEYWORD,
-            self::MODE_PENDING_LINK,
             self::MODE_VOCABULARY_ITEMS,
         ], true)) {
             $mode = self::MODE_ARTICLE;
@@ -158,30 +159,6 @@ final class AssignToContentProjectContract
             'keyword_ids' => $keywordIds,
             'site_ids' => $siteIds,
             'map_id' => $mapId,
-            'defaults' => $defaults,
-            'options' => $options,
-        ]);
-    }
-
-    /**
-     * @param  array<string, mixed>  $defaults
-     * @param  array<string, mixed>  $options
-     * @return array<string, mixed>
-     */
-    public static function pendingLinkPayload(
-        string $source,
-        int $articleId,
-        string $anchorPhrase,
-        ?int $siteId = null,
-        array $defaults = [],
-        array $options = [],
-    ): array {
-        return self::normalizePayload([
-            'mode' => self::MODE_PENDING_LINK,
-            'source' => $source,
-            'article_ids' => [$articleId],
-            'site_ids' => $siteId !== null && $siteId > 0 ? [$siteId] : [],
-            'anchor_phrase' => $anchorPhrase,
             'defaults' => $defaults,
             'options' => $options,
         ]);

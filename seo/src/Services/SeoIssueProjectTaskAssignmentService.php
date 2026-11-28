@@ -8,6 +8,7 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemAllocator;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectTaskPostTypeRecheckService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectArticleOwnerSyncService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectTaskUniqueWriter;
 use Omnichannel\Addons\ContentProjects\Services\WriterMonthlyCapacityGate;
@@ -218,6 +219,7 @@ final class SeoIssueProjectTaskAssignmentService
                         $payload['title'] = null;
                     } else {
                         $payload['article_id'] = (int) $record->id;
+                        $payload['post_type'] = app(ContentProjectTaskPostTypeRecheckService::class)->resolveCanonicalForArticle($record);
                         $focusKeyword = trim((string) ($this->analyzer->resolveFocusKeywordForArticle($record) ?? ''));
                         $articleTitle = $this->resolveArticleProjectSourceContent($record);
                         $payload['keyword'] = $normalizedKeywordOverride !== ''

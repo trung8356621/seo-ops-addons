@@ -138,7 +138,20 @@ final class ContentProjectTaskPostTypeRecheckService
             return null;
         }
 
-        return SeoProjectTask::normalizePostType(ArticlePostTypeResolver::resolve($resolvedArticle));
+        return $this->resolveCanonicalForArticle($resolvedArticle);
+    }
+
+    /**
+     * Resolve canonical task post_type from an Article when classification evidence exists.
+     * Returns null when article_meta lacks content_type and wp_post_type (never defaults to post).
+     */
+    public function resolveCanonicalForArticle(SeoArticle $article): ?string
+    {
+        if (! $this->hasClassificationEvidence($article)) {
+            return null;
+        }
+
+        return SeoProjectTask::normalizePostType(ArticlePostTypeResolver::resolve($article));
     }
 
     /**

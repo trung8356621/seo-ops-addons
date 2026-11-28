@@ -12,7 +12,8 @@ use ReflectionMethod;
 use Tests\Support\ProjectRoot;
 
 /**
- * Regression: drawer destinations by mode (keyword → Idea Manager; others → Planning Draft).
+ * Regression: drawer destinations by mode (keyword/vocab → Idea Manager; article → Planning Draft).
+ * Pending Internal Link mode is retired.
  */
 final class AssignToContentProjectDrawerRoutingTest extends TestCase
 {
@@ -54,35 +55,30 @@ final class AssignToContentProjectDrawerRoutingTest extends TestCase
         self::assertStringNotContainsString('KeywordResource::executeAssignKeywordsToContentProjects', $source);
     }
 
-    public function test_pending_link_routes_through_intake_service(): void
+    public function test_pending_link_mode_is_retired_from_drawer(): void
     {
         $source = $this->drawerSource();
 
-        self::assertStringContainsString('AssignToContentProjectContract::MODE_PENDING_LINK => $this->submitPendingLink()', $source);
-        self::assertStringContainsString('->addPendingLink(', $source);
-
-        $pendingMethod = $this->methodSource('submitPendingLink');
-        self::assertStringContainsString('addPendingLink', $pendingMethod);
-        self::assertStringContainsString('$result->placeholderHref', $pendingMethod);
-        self::assertStringContainsString("'placeholderHref' => \$placeholderHref", $pendingMethod);
-        self::assertStringContainsString("'placeholder_href' => \$placeholderHref", $pendingMethod);
-        self::assertStringContainsString('$result->searchUrl', $pendingMethod);
-        self::assertStringContainsString("'search_url' => \$searchUrl", $pendingMethod);
-        self::assertStringContainsString("str_starts_with(\$placeholderHref, '#')", $pendingMethod);
-        self::assertStringContainsString('$this->errorMessage = $result->message', $pendingMethod);
-        self::assertStringNotContainsString("placeholderHref: ''", $pendingMethod);
-        self::assertStringNotContainsString('assignArticlesFromFormData', $pendingMethod);
-        self::assertStringNotContainsString('executeAssignKeywordsToContentProjects', $pendingMethod);
+        self::assertStringNotContainsString('submitPendingLink', $source);
+        self::assertStringNotContainsString('->addPendingLink(', $source);
+        self::assertStringNotContainsString('pending-internal-link-ready', $source);
+        self::assertStringNotContainsString('preparePendingLinkContext', $source);
+        self::assertFalse(method_exists(AssignToContentProjectDrawer::class, 'submitPendingLink'));
+        self::assertFalse(defined(AssignToContentProjectContract::class.'::MODE_PENDING_LINK'));
     }
 
-    public function test_vocabulary_items_route_through_intake_phrases(): void
+    public function test_vocabulary_items_route_to_idea_manager(): void
     {
         $source = $this->drawerSource();
+        $submit = $this->methodSource('submitVocabularyItems');
         self::assertStringContainsString(
             'AssignToContentProjectContract::MODE_VOCABULARY_ITEMS => $this->submitVocabularyItems()',
             $source,
         );
-        self::assertStringContainsString('->addVocabularyPhrases(', $source);
+        self::assertStringContainsString('IdeaManagerKeywordIntakeService::class', $submit);
+        self::assertStringContainsString('->addPhrases(', $submit);
+        self::assertStringNotContainsString('->addVocabularyPhrases(', $submit);
+        self::assertStringContainsString("'destination' => 'idea_manager'", $submit);
         self::assertStringNotContainsString('KeywordProjectAssignmentService::class', $source);
     }
 
@@ -98,21 +94,21 @@ final class AssignToContentProjectDrawerRoutingTest extends TestCase
     {
         $source = $this->drawerSource();
         self::assertStringContainsString('AssignToContentProjectContract::MODE_KEYWORD => $this->submitKeyword()', $source);
-        self::assertStringContainsString('AssignToContentProjectContract::MODE_PENDING_LINK => $this->submitPendingLink()', $source);
         self::assertStringContainsString('AssignToContentProjectContract::MODE_VOCABULARY_ITEMS => $this->submitVocabularyItems()', $source);
         self::assertStringContainsString('default => $this->submitArticle()', $source);
+        self::assertStringNotContainsString('=> $this->submitPendingLink()', $source);
     }
 
-    public function test_pending_link_payload_normalize(): void
+    public function test_legacy_pending_link_payload_normalizes_away(): void
     {
         $payload = AssignToContentProjectContract::normalizePayload([
-            'mode' => AssignToContentProjectContract::MODE_PENDING_LINK,
+            'mode' => 'pending_link',
             'source' => 'link_edit_bubble',
             'article_ids' => [7],
             'anchor_phrase' => '  hello  ',
         ]);
 
-        self::assertSame(AssignToContentProjectContract::MODE_PENDING_LINK, $payload['mode']);
+        self::assertSame(AssignToContentProjectContract::MODE_ARTICLE, $payload['mode']);
         self::assertSame([7], $payload['article_ids']);
         self::assertSame('hello', $payload['anchor_phrase']);
     }

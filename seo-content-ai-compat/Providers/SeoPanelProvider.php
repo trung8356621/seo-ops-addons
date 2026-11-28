@@ -212,6 +212,12 @@ class SeoPanelProvider extends PanelProvider
                     return new HtmlString('');
                 }
 
+                // Article Editor: phrase intake is Idea Manager only — never mount Draft drawer
+                // (avoids shellOpen overlay behind Google Preview / Outline).
+                if (request()->is('seo/articles/*/edit', 'seo/articles/create')) {
+                    return new HtmlString('');
+                }
+
                 return new HtmlString(
                     \Illuminate\Support\Facades\Blade::render('@livewire(\'assign-to-content-project-drawer\')')
                 );

@@ -196,7 +196,13 @@ final class ContentProjectArchivedMonthlyWorkloadService
                 'title' => $articleFields['title'],
                 'keyword' => $articleFields['keyword'],
                 'wordpress_url' => $articleFields['wordpress_url'],
-                'post_type' => $this->postTypeLabel((string) ($row->post_type ?? '')),
+                'post_type' => $this->postTypeLabel(
+                    $this->resolveEffectivePostType(
+                        (string) ($row->plan_type ?? ''),
+                        isset($row->post_type) ? (string) $row->post_type : null,
+                        $article instanceof SeoArticle ? $article : null,
+                    ),
+                ),
                 'plan' => $this->planLabel((string) ($row->plan_type ?? '')),
                 'index_status' => $isIndexed
                     ? (string) __('seo-content-ai::filament.projects.indexed')
@@ -352,9 +358,28 @@ final class ContentProjectArchivedMonthlyWorkloadService
         };
     }
 
-    private function postTypeLabel(string $postType): string
+    private function resolveEffectivePostType(string $planType, ?string $rawTaskPostType, ?SeoArticle $article): ?string
     {
-        $normalized = SeoProjectTask::normalizePostType($postType);
+        $normalizedPlan = SeoProjectTask::normalizeType($planType);
+        if (in_array($normalizedPlan, [SeoProjectTask::TYPE_REWRITE, SeoProjectTask::TYPE_IMPROVE], true)) {
+            return $article instanceof SeoArticle
+                ? app(ContentProjectTaskPostTypeRecheckService::class)->resolveCanonicalForArticle($article)
+                : null;
+        }
+
+        $raw = trim((string) ($rawTaskPostType ?? ''));
+
+        return $raw !== '' ? SeoProjectTask::normalizePostType($raw) : null;
+    }
+
+    private function postTypeLabel(?string $postType): string
+    {
+        $raw = strtolower(trim((string) ($postType ?? '')));
+        if ($raw === '') {
+            return '—';
+        }
+
+        $normalized = SeoProjectTask::normalizePostType($raw);
 
         return match ($normalized) {
             SeoProjectTask::POST_TYPE_PRODUCT => (string) __('seo-content-ai::filament.projects.post_type_product'),

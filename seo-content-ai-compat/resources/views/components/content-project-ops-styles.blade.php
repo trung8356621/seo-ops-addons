@@ -1114,7 +1114,7 @@
         }
         .cp-plan-scroll-workspace {
             --cp-plan-top-offset: 7rem;
-            --cp-plan-snap-padding: 4.25rem;
+            --cp-plan-snap-padding: 7.75rem;
         }
         .fi-main-ctn:has(.cp-plan-scroll-workspace) .fi-page {
             row-gap: 0;
@@ -1222,12 +1222,57 @@
             border-color: rgb(255 255 255 / 0.2);
             background: rgb(255 255 255 / 0.05);
         }
+        .cp-plan-draft-sticky-bar {
+            position: sticky;
+            top: 4rem;
+            z-index: 15;
+            background: rgba(255, 255, 255, 0.96);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--cp-plan-border);
+            border-radius: 0.75rem;
+            padding: 0.55rem 0.85rem;
+            margin-bottom: 0.5rem;
+            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+        }
+        .dark .cp-plan-draft-sticky-bar {
+            background: rgba(17, 24, 39, 0.96);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+        }
         .cp-plan-draft-header {
             display: flex;
             flex-wrap: wrap;
             align-items: center;
             gap: 0.5rem 0.75rem;
             justify-content: space-between;
+        }
+        .cp-plan-draft-header__actions {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.5rem 0.65rem;
+            margin-left: auto;
+        }
+        .cp-plan-btn--quarantine {
+            border: 1px solid var(--cp-plan-border);
+            background: #ffffff;
+            color: #374151;
+            font-weight: 600;
+        }
+        .cp-plan-btn--quarantine:hover:not(:disabled) {
+            background: #f9fafb;
+            border-color: #cbd5e1;
+            color: #111827;
+        }
+        .cp-plan-btn--quarantine:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        .dark .cp-plan-btn--quarantine {
+            background: rgba(255, 255, 255, 0.04);
+            color: #e5e7eb;
+        }
+        .dark .cp-plan-btn--quarantine:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.09);
         }
         .cp-plan-draft-header__title {
             min-width: 0;

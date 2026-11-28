@@ -5,11 +5,22 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager;
 
 use App\Models\Site;
+use Illuminate\Support\Str;
+use Omnichannel\Addons\Content\Enums\ArticleReviewStatus;
+use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectPlannerRunDetail;
+use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectPlannerRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
-use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\GenerateNewContentSuggestionsCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditNoteDnaNormalizer;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditNoteTargetAllocator;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\DiscoverNewTopicsDuplicateFilter;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftResolver;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\NewContent\NewContentGenerationBatchPolicy;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\NewContent\NewContentSuggestionOptions;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\SearchIntelligence\Services\Semantic\TopicGroup\TopicGroupRetrievalClient;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -46,6 +57,8 @@ final class IdeaManagerDistributionService
 
     public const CHECK_PENDING = 'pending';
 
+    public const CHECK_NO_FOCUS_KEYWORDS = 'no_focus_keywords';
+
     public function __construct(
         private readonly IdeaWorkspacePersistenceService $workspaces,
         private readonly DiscoverNewTopicsDuplicateFilter $topicDupFilter,
@@ -63,27 +76,24 @@ final class IdeaManagerDistributionService
 
         $month = ContentProjectMonthContext::normalize($activeMonth);
         $domain = (string) (Site::query()->whereKey($targetSiteId)->value('domain') ?? ('#'.$targetSiteId));
-        $destItems = $this->workspaces->load($targetSiteId)['note_items'] ?? [];
         $selected = $this->normalizeSelected($selectedItems);
-        $topicKeys = $this->topicDuplicateMap(
-            $targetSiteId,
-            array_map(static fn (array $i): string => (string) ($i['cluster_name_snapshot'] ?? ''), $selected),
-        );
-        $inventory = $this->withDestinationContentInventory(
-            $targetSiteId,
-            $this->buildSemanticInventory($destItems, $topicKeys),
-        );
+        $focusInventory = $this->loadDestinationArticleFocusKeywords($targetSiteId);
+        $exactMap = $this->indexFocusKeywordsByNormalizedKey($focusInventory);
 
         $rows = [];
         $exactCount = 0;
         $warnCount = 0;
+        $unknownCount = 0;
         foreach ($selected as $item) {
-            $row = $this->analyzeItem($item, $destItems, $topicKeys, $inventory, $targetSiteId);
+            $row = $this->analyzeItem($item, $exactMap, $focusInventory, $targetSiteId);
             if ($row['exact_match']) {
                 $exactCount++;
             }
-            if (! empty($row['warning'])) {
+            if (! empty($row['warning']) && empty($row['exact_match'])) {
                 $warnCount++;
+            }
+            if (($row['check_status'] ?? '') === self::CHECK_UNAVAILABLE) {
+                $unknownCount++;
             }
             $rows[] = $row;
         }
@@ -95,6 +105,9 @@ final class IdeaManagerDistributionService
             'eligible_count' => count($rows),
             'duplicate_count' => $exactCount,
             'warning_count' => $warnCount,
+            'unknown_count' => $unknownCount,
+            'has_focus_keywords' => $focusInventory !== [],
+            'focus_keyword_count' => count($focusInventory),
             // Confirm eligibility is input/auth based — warnings never disable.
             'can_confirm' => count($rows) > 0,
             'items' => $rows,
@@ -142,6 +155,220 @@ final class IdeaManagerDistributionService
 
         // Exact collisions become already_present per-Idea — never abort the whole confirm.
         return $this->mergeIntoDestination($targetSiteId, $domain, $month, $selected, $actorId);
+    }
+
+    /**
+     * Action B: Distribute selected Ideas into destination Site + Active Month via
+     * canonical SEO Audit Generate Ideas workflow (GenerateNewContentSuggestionsCommand).
+     * Source Ideas remain reusable and are NEVER consumed/deleted.
+     *
+     * @param  list<array<string, mixed>>  $selectedItems
+     * @return array<string, mixed>
+     */
+    public function distributeWithAi(
+        int $targetSiteId,
+        array $selectedItems,
+        string $activeMonth,
+        string $requestKey = '',
+        ?int $actorId = null,
+    ): array {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+        abort_unless($targetSiteId > 0 && SeoAccessControl::canAccessSite($targetSiteId), 403);
+
+        $month = ContentProjectMonthContext::normalize($activeMonth);
+        $site = Site::query()->find($targetSiteId);
+        $domain = (string) ($site?->domain ?? ('#'.$targetSiteId));
+        $fail = static fn (string $code, string $message): array => [
+            'ok' => false,
+            'status' => 'failed',
+            'code' => $code,
+            'message' => $message,
+            'target_site_id' => $targetSiteId,
+            'target_domain' => $domain,
+            'active_month' => $month,
+            'planner_run_id' => 0,
+            'run_detail_url' => null,
+            'already_active' => false,
+        ];
+
+        if (! $site instanceof Site) {
+            return $fail('invalid_target_site', 'Không tìm thấy domain đích.');
+        }
+
+        $selected = $this->normalizeSelected($selectedItems);
+        if ($selected === []) {
+            return $fail('empty_selection', 'Chưa chọn Idea nào để phân phối.');
+        }
+
+        $draft = app(PlanningDraftResolver::class)->findCanonicalSharedDraft();
+        if (! $draft instanceof SeoProject || ! $draft->isDraftPlanning()) {
+            return $fail('missing_shared_draft', 'Chưa có Shared Planning Draft đang hoạt động.');
+        }
+
+        $requestedFromTargets = AuditNoteDnaNormalizer::totalTargetDnaCount($selected);
+        if ($requestedFromTargets <= 0) {
+            return $fail('empty_targets', 'Số lượng DNA mục tiêu phải lớn hơn 0.');
+        }
+
+        $batchPolicy = new NewContentGenerationBatchPolicy;
+        if ($batchPolicy->exceedsHardCeiling($requestedFromTargets)) {
+            return $fail('batch_too_large', (string) __('seo-content-ai::filament.projects.planner_plan_too_large'));
+        }
+
+        $allocation = AuditNoteTargetAllocator::apply($selected, $requestedFromTargets);
+        if ($allocation['code'] === AuditNoteTargetAllocator::CODE_TOO_MANY_TOPICS) {
+            return $fail('too_many_topics', (string) __('seo-content-ai::filament.projects.audit_notes_too_many_topics', [
+                'topics' => $allocation['topic_count'],
+                'quantity' => $allocation['requested_quantity'],
+            ]));
+        }
+
+        $quantity = max(1, (int) $allocation['total_target']);
+        $options = NewContentSuggestionOptions::normalize([
+            'quantity' => $quantity,
+            'note_items' => $allocation['items'],
+            'planning_month' => $month,
+            'direction' => NewContentSuggestionOptions::DIRECTION_AUTOMATIC,
+            'post_type' => NewContentSuggestionOptions::CONTENT_TYPE_POST,
+            'use_site_context' => true,
+            'use_keyword_intelligence' => true,
+            'use_mcp_context' => true,
+        ]);
+
+        $actorId = $actorId !== null && $actorId > 0
+            ? $actorId
+            : (auth()->id() !== null ? (int) auth()->id() : null);
+
+        $safeKey = trim($requestKey) !== '' ? trim($requestKey) : Str::uuid()->toString();
+        $idemKey = 'idea-manager-ai:'.$draft->getKey().':'.$targetSiteId.':'.$month.':'.$safeKey;
+
+        try {
+            $result = app(ContentProjectCommandBus::class)->dispatch(
+                new GenerateNewContentSuggestionsCommand(
+                    (int) $draft->getKey(),
+                    $targetSiteId,
+                    $quantity,
+                    $options,
+                ),
+                ActorContext::user($actorId, $targetSiteId, $idemKey),
+            );
+        } catch (Throwable $e) {
+            return $fail('dispatch_exception', $e->getMessage() ?: 'Không thể khởi chạy AI tạo gợi ý.');
+        }
+
+        if (! $result->success) {
+            return $fail($result->code ?: 'dispatch_failed', $result->message ?: 'Không thể khởi chạy AI tạo gợi ý.');
+        }
+
+        $runId = (int) ($result->metadata['planner_run_id'] ?? 0);
+        $alreadyActive = (bool) ($result->metadata['already_active'] ?? false);
+        $status = (string) ($result->metadata['status'] ?? SeoContentProjectPlannerRun::STATUS_QUEUED);
+
+        return [
+            'ok' => $runId > 0,
+            'status' => $status,
+            'code' => $result->code,
+            'message' => $result->message,
+            'target_site_id' => $targetSiteId,
+            'target_domain' => $domain,
+            'active_month' => $month,
+            'planner_run_id' => $runId,
+            'requested' => (int) ($result->metadata['requested'] ?? $quantity),
+            'already_active' => $alreadyActive,
+            'run_detail_url' => $this->resolveRunDetailUrl($runId),
+        ];
+    }
+
+    /**
+     * Poll canonical SeoContentProjectPlannerRun status for UI progress / completion.
+     *
+     * @return array<string, mixed>
+     */
+    public function pollRun(int $runId): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+        if ($runId <= 0) {
+            return ['found' => false, 'status' => 'failed', 'terminal' => true, 'error' => 'Invalid run id.'];
+        }
+
+        $run = SeoContentProjectPlannerRun::query()->find($runId);
+        if (! $run instanceof SeoContentProjectPlannerRun) {
+            return ['found' => false, 'status' => 'failed', 'terminal' => true, 'error' => 'Run not found.'];
+        }
+
+        $summary = is_array($run->result_summary) ? $run->result_summary : [];
+        $status = (string) ($summary['status'] ?? SeoContentProjectPlannerRun::STATUS_QUEUED);
+        $addedIds = is_array($summary['added_task_ids'] ?? null) ? $summary['added_task_ids'] : [];
+        $added = (int) ($summary['added'] ?? count($addedIds));
+        $skipped = (int) ($summary['duplicate_skipped'] ?? 0);
+        $error = isset($summary['error']) && is_string($summary['error']) ? $summary['error'] : null;
+
+        $terminal = in_array($status, [
+            SeoContentProjectPlannerRun::STATUS_COMPLETED,
+            SeoContentProjectPlannerRun::STATUS_PARTIAL,
+            SeoContentProjectPlannerRun::STATUS_FAILED,
+            SeoContentProjectPlannerRun::STATUS_CANCELLED,
+        ], true);
+
+        return [
+            'found' => true,
+            'planner_run_id' => $runId,
+            'status' => $status,
+            'terminal' => $terminal,
+            'ok' => in_array($status, [
+                SeoContentProjectPlannerRun::STATUS_COMPLETED,
+                SeoContentProjectPlannerRun::STATUS_PARTIAL,
+            ], true),
+            'added' => $added,
+            'duplicate_skipped' => $skipped,
+            'error' => $error,
+            'run_detail_url' => $this->resolveRunDetailUrl($runId),
+        ];
+    }
+
+    /**
+     * Reconcile latest run for $targetSiteId after network timeout before allowing retry.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function reconcileLatestRun(int $targetSiteId): ?array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+        if ($targetSiteId <= 0 || ! SeoAccessControl::canAccessSite($targetSiteId)) {
+            return null;
+        }
+
+        $draft = app(PlanningDraftResolver::class)->findCanonicalSharedDraft();
+        if (! $draft instanceof SeoProject) {
+            return null;
+        }
+
+        $run = SeoContentProjectPlannerRun::query()
+            ->where('project_id', (int) $draft->getKey())
+            ->where('source', SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT)
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $run instanceof SeoContentProjectPlannerRun) {
+            return null;
+        }
+
+        return $this->pollRun((int) $run->getKey());
+    }
+
+    private function resolveRunDetailUrl(int $runId): ?string
+    {
+        if ($runId <= 0) {
+            return null;
+        }
+
+        try {
+            $url = ContentProjectPlannerRunDetail::getUrl(['run' => $runId], isAbsolute: false);
+
+            return is_string($url) && $url !== '' ? $url : null;
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     /**
@@ -263,17 +490,17 @@ final class IdeaManagerDistributionService
     }
 
     /**
+     * Exact + Semantic Keyword check against destination Article Focus Keywords ONLY.
+     *
      * @param  array<string, mixed>  $item
-     * @param  list<array<string, mixed>>  $destItems
-     * @param  array<string, string>  $topicKeys
-     * @param  list<array{ref: string, label: string, type: string, examples: list<string>}>  $inventory
+     * @param  array<string, array<string, mixed>>  $exactMap
+     * @param  list<array<string, mixed>>  $focusInventory
      * @return array<string, mixed>
      */
     private function analyzeItem(
         array $item,
-        array $destItems,
-        array $topicKeys,
-        array $inventory,
+        array $exactMap,
+        array $focusInventory,
         int $targetSiteId,
     ): array {
         $ref = (string) ($item['cluster_ref'] ?? '');
@@ -288,37 +515,38 @@ final class IdeaManagerDistributionService
             'similarity_score' => null,
             'matched' => null,
             'matched_type' => null,
+            'focus_keyword' => null,
+            'article_id' => null,
+            'article_title' => null,
+            'article_status' => null,
+            'article_status_label' => null,
+            'article_edit_url' => null,
             'reason' => null,
         ];
 
-        $hit = IdeaWorkspaceItemOps::findDuplicate($destItems, $ref, $name);
-        if ($hit !== null) {
+        if ($focusInventory === []) {
             return array_merge($base, [
-                'exact_match' => true,
-                'warning' => true,
-                'matched' => (string) ($hit['cluster_name_snapshot'] ?? $hit['cluster_ref'] ?? ''),
-                'matched_type' => 'idea',
-                'reason' => 'exact_destination_workspace',
+                'check_status' => self::CHECK_NO_FOCUS_KEYWORDS,
+                'reason' => 'no_focus_keywords',
             ]);
         }
 
-        $key = AuditNoteDnaNormalizer::normalizeKey(
-            AuditNoteDnaNormalizer::normalizeSeedText($name) ?: $name
-        );
-        if ($key !== '' && isset($topicKeys[$key])) {
+        $key = $this->normalizePhraseKey($name);
+        if ($key !== '' && isset($exactMap[$key])) {
+            $hit = $exactMap[$key];
+
             return array_merge($base, [
                 'exact_match' => true,
                 'warning' => true,
-                'matched' => $topicKeys[$key],
-                'matched_type' => 'topic',
-                'reason' => 'exact_destination_topic_core',
-            ]);
-        }
-
-        if ($inventory === []) {
-            return array_merge($base, [
-                'check_status' => self::CHECK_ANALYZED,
-                'reason' => 'no_destination_inventory',
+                'matched' => (string) $hit['focus_keyword'],
+                'matched_type' => 'focus_keyword',
+                'focus_keyword' => (string) $hit['focus_keyword'],
+                'article_id' => (int) $hit['article_id'],
+                'article_title' => (string) $hit['article_title'],
+                'article_status' => (string) $hit['article_status'],
+                'article_status_label' => (string) $hit['article_status_label'],
+                'article_edit_url' => $hit['article_edit_url'],
+                'reason' => 'exact_focus_keyword',
             ]);
         }
 
@@ -345,7 +573,7 @@ final class IdeaManagerDistributionService
                 'ref' => $g['ref'],
                 'label' => $g['label'],
                 'examples' => $g['examples'],
-            ], $inventory);
+            ], array_slice($focusInventory, 0, 80));
             $result = $client->match('site:'.$targetSiteId, $name, $groups, null, 3);
             $best = $result->matches[0] ?? null;
             if ($best === null) {
@@ -357,11 +585,17 @@ final class IdeaManagerDistributionService
             $matchedRef = (string) $best['ref'];
             $score = isset($best['score']) ? (float) $best['score'] : null;
             $meta = null;
-            foreach ($inventory as $g) {
+            foreach ($focusInventory as $g) {
                 if ($g['ref'] === $matchedRef) {
                     $meta = $g;
                     break;
                 }
+            }
+            if ($meta === null) {
+                return array_merge($base, [
+                    'check_status' => self::CHECK_ANALYZED,
+                    'reason' => 'no_semantic_match',
+                ]);
             }
 
             // TopicGroupRetrievalClient already applies provider min_score — returned hits are advisory.
@@ -370,8 +604,14 @@ final class IdeaManagerDistributionService
                 'check_status' => self::CHECK_ANALYZED,
                 'warning' => true,
                 'similarity_score' => $score,
-                'matched' => (string) ($meta['label'] ?? $matchedRef),
-                'matched_type' => (string) ($meta['type'] ?? 'unknown'),
+                'matched' => (string) $meta['focus_keyword'],
+                'matched_type' => 'focus_keyword',
+                'focus_keyword' => (string) $meta['focus_keyword'],
+                'article_id' => (int) $meta['article_id'],
+                'article_title' => (string) $meta['article_title'],
+                'article_status' => (string) $meta['article_status'],
+                'article_status_label' => (string) $meta['article_status_label'],
+                'article_edit_url' => $meta['article_edit_url'],
                 'reason' => 'semantic_similarity',
             ]);
         } catch (Throwable) {
@@ -385,130 +625,138 @@ final class IdeaManagerDistributionService
     }
 
     /**
-     * Destination-scoped inventory for Semantic Keyword advisory.
-     * Sources: dest Idea warehouse + draft planning keywords + published titles + Topic Core names.
+     * Canonical destination inventory: ONLY Focus Keywords of Articles belonging to $targetSiteId.
+     * Never includes Idea Workspace, Keyword Dictionary, Topic Core, Shared Draft, or other domains.
      *
-     * @param  list<array<string, mixed>>  $destItems
-     * @param  array<string, string>  $topicKeys
-     * @return list<array{ref: string, label: string, type: string, examples: list<string>}>
+     * @return list<array<string, mixed>>
      */
-    private function buildSemanticInventory(array $destItems, array $topicKeys): array
+    private function loadDestinationArticleFocusKeywords(int $targetSiteId): array
     {
-        $out = [];
-        $seen = [];
-        $push = static function (array &$out, array &$seen, string $ref, string $label, string $type): void {
-            $label = trim($label);
-            if ($label === '') {
-                return;
-            }
-            $key = AuditNoteDnaNormalizer::normalizeKey(
-                AuditNoteDnaNormalizer::normalizeSeedText($label) ?: $label
-            );
-            if ($key === '' || isset($seen[$key])) {
-                return;
-            }
-            $seen[$key] = true;
-            $out[] = [
-                'ref' => $ref,
-                'label' => $label,
-                'type' => $type,
-                'examples' => [$label],
-            ];
-        };
+        if ($targetSiteId <= 0) {
+            return [];
+        }
 
-        foreach ($destItems as $i => $item) {
-            if (! is_array($item)) {
+        try {
+            $articles = SeoArticle::query()
+                ->where('site_id', $targetSiteId)
+                ->where(static function ($q): void {
+                    $q->whereNull('review_status')
+                        ->orWhere('review_status', '!=', ArticleReviewStatus::Archived->value);
+                })
+                ->with([
+                    'articleMetas' => static function ($q): void {
+                        $q->whereIn('meta_key', ['seo_focus_keyword', 'rank_math_focus_keyword']);
+                    },
+                    'wordpressLink:id,article_id,wp_post_id,observed_post_status',
+                ])
+                ->orderByDesc('id')
+                ->get(['id', 'site_id', 'title', 'review_status']);
+        } catch (Throwable) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($articles as $article) {
+            if (! $article instanceof SeoArticle) {
                 continue;
             }
-            $label = trim((string) ($item['cluster_name_snapshot'] ?? $item['seed_text'] ?? ''));
-            $ref = trim((string) ($item['cluster_ref'] ?? ''));
-            $push($out, $seen, $ref !== '' ? 'idea:'.$ref : 'idea:'.$i, $label, 'idea');
+            $focusKeyword = $this->extractArticleFocusKeyword($article);
+            if ($focusKeyword === '') {
+                continue;
+            }
+            $normKey = $this->normalizePhraseKey($focusKeyword);
+            if ($normKey === '') {
+                continue;
+            }
+            $articleId = (int) $article->getKey();
+            [$statusCode, $statusLabel] = $this->resolveArticleStatus($article);
+
+            $out[] = [
+                'ref' => 'article_fk:'.$articleId,
+                'label' => $focusKeyword,
+                'examples' => [$focusKeyword],
+                'focus_keyword' => $focusKeyword,
+                'normalized_key' => $normKey,
+                'article_id' => $articleId,
+                'article_title' => trim((string) ($article->title ?? '')) ?: ('Article #'.$articleId),
+                'article_status' => $statusCode,
+                'article_status_label' => $statusLabel,
+                'article_edit_url' => $this->resolveArticleEditUrl($articleId),
+            ];
         }
 
-        $ti = 0;
-        foreach ($topicKeys as $label) {
-            $push($out, $seen, 'topic:'.$ti, (string) $label, 'topic');
-            $ti++;
-        }
-
-        // Cap inventory for match payload size — provider returns scores; we do not invent thresholds.
-        return array_slice($out, 0, 80);
+        return $out;
     }
 
     /**
-     * @param  list<array{ref: string, label: string, type: string, examples: list<string>}>  $base
-     * @return list<array{ref: string, label: string, type: string, examples: list<string>}>
+     * @param  list<array<string, mixed>>  $inventory
+     * @return array<string, array<string, mixed>>
      */
-    private function withDestinationContentInventory(int $targetSiteId, array $base): array
+    private function indexFocusKeywordsByNormalizedKey(array $inventory): array
     {
-        $seen = [];
-        foreach ($base as $row) {
-            $key = AuditNoteDnaNormalizer::normalizeKey(
-                AuditNoteDnaNormalizer::normalizeSeedText((string) ($row['label'] ?? '')) ?: (string) ($row['label'] ?? '')
-            );
-            if ($key !== '') {
-                $seen[$key] = true;
+        $map = [];
+        foreach ($inventory as $row) {
+            $key = (string) ($row['normalized_key'] ?? '');
+            if ($key !== '' && ! isset($map[$key])) {
+                $map[$key] = $row;
             }
         }
-        $out = $base;
-        $push = static function (array &$out, array &$seen, string $ref, string $label, string $type): void {
-            $label = trim($label);
-            if ($label === '') {
-                return;
-            }
-            $key = AuditNoteDnaNormalizer::normalizeKey(
-                AuditNoteDnaNormalizer::normalizeSeedText($label) ?: $label
-            );
-            if ($key === '' || isset($seen[$key])) {
-                return;
-            }
-            $seen[$key] = true;
-            $out[] = [
-                'ref' => $ref,
-                'label' => $label,
-                'type' => $type,
-                'examples' => [$label],
-            ];
-        };
+
+        return $map;
+    }
+
+    private function extractArticleFocusKeyword(SeoArticle $article): string
+    {
+        $metas = $article->relationLoaded('articleMetas') ? $article->articleMetas : collect();
+        $primary = trim((string) ($metas->firstWhere('meta_key', 'seo_focus_keyword')?->meta_value ?? ''));
+        if ($primary !== '') {
+            return $primary;
+        }
+
+        return trim((string) ($metas->firstWhere('meta_key', 'rank_math_focus_keyword')?->meta_value ?? ''));
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function resolveArticleStatus(SeoArticle $article): array
+    {
+        $wpStatus = strtolower(trim((string) ($article->wordpressLink?->observed_post_status ?? '')));
+        if ($wpStatus === 'publish') {
+            return ['published', 'Published'];
+        }
+
+        $review = strtolower(trim((string) ($article->review_status ?? '')));
+        if ($review === ArticleReviewStatus::Approved->value) {
+            return ['approved', 'Approved'];
+        }
+        if ($review === ArticleReviewStatus::PendingReview->value) {
+            return ['pending_review', 'Review'];
+        }
+
+        return ['draft', 'Draft'];
+    }
+
+    private function resolveArticleEditUrl(int $articleId): ?string
+    {
+        if ($articleId <= 0) {
+            return null;
+        }
 
         try {
-            $keywords = SeoProjectTask::query()
-                ->where('site_id', $targetSiteId)
-                ->where('type', SeoProjectTask::TYPE_CREATE)
-                ->whereHas('project', static function ($q): void {
-                    $q->where('status', SeoProject::STATUS_DRAFT)->whereNull('archived_at');
-                })
-                ->orderByDesc('id')
-                ->limit(40)
-                ->pluck('keyword');
-            $pi = 0;
-            foreach ($keywords as $kw) {
-                $push($out, $seen, 'planning:'.$pi, (string) $kw, 'planning');
-                $pi++;
-            }
-        } catch (Throwable) {
-            // Advisory only — skip planning inventory on failure.
-        }
+            $url = ArticleResource::getUrl('edit', ['record' => $articleId], isAbsolute: false);
 
-        try {
-            $titles = SeoArticle::query()
-                ->where('site_id', $targetSiteId)
-                ->whereHas('wordpressLink', static function ($q): void {
-                    $q->where('observed_post_status', 'publish');
-                })
-                ->orderByDesc('id')
-                ->limit(40)
-                ->pluck('title');
-            $ai = 0;
-            foreach ($titles as $title) {
-                $push($out, $seen, 'article:'.$ai, (string) $title, 'article');
-                $ai++;
-            }
+            return is_string($url) && $url !== '' ? $url : null;
         } catch (Throwable) {
-            // Advisory only — skip published inventory on failure.
+            return null;
         }
+    }
 
-        return array_slice($out, 0, 80);
+    private function normalizePhraseKey(string $phrase): string
+    {
+        $seed = AuditNoteDnaNormalizer::normalizeSeedText($phrase);
+
+        return AuditNoteDnaNormalizer::normalizeKey($seed !== '' ? $seed : $phrase);
     }
 
     /**

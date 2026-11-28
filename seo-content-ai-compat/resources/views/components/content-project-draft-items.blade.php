@@ -35,11 +35,11 @@
         ];
     }
     $rows = array_map(static function (array $row) use ($labelPost, $labelProduct): array {
+        $canEditPostType = ! empty($row['can_edit_post_type']);
         $postType = (string) ($row['post_type'] ?? '');
-        if ($postType === '' || $postType === 'article') {
+        if ($postType === 'article' || ($postType === '' && $canEditPostType)) {
             $postType = 'post';
         }
-        $canEditPostType = ! empty($row['can_edit_post_type']);
         $siteId = isset($row['site_id']) ? (int) $row['site_id'] : 0;
         $domain = trim((string) ($row['domain'] ?? ''));
         if ($domain === '') {
@@ -81,6 +81,7 @@
             'saving_post_type' => false,
             'saving_domain' => false,
             'cloning' => false,
+            'moving_to_idea' => false,
         ];
     }, $items);
 
@@ -106,6 +107,8 @@
         'confirmSkip' => (string) __('seo-content-ai::filament.projects.seo_audit_skip_confirm'),
         'confirmArchive' => (string) __('seo-content-ai::filament.projects.item_action_remove_from_draft_confirm'),
         'confirmBulkArchive' => (string) __('seo-content-ai::filament.projects.planning_bulk_remove_confirm'),
+        'confirmMoveToIdea' => (string) __('seo-content-ai::filament.projects.planning_move_to_idea_confirm'),
+        'confirmBulkMoveToIdea' => (string) __('seo-content-ai::filament.projects.planning_bulk_move_to_idea_confirm'),
         'labelReviewed' => (string) __('seo-content-ai::filament.projects.planning_reviewed'),
         'labelUnreviewed' => (string) __('seo-content-ai::filament.projects.planning_unreviewed'),
         'markReviewed' => (string) __('seo-content-ai::filament.projects.planning_mark_reviewed'),
@@ -119,6 +122,7 @@
         'labelSkipSeoAudit' => (string) __('seo-content-ai::filament.projects.item_action_skip_seo_audit'),
         'labelRemove' => (string) __('seo-content-ai::filament.projects.item_action_remove_from_draft'),
         'labelCloneIdea' => (string) __('seo-content-ai::filament.projects.planning_clone_idea'),
+        'labelMoveToIdea' => (string) __('seo-content-ai::filament.projects.planning_move_to_idea'),
         'domainBlank' => (string) __('seo-content-ai::filament.projects.planning_domain_blank'),
         'domainRequired' => (string) __('seo-content-ai::filament.projects.planning_domain_required_before_review'),
         'seoPrefix' => 'SEO',
@@ -153,6 +157,8 @@
                 confirmSkip: cfg.confirmSkip || '',
                 confirmArchive: cfg.confirmArchive || '',
                 confirmBulkArchive: cfg.confirmBulkArchive || '',
+                confirmMoveToIdea: cfg.confirmMoveToIdea || '',
+                confirmBulkMoveToIdea: cfg.confirmBulkMoveToIdea || '',
                 markReviewed: cfg.markReviewed || '',
                 markUnreviewed: cfg.markUnreviewed || '',
                 labelReviewed: cfg.labelReviewed || '',
@@ -166,6 +172,7 @@
                 labelSkipSeoAudit: cfg.labelSkipSeoAudit || 'Skip SEO Audit',
                 labelRemove: cfg.labelRemove || 'Remove',
                 labelCloneIdea: cfg.labelCloneIdea || 'Clone idea',
+                labelMoveToIdea: cfg.labelMoveToIdea || 'Đưa về Kho Idea',
                 domainBlank: cfg.domainBlank || '—',
                 domainRequired: cfg.domainRequired || 'Domain is required before review.',
                 seoPrefix: cfg.seoPrefix || 'SEO',
@@ -634,6 +641,32 @@
                     }
                 },
 
+                async bulkMoveToIdea() {
+                    if (this.bulkBusy || this.selected.length === 0) {
+                        return;
+                    }
+                    const msg = String(this.confirmBulkMoveToIdea || this.confirmMoveToIdea || '')
+                        .replace(':count', String(this.selected.length));
+                    if (! window.confirm(msg)) {
+                        return;
+                    }
+                    const ids = this.selected.slice();
+                    this.bulkBusy = true;
+                    try {
+                        const res = await this.lw().moveToIdeaManagerSelected(ids);
+                        const moved = Array.isArray(res && res.moved_ids) ? res.moved_ids.map((id) => Number(id)) : [];
+                        moved.forEach((id) => this.removeLocal(id));
+                        if (res && res.counts) {
+                            this.counts = res.counts;
+                        }
+                        this.syncSelectedToWire();
+                    } catch (e) {
+                        console.error(e);
+                    } finally {
+                        this.bulkBusy = false;
+                    }
+                },
+
                 async bulkArchive() {
                     if (this.bulkBusy || this.selected.length === 0) {
                         return;
@@ -664,6 +697,32 @@
                         snapshots.reverse().forEach((snap) => this.restoreLocal(snap));
                         this.selected = ids.slice();
                         this.syncSelectedToWire();
+                        console.error(e);
+                    } finally {
+                        this.bulkBusy = false;
+                    }
+                },
+
+                async bulkMoveToIdea() {
+                    if (this.bulkBusy || this.selected.length === 0) {
+                        return;
+                    }
+                    const msg = String(this.confirmBulkMoveToIdea || this.confirmMoveToIdea || '')
+                        .replace(':count', String(this.selected.length));
+                    if (! window.confirm(msg)) {
+                        return;
+                    }
+                    const ids = this.selected.slice();
+                    this.bulkBusy = true;
+                    try {
+                        const res = await this.lw().moveToIdeaManagerSelected(ids);
+                        const moved = Array.isArray(res && res.moved_ids) ? res.moved_ids.map((id) => Number(id)) : [];
+                        moved.forEach((id) => this.removeLocal(id));
+                        if (res && res.counts) {
+                            this.counts = res.counts;
+                        }
+                        this.syncSelectedToWire();
+                    } catch (e) {
                         console.error(e);
                     } finally {
                         this.bulkBusy = false;
@@ -944,6 +1003,31 @@
                         this.restoreLocal(snapshot);
                     }
                 },
+
+                async moveToIdeaRow(row) {
+                    if (! row || row.moving_to_idea) {
+                        return;
+                    }
+                    if (! window.confirm(this.confirmMoveToIdea)) {
+                        return;
+                    }
+                    row.moving_to_idea = true;
+                    try {
+                        const res = await this.lw().moveToIdeaManagerOne(row.id);
+                        const moved = Array.isArray(res && res.moved_ids) ? res.moved_ids.map((id) => Number(id)) : [];
+                        if (moved.includes(Number(row.id))) {
+                            this.removeLocal(row.id);
+                            if (res && res.counts) {
+                                this.counts = res.counts;
+                            }
+                            this.syncSelectedToWire();
+                        }
+                    } catch (e) {
+                        console.error(e);
+                    } finally {
+                        row.moving_to_idea = false;
+                    }
+                },
             };
         };
     </script>
@@ -1060,6 +1144,22 @@
                 </button>
                 <button
                     type="button"
+                    class="cp-plan-btn cp-plan-btn--improve"
+                    style="width:auto;flex:0 0 auto;"
+                    :class="{ 'opacity-50 pointer-events-none': bulkBusy }"
+                    :disabled="bulkBusy"
+                    wire:loading.attr="disabled"
+                    wire:target="moveToIdeaManagerSelected"
+                    @click="bulkMoveToIdea()"
+                    data-draft-bulk-action="move-to-idea"
+                >
+                    <span wire:loading.remove wire:target="moveToIdeaManagerSelected" x-text="labelMoveToIdea"></span>
+                    <span wire:loading wire:target="moveToIdeaManagerSelected" class="inline-flex items-center gap-1">
+                        <svg class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+                    </span>
+                </button>
+                <button
+                    type="button"
                     class="cp-plan-btn cp-plan-btn--danger"
                     style="width:auto;flex:0 0 auto;"
                     :class="{ 'opacity-50 pointer-events-none': bulkBusy }"
@@ -1081,7 +1181,7 @@
     <x-seo-content-ai::list-table-loading-shell
         class="cp-plan-draft__body"
         preset="livewire-page"
-        targets="setDraftReviewFilter,setDraftTypeFilter,setDraftDomainFilter,draftReviewFilter,draftTypeFilter,draftDomainFilter,onDomainContextChanged,markReviewedSelected,archiveSelected"
+        targets="setDraftReviewFilter,setDraftTypeFilter,setDraftDomainFilter,draftReviewFilter,draftTypeFilter,draftDomainFilter,onDomainContextChanged,markReviewedSelected,archiveSelected,moveToIdeaManagerSelected,moveToIdeaManagerOne"
     >
         @if (! $hasDraft)
             <div class="cp-plan-draft__empty text-sm text-gray-500 dark:text-gray-400">
@@ -1427,6 +1527,18 @@
                                                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M1 1l22 22"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/></svg>
                                             </button>
                                         </template>
+                                        <button
+                                            type="button"
+                                            class="cp-plan-icon-btn"
+                                            :class="{ 'opacity-50 pointer-events-none': row.moving_to_idea }"
+                                            :disabled="row.moving_to_idea"
+                                            @click="moveToIdeaRow(row)"
+                                            :title="labelMoveToIdea"
+                                            :aria-label="labelMoveToIdea"
+                                            data-draft-row-action="move-to-idea"
+                                        >
+                                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 00-4 12.7c.7.5 1 1.3 1 2.3h6c0-1 .3-1.8 1-2.3A7 7 0 0012 2z"/></svg>
+                                        </button>
                                         <button
                                             type="button"
                                             class="cp-plan-icon-btn cp-plan-icon-btn--danger"

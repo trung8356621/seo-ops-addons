@@ -118,6 +118,14 @@ final class CreateProjectTaskAction implements BusinessAction
                     (string) ($input['post_type'] ?? SeoProjectTask::POST_TYPE_ARTICLE),
                 );
                 $payload['article_id'] = null;
+            } elseif ($articleId > 0) {
+                $linkedArticle = \Omnichannel\Addons\Content\Models\SeoArticle::query()
+                    ->with('articleMetas')
+                    ->find($articleId);
+                $payload['post_type'] = $linkedArticle instanceof \Omnichannel\Addons\Content\Models\SeoArticle
+                    ? app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectTaskPostTypeRecheckService::class)
+                        ->resolveCanonicalForArticle($linkedArticle)
+                    : null;
             }
 
             if ($type === SeoProjectTask::TYPE_REWRITE) {

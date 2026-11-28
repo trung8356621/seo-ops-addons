@@ -21,8 +21,10 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectDraftPlanningItemsReadModel;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SplitDraftContentProjectCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\MoveSharedDraftToIdeaManagerService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftIntakeService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftResolver;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\SeoAudit\SeoAuditSuggestionDecisionService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\Seo\Filament\Concerns\HidesFilamentPageHeader;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoPanelPage;
@@ -258,6 +260,74 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         $this->draftDomainFilter = $this->normalizeDraftDomainFilter($value);
         $this->selectedTaskIds = [];
         $this->draftPlanningRefreshNonce++;
+    }
+
+    /**
+     * @return array{site_id: int|null, domain: string, count: int, can_clear: bool}
+     */
+    public function getDraftQuarantineStateProperty(): array
+    {
+        $draft = $this->project;
+        if (! $draft instanceof SeoProject || ! $draft->isDraftPlanning()) {
+            return ['site_id' => null, 'domain' => '', 'count' => 0, 'can_clear' => false];
+        }
+
+        $filter = $this->normalizeDraftDomainFilter($this->draftDomainFilter);
+        if ($filter === 'all' || $filter === '0' || ! ctype_digit($filter)) {
+            return ['site_id' => null, 'domain' => '', 'count' => 0, 'can_clear' => false];
+        }
+
+        $siteId = (int) $filter;
+        if ($siteId <= 0 || ! SeoAccessControl::canAccessSite($siteId)) {
+            return ['site_id' => null, 'domain' => '', 'count' => 0, 'can_clear' => false];
+        }
+
+        $options = $this->siteFilterOptions;
+        $domain = trim((string) ($options[$siteId] ?? ''));
+        if ($domain === '') {
+            $domain = trim((string) (Site::query()->whereKey($siteId)->value('domain') ?? ('#'.$siteId)));
+        }
+
+        $count = app(SeoAuditSuggestionDecisionService::class)->countDismissedForSite($draft, $siteId);
+
+        return [
+            'site_id' => $siteId,
+            'domain' => $domain,
+            'count' => $count,
+            'can_clear' => $count > 0,
+        ];
+    }
+
+    public function clearDraftQuarantine(): void
+    {
+        if (! SeoAccessControl::canMutateInSeoPanel()) {
+            return;
+        }
+
+        $state = $this->draftQuarantineState;
+        $siteId = (int) ($state['site_id'] ?? 0);
+        if ($siteId <= 0) {
+            Notification::make()
+                ->warning()
+                ->title('Vui lòng chọn một tên miền cụ thể để gỡ cách ly.')
+                ->send();
+
+            return;
+        }
+
+        $draft = $this->project;
+        if (! $draft instanceof SeoProject || ! $draft->isDraftPlanning()) {
+            return;
+        }
+
+        $cleared = app(SeoAuditSuggestionDecisionService::class)->clearDismissedForSite($draft, $siteId);
+        $this->draftPlanningRefreshNonce++;
+        $this->dispatch('cp-ops-refresh');
+
+        Notification::make()
+            ->success()
+            ->title("Đã gỡ cách ly {$cleared} mục SEO Audit cho {$state['domain']}.")
+            ->send();
     }
 
     /**
@@ -578,6 +648,30 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         }
 
         return $this->dispatchDraftArchive($this->selectedTaskIds);
+    }
+
+    /**
+     * Row action: MOVE 1 Shared Planning Draft keyword → Idea Manager + delete Draft.
+     *
+     * @return array<string, mixed>
+     */
+    public function moveToIdeaManagerOne(int $taskId): array
+    {
+        return $this->dispatchMoveToIdeaManager([$taskId]);
+    }
+
+    /**
+     * Bulk action: MOVE selected Shared Planning Draft keywords → Idea Manager + delete Drafts.
+     *
+     * @return array<string, mixed>
+     */
+    public function moveToIdeaManagerSelected(mixed $taskIds = null): array
+    {
+        if (is_array($taskIds)) {
+            $this->selectedTaskIds = $this->normalizeSelectedIds($taskIds);
+        }
+
+        return $this->dispatchMoveToIdeaManager($this->selectedTaskIds);
     }
 
     /**
@@ -1199,5 +1293,108 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
 
             return false;
         }
+    }
+
+    /**
+     * @param  list<int>  $taskIds
+     * @return array<string, mixed>
+     */
+    private function dispatchMoveToIdeaManager(array $taskIds): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+
+        $empty = [
+            'ok' => false,
+            'moved_ids' => [],
+            'added_count' => 0,
+            'already_exists_count' => 0,
+            'deleted_count' => 0,
+            'skipped_unsafe' => [],
+            'failed' => [],
+            'counts' => null,
+        ];
+
+        $ids = $this->normalizeSelectedIds($taskIds);
+        if ($ids === []) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.queue_select_required'))
+                ->warning()
+                ->send();
+
+            return $empty;
+        }
+
+        try {
+            $project = $this->requireProject();
+        } catch (Halt) {
+            return $empty;
+        }
+
+        $actorId = auth()->id() !== null ? (int) auth()->id() : null;
+        $res = app(MoveSharedDraftToIdeaManagerService::class)->move($project, $ids, $actorId);
+
+        $movedIds = is_array($res['moved_ids'] ?? null) ? $res['moved_ids'] : [];
+        if ($movedIds !== []) {
+            $movedLookup = array_flip($movedIds);
+            $this->selectedTaskIds = array_values(array_filter(
+                $this->normalizeSelectedIds($this->selectedTaskIds),
+                static fn (int $id): bool => ! isset($movedLookup[$id]),
+            ));
+            unset($this->draftPlanningPayload);
+            $this->draftPlanningRefreshNonce++;
+            $res['counts'] = $this->draftPlanningPayload['counts'] ?? null;
+        } else {
+            $res['counts'] = null;
+        }
+
+        $added = (int) ($res['added_count'] ?? 0);
+        $already = (int) ($res['already_exists_count'] ?? 0);
+        $deleted = (int) ($res['deleted_count'] ?? 0);
+        $skipped = is_array($res['skipped_unsafe'] ?? null) ? $res['skipped_unsafe'] : [];
+        $failed = is_array($res['failed'] ?? null) ? $res['failed'] : [];
+
+        $lines = [];
+        if ($added > 0 || $already > 0 || $deleted > 0) {
+            $lines[] = sprintf(
+                'Thêm mới: %d • Đã có trong kho: %d • Đã xóa Draft: %d',
+                $added,
+                $already,
+                $deleted,
+            );
+        }
+        if ($skipped !== []) {
+            $reasons = array_slice(array_map(
+                static fn (array $r): string => '#'.(int) ($r['task_id'] ?? 0).': '.(string) ($r['reason'] ?? ''),
+                $skipped,
+            ), 0, 3);
+            $lines[] = sprintf('Bỏ qua (%d không an toàn): %s', count($skipped), implode('; ', $reasons));
+        }
+        if ($failed !== []) {
+            $reasons = array_slice(array_map(
+                static fn (array $r): string => '#'.(int) ($r['task_id'] ?? 0).': '.(string) ($r['reason'] ?? ''),
+                $failed,
+            ), 0, 3);
+            $lines[] = sprintf('Lỗi (%d): %s', count($failed), implode('; ', $reasons));
+        }
+
+        $title = __('seo-content-ai::filament.projects.planning_move_to_idea_completed');
+        $level = 'success';
+        if ($movedIds === []) {
+            $title = __('seo-content-ai::filament.projects.planning_move_to_idea_failed');
+            $level = $skipped !== [] && $failed === [] ? 'warning' : 'danger';
+        } elseif ($skipped !== [] || $failed !== []) {
+            $title = __('seo-content-ai::filament.projects.planning_move_to_idea_partial');
+            $level = 'warning';
+        } elseif ($added === 0 && $already > 0) {
+            $title = __('seo-content-ai::filament.projects.planning_move_to_idea_already');
+        }
+
+        Notification::make()
+            ->title($title)
+            ->body(implode("\n", $lines))
+            ->{$level}()
+            ->send();
+
+        return $res;
     }
 }

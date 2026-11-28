@@ -198,17 +198,6 @@
                             </div>
                         @endif
 
-                        @if ($mode === AssignToContentProjectContract::MODE_PENDING_LINK && filled($anchorPhrase))
-                            <div>
-                                <label class="text-sm font-medium text-gray-700 dark:text-gray-200">
-                                    {{ __('seo-content-ai::filament.keyword.phrase') }}
-                                </label>
-                                <p class="mt-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 dark:border-white/10 dark:bg-gray-950 dark:text-gray-200">
-                                    {{ $anchorPhrase }}
-                                </p>
-                            </div>
-                        @endif
-
                         @if ($mode === AssignToContentProjectContract::MODE_VOCABULARY_ITEMS && count($items) > 0)
                             <div>
                                 <label class="text-sm font-medium text-gray-700 dark:text-gray-200">

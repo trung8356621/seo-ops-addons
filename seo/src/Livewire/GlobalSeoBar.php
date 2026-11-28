@@ -46,7 +46,8 @@ class GlobalSeoBar extends Component
         // Capture planner context from the full-page GET only (route + path). Persists across Livewire updates.
         $this->showPlannerActiveMonth = SeoAccessControl::isProjectPlannerSeoAuditPage();
         $this->hideDomainPickerOnLanding = SeoPanelRoutes::isLandingDashboard()
-            || SeoPanelRoutes::isStatisticsPage();
+            || SeoPanelRoutes::isStatisticsPage()
+            || $this->showPlannerActiveMonth;
 
         $resolver = app(DomainContextResolver::class);
         if ($this->shouldPreferFirstAccessibleDomain() || $this->showPlannerActiveMonth) {

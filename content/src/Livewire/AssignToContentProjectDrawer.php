@@ -25,10 +25,11 @@ use Throwable;
  * Canonical Assign-to-Content-Project sidebar.
  *
  * Destinations by mode:
- * - MODE_KEYWORD → Idea Manager warehouse (IdeaManagerKeywordIntakeService)
- * - article / pending_link / vocabulary → Shared Planning Draft (PlanningDraftIntakeService)
+ * - MODE_KEYWORD / MODE_VOCABULARY_ITEMS → Idea Manager warehouse (IdeaManagerKeywordIntakeService)
+ * - MODE_ARTICLE → Shared Planning Draft (PlanningDraftIntakeService)
  *
  * Mount once at the panel shell; callers open via assign-content-project:open.
+ * Pending Internal Link / Future Link workflow is retired.
  */
 class AssignToContentProjectDrawer extends Component
 {
@@ -163,8 +164,6 @@ class AssignToContentProjectDrawer extends Component
 
         if ($this->mode === AssignToContentProjectContract::MODE_KEYWORD) {
             $this->prepareKeywordContext($defaults);
-        } elseif ($this->mode === AssignToContentProjectContract::MODE_PENDING_LINK) {
-            $this->preparePendingLinkContext($defaults);
         } elseif ($this->mode === AssignToContentProjectContract::MODE_VOCABULARY_ITEMS) {
             $this->prepareVocabularyItemsContext($defaults, $options);
         } else {
@@ -279,7 +278,6 @@ class AssignToContentProjectDrawer extends Component
         try {
             match ($this->mode) {
                 AssignToContentProjectContract::MODE_KEYWORD => $this->submitKeyword(),
-                AssignToContentProjectContract::MODE_PENDING_LINK => $this->submitPendingLink(),
                 AssignToContentProjectContract::MODE_VOCABULARY_ITEMS => $this->submitVocabularyItems(),
                 default => $this->submitArticle(),
             };
@@ -409,31 +407,6 @@ class AssignToContentProjectDrawer extends Component
 
     /**
      * @param  array<string, mixed>  $defaults
-     */
-    private function preparePendingLinkContext(array $defaults): void
-    {
-        unset($defaults);
-        $this->showArticleFields = false;
-        $this->showMultiSite = false;
-        $this->showQuickCreate = false;
-        $this->showFocusKeyword = false;
-        $this->projectOptions = [];
-        $this->projectId = null;
-
-        $articleId = (int) ($this->articleIds[0] ?? 0);
-        $article = $articleId > 0 ? $this->loadArticles([$articleId])->first() : null;
-        $siteId = (int) ($this->siteIds[0] ?? ($article?->site_id ?? 0));
-        if ($siteId > 0) {
-            $this->siteIds = [$siteId];
-        }
-
-        if ($this->anchorPhrase === null || trim($this->anchorPhrase) === '') {
-            $this->errorMessage = __('seo-content-ai::filament.article_edit.pending_link_empty_phrase');
-        }
-    }
-
-    /**
-     * @param  array<string, mixed>  $defaults
      * @param  array<string, mixed>  $options
      */
     private function prepareVocabularyItemsContext(array $defaults, array $options): void
@@ -522,10 +495,6 @@ class AssignToContentProjectDrawer extends Component
             }
 
             return ! $this->needsFocusKeyword && $this->articleIds !== [];
-        }
-
-        if ($this->mode === AssignToContentProjectContract::MODE_PENDING_LINK) {
-            return trim((string) ($this->anchorPhrase ?? '')) !== '' && $this->articleIds !== [];
         }
 
         if ($this->mode === AssignToContentProjectContract::MODE_VOCABULARY_ITEMS) {
@@ -620,67 +589,6 @@ class AssignToContentProjectDrawer extends Component
         $this->resetFormState();
     }
 
-    private function submitPendingLink(): void
-    {
-        $articleId = (int) ($this->articleIds[0] ?? 0);
-        $phrase = trim((string) ($this->anchorPhrase ?? ''));
-
-        if ($articleId <= 0 || $phrase === '') {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.article_edit.pending_link_empty_phrase'))
-                ->warning()
-                ->send();
-
-            return;
-        }
-
-        $result = app(PlanningDraftIntakeService::class)->addPendingLink($articleId, $phrase);
-        $this->notifyIntakeResult($result);
-        if (! $result->isSuccess()) {
-            $this->errorMessage = $result->message !== ''
-                ? $result->message
-                : __('seo-content-ai::filament.articles_optimal.assign_failed');
-
-            return;
-        }
-
-        $placeholderHref = trim($result->placeholderHref);
-        if ($placeholderHref !== '' && str_starts_with($placeholderHref, '#')) {
-            $placeholderHref = '';
-        }
-        $searchUrl = trim($result->searchUrl);
-
-        $this->dispatch(
-            'pending-internal-link-ready',
-            placeholderHref: $placeholderHref,
-            searchUrl: $searchUrl,
-            message: $result->message,
-        );
-
-        $this->js(
-            'window.dispatchEvent(new CustomEvent("pending-internal-link-ready",{detail:'
-            .json_encode([
-                'placeholderHref' => $placeholderHref,
-                'placeholder_href' => $placeholderHref,
-                'searchUrl' => $searchUrl,
-                'search_url' => $searchUrl,
-                'message' => $result->message,
-            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
-            .'}));'
-        );
-
-        $this->emitSuccess([
-            'mode' => $this->mode,
-            'source' => $this->source,
-            'article_ids' => $this->articleIds,
-            'draft_project_id' => $result->draftProjectId,
-            'status' => $result->status,
-            'summary' => $result->summary,
-        ]);
-        $this->open = false;
-        $this->resetFormState();
-    }
-
     private function submitVocabularyItems(): void
     {
         $siteId = (int) ($this->siteIds[0] ?? 0);
@@ -693,13 +601,9 @@ class AssignToContentProjectDrawer extends Component
             return;
         }
 
-        $result = app(PlanningDraftIntakeService::class)->addVocabularyPhrases(
-            $this->items,
-            $siteId,
-            (int) ($this->articleIds[0] ?? 0) ?: null,
-        );
-
-        $this->notifyIntakeResult($result);
+        // Vocabulary phrases → Idea Manager (not Shared Planning Draft).
+        $result = app(IdeaManagerKeywordIntakeService::class)->addPhrases($this->items, [$siteId]);
+        $this->notifyIdeaManagerIntakeResult($result);
         if (! $result->isSuccess()) {
             $this->errorMessage = $result->message !== ''
                 ? $result->message
@@ -712,7 +616,8 @@ class AssignToContentProjectDrawer extends Component
             'mode' => $this->mode,
             'source' => $this->source,
             'items' => $this->items,
-            'draft_project_id' => $result->draftProjectId,
+            'destination' => 'idea_manager',
+            'draft_project_id' => null,
             'status' => $result->status,
             'summary' => $result->summary,
         ]);
@@ -827,10 +732,6 @@ class AssignToContentProjectDrawer extends Component
 
         if ($this->mode === AssignToContentProjectContract::MODE_KEYWORD) {
             return $this->siteIds !== [] && $this->keywordIds !== [];
-        }
-
-        if ($this->mode === AssignToContentProjectContract::MODE_PENDING_LINK) {
-            return trim((string) ($this->anchorPhrase ?? '')) !== '' && $this->articleIds !== [];
         }
 
         if ($this->mode === AssignToContentProjectContract::MODE_VOCABULARY_ITEMS) {

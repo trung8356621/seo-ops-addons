@@ -10,6 +10,5 @@ export const AssignToContentProjectContract = Object.freeze({
     SHELL_CLOSE_EVENT: 'assign-content-project:shell-close',
     MODE_ARTICLE: 'article',
     MODE_KEYWORD: 'keyword',
-    MODE_PENDING_LINK: 'pending_link',
     MODE_VOCABULARY_ITEMS: 'vocabulary_items',
 });

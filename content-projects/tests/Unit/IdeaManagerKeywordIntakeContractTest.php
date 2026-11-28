@@ -27,6 +27,8 @@ final class IdeaManagerKeywordIntakeContractTest extends TestCase
         );
         self::assertStringContainsString('IdeaWorkspacePersistenceService', $src);
         self::assertStringContainsString('IdeaWorkspaceItemOps::makeManualSeed', $src);
+        self::assertStringContainsString('function addPhrases', $src);
+        self::assertStringContainsString('function addKeywords', $src);
         self::assertStringContainsString('source_site_id', $src);
         self::assertStringContainsString('source_domain', $src);
         self::assertStringNotContainsString('PlanningDraftIntakeService', $src);
