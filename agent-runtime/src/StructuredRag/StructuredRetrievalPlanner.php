@@ -20,6 +20,7 @@ final class StructuredRetrievalPlanner
             'site_knowledge' => ['site.knowledge'],
             'articles' => ['articles.inventory'],
             'article_quality' => ($understanding->parameters['highest_score'] ?? false)
+                ? ['articles.inventory'] : ['seo_audit.worst_articles'],
             'keyword_inventory' => ['keywords.inventory'],
             'keyword_landscape' => ['keywords.landscape'],
             'topic_coverage' => ['keywords.relationship'],
