@@ -15,9 +15,15 @@ final class AnswerEvidenceProjector
     public function __construct(private readonly AgentModelEvidenceSanitizer $sanitizer = new AgentModelEvidenceSanitizer()) {}
 
     /** @return array{bundle: array<string, mixed>, analysis_task: list<string>} */
-    public function project(RetrievalBundle $bundle, string $message): array
+    public function project(RetrievalBundle $bundle, string $message, bool $structured = false): array
     {
         $payload = $this->sanitizer->sanitize($bundle);
+        if ($structured) {
+            return [
+                'bundle' => $payload,
+                'analysis_task' => $this->analysisTask($message, $payload, false, false),
+            ];
+        }
         $hasTopics = false;
         $compacted = false;
         foreach ($payload['sources'] as &$source) {
@@ -37,10 +43,7 @@ final class AnswerEvidenceProjector
         }
         unset($source);
 
-        $tasks = [];
-        if ($compacted && $this->isImprovement($message)) {
-            $tasks = $this->improvementTask($hasTopics);
-        }
+        $tasks = $compacted && $this->isImprovement($message) ? $this->improvementTask($hasTopics) : [];
 
         return [
             'bundle' => $payload,
@@ -66,6 +69,12 @@ final class AnswerEvidenceProjector
                 'mcp_percent' => $topic['mcp_percent'] ?? null,
                 'article_count' => $topic['article_count'] ?? null,
                 'topic_ref' => trim((string) ($topic['topic_ref'] ?? '')),
+                'dna_count' => $topic['dna_count'] ?? null,
+                'status' => $topic['status'] ?? null,
+                'has_focus_article' => $topic['has_focus_article'] ?? null,
+                'dna' => is_array($topic['dna'] ?? null) ? $topic['dna'] : null,
+                'focus_articles' => is_array($topic['focus_articles'] ?? null) ? $topic['focus_articles'] : null,
+                'relationship_status' => $topic['relationship_status'] ?? null,
             ];
             if ($item['topic_ref'] === '') {
                 unset($item['topic_ref']);
@@ -73,11 +82,13 @@ final class AnswerEvidenceProjector
             $compactedTopics[] = $item;
         }
 
-        return [
-            'dataset_scope' => 'topic_coverage_sample',
-            'summary' => $data['summary'] ?? null,
-            'topics' => $compactedTopics,
-        ];
+        $out = $data;
+        $out['dataset_scope'] = isset($data['pagination']['total']) && count($compactedTopics) >= (int) $data['pagination']['total']
+            ? 'topic_coverage_complete'
+            : 'topic_coverage_sample';
+        $out['topics'] = $compactedTopics;
+
+        return $out;
     }
 
     /**
@@ -104,6 +115,10 @@ final class AnswerEvidenceProjector
                     static fn (mixed $reason): string => trim((string) $reason),
                     is_array($item['reason_labels'] ?? null) ? $item['reason_labels'] : [],
                 ))),
+                'article_ref' => trim((string) ($item['article_ref'] ?? '')),
+                'status' => $item['status'] ?? null,
+                'slug' => $item['slug'] ?? null,
+                'updated_at' => $item['updated_at'] ?? null,
             ];
             if ($example['title'] === '') {
                 unset($example['title']);
@@ -121,16 +136,23 @@ final class AnswerEvidenceProjector
         $sampleSize = count($items);
         $complete = $sampleSize === $total;
 
-        return [
+        return array_filter([
             'dataset_scope' => 'retrieved_article_sample',
             'total' => $total,
             'sample_size' => $sampleSize,
             'sample_covers_total' => $complete,
             'examples' => $examples,
+            'site_ref' => $data['site_ref'] ?? null,
+            'schema' => $data['schema'] ?? null,
+            'generated_at' => $data['generated_at'] ?? null,
+            'source_updated_at' => $data['source_updated_at'] ?? null,
+            'pagination' => $data['pagination'] ?? null,
+            'selection' => $data['selection'] ?? null,
+            '_context_meta' => $data['_context_meta'] ?? null,
             'uncertainties' => $complete ? [] : [
                 'total is the authoritative count of matching records. examples are only the retrieved sample and do not prove that every website article has a low SEO score.',
             ],
-        ];
+        ], static fn (mixed $value): bool => $value !== null);
     }
 
     /** @param  array<string, mixed>  $item */
@@ -142,6 +164,35 @@ final class AnswerEvidenceProjector
     private function isImprovement(string $message): bool
     {
         return preg_match('/cải thiện|\bimprov/iu', $message) === 1;
+    }
+
+    /** @param array<string, mixed> $payload @return list<array<string, mixed>> */
+    private function analysisTask(string $message, array $payload, bool $compacted, bool $hasTopics): array
+    {
+        $sources = [];
+        foreach (($payload['sources'] ?? []) as $source) {
+            if (is_array($source) && is_string($source['name'] ?? null)) $sources[] = $source['name'];
+        }
+
+        $objective = preg_replace('/\s+/u', ' ', trim($message)) ?: trim($message);
+        $constraints = [
+            'Use only verified records and explicit relationships from retrieval_bundle.',
+            'Treat missing or unlinked relationships as unknown/unlinked, not as proof that matching content does not exist.',
+            'Do not infer Google performance, demand, canonical, redirect or HTTP state without a direct source field.',
+        ];
+        if ($this->isImprovement($message)) $constraints[] = 'Separate evidence-backed observations from proposed actions.';
+        if ($hasTopics) $constraints[] = 'Preserve topic_ref and article_ref when relating topics to content.';
+
+        return [[
+            'user_objective' => mb_substr($objective, 0, 500),
+            'decision_to_support' => preg_match('/(?:nên|ưu tiên|chọn|so sánh|quyết định)/iu', $message) === 1
+                ? 'Support the requested comparison or choice and state when evidence is insufficient.'
+                : 'Answer the requested factual or entity-scoped question.',
+            'scope' => $payload['scope'] ?? null,
+            'available_sources' => array_values(array_unique($sources)),
+            'constraints' => $constraints,
+            'context_projection' => $compacted ? 'projected_without_additional_row_limit' : 'source_shape_preserved',
+        ]];
     }
 
     /** @return list<string> */

@@ -45,8 +45,15 @@ final class EvidenceContextBuilder
             if ($sourceOmitted > 0 && is_array($data)) {
                 $data['_context_meta'] = [
                     'truncated' => true,
+                    'stage' => 'evidence_context',
+                    'scope' => $bundle->scope->siteRef,
+                    'source_total' => $this->sourceTotal($source->data),
+                    'requested' => $this->requested($source->data, $source->request),
+                    'retrieved' => $sourceIncluded + $sourceOmitted,
                     'records_included' => $sourceIncluded,
                     'records_omitted' => $sourceOmitted,
+                    'selection_reason' => 'source_order_with_nested_list_budget',
+                    'next_page' => $this->nextPage($source->data),
                 ];
                 $limitations[] = 'records_truncated:'.$source->name;
             }
@@ -118,5 +125,30 @@ final class EvidenceContextBuilder
         $encoded = json_encode(new RetrievalBundle($original->scope, $sources, $original->warnings), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         return is_string($encoded) ? strlen($encoded) : 0;
+    }
+
+    /** @param array<string, mixed> $data */
+    private function sourceTotal(array $data): ?int
+    {
+        $value = $data['pagination']['total'] ?? $data['total'] ?? null;
+        return is_numeric($value) ? (int) $value : null;
+    }
+
+    /** @param array<string, mixed> $data */
+    private function requested(array $data, string $request): ?int
+    {
+        $value = $data['pagination']['requested'] ?? null;
+        if (is_numeric($value)) return (int) $value;
+        parse_str((string) parse_url($request, PHP_URL_QUERY), $query);
+        foreach (['limit', 'per_page'] as $key) if (is_numeric($query[$key] ?? null)) return (int) $query[$key];
+        return null;
+    }
+
+    /** @param array<string, mixed> $data */
+    private function nextPage(array $data): ?int
+    {
+        $page = $data['pagination']['page'] ?? null;
+        $pages = $data['pagination']['total_pages'] ?? null;
+        return is_numeric($page) && is_numeric($pages) && (int) $page < (int) $pages ? (int) $page + 1 : null;
     }
 }

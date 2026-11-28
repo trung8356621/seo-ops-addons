@@ -17,10 +17,13 @@ use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun;
 use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread;
 use Omnichannel\Addons\AgentRuntime\Projects\SiteDirectory;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponse;
+use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessTransport;
 use Omnichannel\Addons\AgentRuntime\Runtime\AgentToolConfirmationProposal;
 use Omnichannel\Addons\AgentRuntime\Runtime\AgentTurnCoordinator;
 use Omnichannel\Addons\AgentRuntime\Runtime\AgentTurnResult;
 use Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy;
+use Omnichannel\Addons\Seo\Contracts\ResolvesSettingsPromptHook;
+use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Tests\TestCase;
 
 final class AgentQaApiTest extends TestCase
@@ -417,5 +420,64 @@ final class AgentQaApiTest extends TestCase
         $run = AgentRun::where('ulid', $runUlid)->firstOrFail();
         self::assertSame('done', $run->status);
         self::assertSame('not_called_input_only', $run->answer_model);
+    }
+
+    public function test_input_only_large_dataset_returns_authenticated_jsonl_package(): void
+    {
+        $this->app->instance(SeoAccessTransport::class, new class implements SeoAccessTransport {
+            public function request(string $method, string $url, array $query = [], ?string $bearer = null, ?array $jsonBody = null): array
+            {
+                if ($method === 'POST') {
+                    return ['status' => 200, 'json' => ['data' => ['access_url' => 'https://seo-ops.test/api/v1/access/test', 'expires_at' => now()->addHour()->toIso8601String()]]];
+                }
+                return ['status' => 200, 'json' => ['data' => [
+                    'schema' => 'seo.access.articles.v2',
+                    'site_ref' => 'site:10',
+                    'articles' => [],
+                    'pagination' => ['requested' => 250, 'returned' => 0, 'total' => 0, 'complete' => true],
+                ]]];
+            }
+        });
+        $this->app->instance(ResolvesSettingsPromptHook::class, new class implements ResolvesSettingsPromptHook {
+            public function resolveSettingsHook(string $hookKey): SeoPrompt
+            {
+                $prompt = new SeoPrompt();
+                $prompt->forceFill(['hook_key' => $hookKey, 'markdown_content' => 'Use only the supplied evidence.']);
+                return $prompt;
+            }
+        });
+        $seoSchema = Schema::connection('omi_seo_ai');
+        if (! $seoSchema->hasTable('articles')) {
+            $seoSchema->create('articles', function (\Illuminate\Database\Schema\Blueprint $table): void {
+                $table->id();
+                $table->unsignedBigInteger('site_id');
+                $table->string('title');
+                $table->string('slug')->nullable();
+                $table->string('status')->default('draft');
+                $table->softDeletes();
+                $table->timestamps();
+            });
+            $this->beforeApplicationDestroyed(static function (): void {
+                Schema::connection('omi_seo_ai')->dropIfExists('articles');
+            });
+        }
+
+        $response = $this->postJson('/api/agent-qa/v1/input-only', [
+            'site_id' => 10,
+            'message' => 'Xuất tối đa 250 bài đã xuất bản của website, mỗi bài chỉ cần tiêu đề và URL hoặc mã bài.',
+        ], $this->authHeaders())->assertOk()
+            ->assertJsonPath('data.query_understanding.intent', 'dataset')
+            ->assertJsonPath('data.model_execution.answer_model_called', false)
+            ->assertJsonPath('data.dataset_manifest.status', 'ready')
+            ->assertJsonPath('data.dataset_manifest.format', 'jsonl')
+            ->assertJsonPath('data.dataset_manifest.site_ref', 'site:10');
+
+        $id = (string) $response->json('data.dataset_manifest.id');
+        $this->get('/api/agent-qa/v1/datasets/'.$id, $this->authHeaders())
+            ->assertOk()
+            ->assertHeader('content-type', 'application/x-ndjson; charset=UTF-8');
+
+        @unlink(storage_path('app/private/agent-qa-datasets/'.$id.'.jsonl'));
+        @unlink(storage_path('app/private/agent-qa-datasets/'.$id.'.manifest.json'));
     }
 }

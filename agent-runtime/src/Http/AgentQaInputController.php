@@ -17,6 +17,7 @@ use Omnichannel\Addons\AgentRuntime\Projects\SiteDirectory;
 use Omnichannel\Addons\AgentRuntime\Response\AgentPublicPayloadSanitizer;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponse;
 use Omnichannel\Addons\AgentRuntime\StructuredRag\StructuredRagPipeline;
+use Omnichannel\Addons\AgentRuntime\StructuredRag\DatasetPackageWriter;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 
 final class AgentQaInputController
@@ -27,6 +28,7 @@ final class AgentQaInputController
         SiteDirectory $sites,
         AgentThreadRepository $threads,
         AgentTurnPersistence $persistence,
+        DatasetPackageWriter $datasets,
     ): JsonResponse {
         $context = $request->attributes->get(AgentQaContext::REQUEST_ATTRIBUTE);
         if (! $context instanceof AgentQaContext) {
@@ -95,6 +97,14 @@ final class AgentQaInputController
 
             $result = $pipeline->prepare($scope, $message, $history);
             $resultData = $result->toArray();
+            $datasetManifest = null;
+            if (($result->understanding->parameters['dataset_export'] ?? false) === true) {
+                try {
+                    $datasetManifest = $datasets->writeArticleInventory($siteId, $result->understanding->parameters);
+                } catch (\Throwable) {
+                    $datasetManifest = ['status' => 'unavailable', 'reason' => 'dataset_packaging_failed'];
+                }
+            }
             $diagnostics = [
                 'structured_rag' => $resultData,
                 'input_only' => true,
@@ -123,7 +133,7 @@ final class AgentQaInputController
                 'user_message_id' => $run->user_message_id,
                 'assistant_message_id' => $assistant->id,
                 'history_source' => $diagnostics['history_source'],
-                'dataset_manifest' => null,
+                'dataset_manifest' => $datasetManifest,
             ]);
 
             return new JsonResponse(['data' => $public]);

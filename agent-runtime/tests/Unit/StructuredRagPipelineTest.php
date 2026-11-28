@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\AgentRuntime\Tests\Unit;
 
 use Omnichannel\Addons\AgentRuntime\Domain\AgentProjectScope;
 use Omnichannel\Addons\AgentRuntime\Model\AgentModelInputBuilder;
+use Omnichannel\Addons\AgentRuntime\Model\AnswerEvidenceProjector;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalExecutor;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalPlanner;
@@ -78,6 +79,62 @@ final class StructuredRagPipelineTest extends TestCase
         self::assertSame([], $plan->capabilities);
     }
 
+    public function test_factual_dataset_request_requires_retrieval_without_analysis(): void
+    {
+        $understanding = (new QueryUnderstandingService())->understand(
+            'Xuất tối đa 250 bài đã xuất bản của website, mỗi bài chỉ cần tiêu đề và URL hoặc mã bài.',
+        );
+        $plan = (new StructuredRetrievalPlanner())->plan($understanding);
+
+        self::assertTrue($understanding->requiresRetrieval);
+        self::assertFalse($understanding->requiresAnalysis);
+        self::assertSame('dataset', $understanding->intent);
+        self::assertSame(250, $plan->parameters['limit_max']);
+        self::assertSame('published', $plan->parameters['status']);
+        self::assertSame('article_identity', $plan->parameters['projection']);
+        self::assertSame(['articles.inventory'], $plan->capabilities);
+    }
+
+    public function test_prior_memory_failure_analysis_requires_site_evidence(): void
+    {
+        $understanding = (new QueryUnderstandingService())->understand(
+            'Nếu phải bảo vệ ngân sách SEO, đâu là hai tài sản SEO mạnh nhất của website cần giữ nguyên trước khi tối ưu?',
+        );
+
+        self::assertTrue($understanding->requiresRetrieval);
+        self::assertTrue($understanding->requiresAnalysis);
+        self::assertContains('articles', $understanding->dataRequirements);
+        self::assertContains('article_quality', $understanding->dataRequirements);
+    }
+
+    public function test_topic_and_keyword_entities_are_resolved_as_scoped_lookups(): void
+    {
+        $topic = (new QueryUnderstandingService())->understand(
+            'Chủ đề Backpack Factory (topic:2382) có DNA/từ khóa và bài nào đã gắn?',
+        );
+        $keyword = (new QueryUnderstandingService())->understand(
+            'Trong website này, keyword:6277 thuộc topic nào và liên kết với bài nào?',
+        );
+
+        self::assertSame('topic:2382', $topic->parameters['topic_ref']);
+        self::assertTrue($topic->resolvedContext['relationship_required']);
+        self::assertFalse($topic->resolvedContext['direct_response_eligible']);
+        self::assertSame('keyword:6277', $keyword->parameters['keyword_ref']);
+        self::assertTrue($keyword->resolvedContext['relationship_required']);
+    }
+
+    public function test_technical_audit_is_missing_instead_of_substituting_content_score(): void
+    {
+        $understanding = (new QueryUnderstandingService())->understand(
+            'Từ dữ liệu audit/crawl nội bộ, chỉ ra canonical, redirect hoặc trang lỗi.',
+        );
+        $plan = (new StructuredRetrievalPlanner())->plan($understanding);
+
+        self::assertSame(['technical_audit'], $understanding->dataRequirements);
+        self::assertSame([], $plan->capabilities);
+        self::assertSame(['technical_audit'], $plan->missingRequirements);
+    }
+
     public function test_partial_retrieval_status_is_preserved_as_limitation(): void
     {
         $result = (new EvidenceContextBuilder())->build(new RetrievalBundle(
@@ -100,8 +157,34 @@ final class StructuredRagPipelineTest extends TestCase
         self::assertCount(1, $result->bundle->sources);
         self::assertCount(10, $result->bundle->sources[0]->data['items']);
         self::assertSame(990, $result->bundle->sources[0]->data['_context_meta']['records_omitted']);
+        self::assertSame('evidence_context', $result->bundle->sources[0]->data['_context_meta']['stage']);
+        self::assertSame(1000, $result->bundle->sources[0]->data['_context_meta']['source_total']);
         self::assertContains('duplicate_source_removed:articles', $result->limitations);
         self::assertLessThanOrEqual(30_000, $result->evidenceBytes);
+    }
+
+    public function test_model_projection_does_not_apply_a_second_silent_topic_limit(): void
+    {
+        $topics = array_map(static fn (int $id): array => [
+            'topic_ref' => 'topic:'.$id,
+            'name' => 'Topic '.$id,
+            'coverage' => 'weak',
+            'article_count' => 0,
+        ], range(1, 12));
+        $bundle = new RetrievalBundle(
+            AgentProjectScope::site(5),
+            [new RetrievalSource('keywords', 'ok', 'GET /keywords', [
+                'source_updated_at' => '2026-11-28T00:00:00+00:00',
+                'pagination' => ['total' => 12],
+                'topics' => $topics,
+            ])],
+        );
+
+        $projected = (new AnswerEvidenceProjector())->project($bundle, 'Nên ưu tiên nội dung nào?', structured: true);
+
+        self::assertCount(12, $projected['bundle']['sources'][0]['data']['topics']);
+        self::assertSame('2026-11-28T00:00:00+00:00', $projected['bundle']['sources'][0]['data']['source_updated_at']);
+        self::assertNotEmpty($projected['analysis_task']);
     }
 
     public function test_input_only_pipeline_builds_real_model_input_without_model_gateway(): void

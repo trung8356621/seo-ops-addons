@@ -26,6 +26,7 @@ final class StructuredRetrievalPlanner
             'internal_links' => ['links.internal'],
             'external_links' => ['links.external'],
             'content_projects' => ['content_projects.read'],
+            'technical_audit' => [],
         ];
 
         $capabilities = [];
@@ -51,7 +52,7 @@ final class StructuredRetrievalPlanner
         $capabilities = array_slice(array_values(array_unique($capabilities)), 0, max(1, $this->maxCapabilities));
         $modules = AgentCapabilityCatalog::modulesFor($capabilities);
         $parameters = $understanding->parameters;
-        $parameters['limit_max'] = min((int) ($parameters['limit_max'] ?? ($understanding->depth === 'summary' ? 10 : 25)), 50);
+        $parameters['limit_max'] = min((int) ($parameters['limit_max'] ?? ($understanding->depth === 'summary' ? 10 : 25)), 250);
         if (in_array('article_quality', $understanding->dataRequirements, true)) {
             $parameters['task'] = 'low_score';
         }

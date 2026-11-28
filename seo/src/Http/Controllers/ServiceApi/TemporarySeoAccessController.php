@@ -76,6 +76,7 @@ final class TemporarySeoAccessController
             'coverage' => $request->query('coverage'),
             'status' => $request->query('status'),
             'has_focus_article' => $request->query('has_focus_article'),
+            'name' => $request->query('name'),
         ];
 
         return $this->runReadSafely(
@@ -93,6 +94,8 @@ final class TemporarySeoAccessController
         return $this->runReadSafely(fn (): array => $this->keywords->inventory($context->siteId, [
             'page' => $request->query('page'),
             'per_page' => $request->query('per_page'),
+            'phrase' => $request->query('phrase'),
+            'keyword_ref' => $request->query('keyword_ref'),
         ]));
     }
 
@@ -168,11 +171,17 @@ final class TemporarySeoAccessController
 
         $limit = (int) $request->query('limit', 30);
         $task = $request->query('task');
+        $filters = [
+            'status' => $request->query('status'),
+            'projection' => $request->query('projection'),
+            'search' => $request->query('search'),
+        ];
 
         return $this->runReadSafely(fn (): array => $this->business->articles(
             $context->siteId,
             $limit,
             is_string($task) ? $task : null,
+            $filters,
         ));
     }
 

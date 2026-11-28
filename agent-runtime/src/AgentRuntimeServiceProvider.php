@@ -137,6 +137,11 @@ final class AgentRuntimeServiceProvider extends ServiceProvider
             maxRecordsPerList: max(1, (int) config('agent-runtime.structured_rag.max_records_per_list', 25)),
             maxEvidenceBytes: max(4096, (int) config('agent-runtime.structured_rag.max_evidence_bytes', 120000)),
         ));
+        $this->app->singleton(\Omnichannel\Addons\AgentRuntime\StructuredRag\DatasetPackageWriter::class, static fn (): \Omnichannel\Addons\AgentRuntime\StructuredRag\DatasetPackageWriter => new \Omnichannel\Addons\AgentRuntime\StructuredRag\DatasetPackageWriter(
+            ttlSeconds: max(60, (int) config('agent-runtime.structured_rag.dataset_ttl_seconds', 3600)),
+            maxRows: max(1, (int) config('agent-runtime.structured_rag.dataset_max_rows', 250)),
+            maxBytes: max(1024, (int) config('agent-runtime.structured_rag.dataset_max_bytes', 5242880)),
+        ));
         $this->app->singleton(AnswerModelGateway::class, static function ($app): AnswerModelGateway {
             $max = (int) config('agent-runtime.answer_max_output_tokens', 2048);
 

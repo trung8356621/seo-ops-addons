@@ -51,7 +51,16 @@ class SeoAccessKeywordsComposer
         }
         $perPage = min($perPage, self::MAX_PER_PAGE);
         $inventory = $this->inventory ?? app(KeywordUiInventoryQuery::class);
-        $keywords = $inventory->baseQuery($siteId)
+        $queryBuilder = $inventory->baseQuery($siteId);
+        $phrase = trim((string) ($query['phrase'] ?? ''));
+        $keywordRef = trim((string) ($query['keyword_ref'] ?? ''));
+        if ($phrase !== '') {
+            $queryBuilder->where('phrase', $phrase);
+        }
+        if (preg_match('/^keyword:([1-9]\d*)$/i', $keywordRef, $match) === 1) {
+            $queryBuilder->whereKey((int) $match[1]);
+        }
+        $keywords = $queryBuilder
             ->orderBy('phrase')
             ->orderBy('id')
             ->paginate($perPage, ['id', 'phrase', 'type', 'source', 'review_status'], 'page', $page);
@@ -110,6 +119,7 @@ class SeoAccessKeywordsComposer
         $coverage = $this->optionalStringFilter($query, 'coverage');
         $status = $this->optionalStringFilter($query, 'status');
         $hasFocus = $this->optionalBoolFilter($query, 'has_focus_article');
+        $name = $this->optionalStringFilter($query, 'name');
 
         // Landscape list stays compact — DNA belongs to Topic Detail.
         $dto = $this->landscape->forSite($siteId, false);
@@ -133,6 +143,13 @@ class SeoAccessKeywordsComposer
                 static fn (KeywordLandscapeTopic $t): bool => $t->hasFocusArticle === $hasFocus,
             ));
         }
+        if ($name !== null) {
+            $needle = mb_strtolower($name, 'UTF-8');
+            $topics = array_values(array_filter(
+                $topics,
+                static fn (KeywordLandscapeTopic $t): bool => mb_strtolower(trim($t->name), 'UTF-8') === $needle,
+            ));
+        }
 
         $topics = $this->sortTopics($topics, $sort, $direction);
         $coverageCounts = $this->coverageCounts($topics);
@@ -147,7 +164,13 @@ class SeoAccessKeywordsComposer
 
         $rows = [];
         foreach ($pageTopics as $topic) {
-            $rows[] = $this->landscapeRow($topic, $tokenPath);
+            $row = $this->landscapeRow($topic, $tokenPath);
+            if ($name !== null) {
+                $row['dna'] = array_values($topic->dna);
+                $row['focus_articles'] = $this->loadFocusArticles($siteId, $topic->id);
+                $row['relationship_status'] = $row['focus_articles'] === [] ? 'no_linked_focus_article' : 'linked';
+            }
+            $rows[] = $row;
         }
 
         return [

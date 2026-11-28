@@ -65,6 +65,9 @@ return [
         'max_sources' => (int) env('AGENT_RAG_MAX_SOURCES', 5),
         'max_records_per_list' => (int) env('AGENT_RAG_MAX_RECORDS_PER_LIST', 25),
         'max_evidence_bytes' => (int) env('AGENT_RAG_MAX_EVIDENCE_BYTES', 120000),
+        'dataset_ttl_seconds' => (int) env('AGENT_RAG_DATASET_TTL_SECONDS', 3600),
+        'dataset_max_rows' => (int) env('AGENT_RAG_DATASET_MAX_ROWS', 250),
+        'dataset_max_bytes' => (int) env('AGENT_RAG_DATASET_MAX_BYTES', 5242880),
     ],
 
     /*

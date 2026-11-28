@@ -62,6 +62,7 @@ final class AgentModelInputBuilder
         string $selectedResponseTemplate,
         string $selectedResponseLanguage = 'en',
         array $unresolvedRequirements = [],
+        bool $structured = false,
     ): PreparedModelInput {
         if (! AgentResponseTemplateCatalog::supports($selectedResponseTemplate)) {
             throw new \InvalidArgumentException('Selected response template is unknown.');
@@ -69,7 +70,7 @@ final class AgentModelInputBuilder
         if (! in_array($selectedResponseLanguage, ['vi', 'en'], true)) {
             throw new \InvalidArgumentException('Selected response language is unknown.');
         }
-        $evidence = $this->answerEvidence->project($bundle, $userMessage);
+        $evidence = $this->answerEvidence->project($bundle, $userMessage, $structured);
         $user = json_encode([
             'scope' => $scope->toArray(),
             'message' => $userMessage,

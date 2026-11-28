@@ -66,7 +66,7 @@ final class StructuredRagPipeline
         $timings['context_build'] = $this->elapsed($stageStarted);
         $limitations = array_values(array_unique([...$understanding->limitations, ...$context->limitations]));
 
-        if (! $understanding->requiresAnalysis) {
+        if (($understanding->resolvedContext['direct_response_eligible'] ?? false) === true) {
             $direct = $this->factual->compose($context->bundle, $message, $this->language($message));
             if ($direct !== null) {
                 $timings['total'] = $this->elapsed($totalStarted);
@@ -84,6 +84,7 @@ final class StructuredRagPipeline
             $understanding->requiresAnalysis ? 'report' : 'text',
             $this->language($message),
             $plan->missingRequirements,
+            structured: true,
         );
         $timings['model_input_build'] = $this->elapsed($stageStarted);
         $timings['total'] = $this->elapsed($totalStarted);

@@ -20,9 +20,9 @@ final class SeoAccessBusinessModulesComposer
     ) {}
 
     /** @return array<string, mixed> */
-    public function articles(int $siteId, int $limit = 30, ?string $task = null): array
+    public function articles(int $siteId, int $limit = 30, ?string $task = null, array $filters = []): array
     {
-        $limit = max(1, min(100, $limit));
+        $limit = max(1, min(250, $limit));
 
         if ($task === 'improve' && $this->audit !== null) {
             $context = new AgentExecutionContext(
@@ -54,14 +54,32 @@ final class SeoAccessBusinessModulesComposer
             ];
         }
 
-        $rows = SeoArticle::query()
+        $query = SeoArticle::query()
             ->where('site_id', $siteId)
-            ->where('status', '!=', 'trash')
+            ->where('status', '!=', 'trash');
+        $status = trim((string) ($filters['status'] ?? ''));
+        if ($status !== '') {
+            $query->where('status', $status);
+        }
+        $search = trim((string) ($filters['search'] ?? ''));
+        if ($search !== '') {
+            $query->where('title', 'like', '%'.addcslashes($search, '%_\\').'%');
+        }
+        $total = (clone $query)->count();
+        $rows = $query
             ->with('seoProfile:article_id,seo_score,focus_keyword,internal_link_count,external_link_count')
             ->orderBy('updated_at')
             ->limit($limit)
             ->get(['id', 'site_id', 'title', 'slug', 'status', 'created_at', 'updated_at'])
-            ->map(static function (SeoArticle $article): array {
+            ->map(static function (SeoArticle $article) use ($filters): array {
+                if (($filters['projection'] ?? null) === 'article_identity') {
+                    return [
+                        'article_ref' => 'article:'.$article->id,
+                        'title' => (string) $article->title,
+                        'slug' => $article->slug,
+                        'status' => (string) $article->status,
+                    ];
+                }
                 $profile = $article->seoProfile;
 
                 return [
@@ -78,7 +96,23 @@ final class SeoAccessBusinessModulesComposer
                 ];
             })->all();
 
-        return ['schema' => 'seo.access.articles.v1', 'site_ref' => 'site:'.$siteId, 'articles' => $rows];
+        return [
+            'schema' => 'seo.access.articles.v2',
+            'site_ref' => 'site:'.$siteId,
+            'articles' => $rows,
+            'pagination' => [
+                'requested' => $limit,
+                'returned' => count($rows),
+                'total' => $total,
+                'complete' => count($rows) >= $total,
+            ],
+            'selection' => [
+                'status' => $status !== '' ? $status : 'not_trash',
+                'projection' => (string) ($filters['projection'] ?? 'full'),
+                'search' => $search !== '' ? $search : null,
+                'reason' => $search !== '' ? 'title_match' : 'oldest_updated_first',
+            ],
+        ];
     }
 
     /** @return array<string, mixed>|null */
