@@ -7,17 +7,23 @@ namespace Omnichannel\Addons\ContentProjects\Jobs;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\NewContent\NewContentSuggestionPlannerService;
 use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 
 /**
  * Async AI New Content planning. Actor is explicit — never resolve session user in queue runtime.
  * One logical planner run may span multiple job slices via automatic continuation.
+ *
+ * Uses ShouldBeUniqueUntilProcessing + WithoutOverlapping so:
+ * - Only one queued continuation exists per plannerRunId at a time.
+ * - Only one worker executes a plannerRunId at a time.
+ * - Continuation dispatched inside handle() is never dropped by an active ShouldBeUnique lock.
  */
-final class GenerateNewContentSuggestionsJob implements ShouldBeUnique, ShouldQueue
+final class GenerateNewContentSuggestionsJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
 {
     use Dispatchable;
     use InteractsWithQueue;
@@ -40,6 +46,18 @@ final class GenerateNewContentSuggestionsJob implements ShouldBeUnique, ShouldQu
     {
         // Per logical run — prevents duplicate concurrent slices; allows other projects.
         return 'content-project-new-content:run:'.$this->plannerRunId;
+    }
+
+    /**
+     * @return list<object>
+     */
+    public function middleware(): array
+    {
+        return [
+            (new WithoutOverlapping($this->uniqueId()))
+                ->releaseAfter(15)
+                ->expireAfter($this->uniqueFor),
+        ];
     }
 
     public function handle(

@@ -101,6 +101,7 @@ final class NewContentSuggestionOptions
             'use_site_context' => (bool) ($input['use_site_context'] ?? true),
             'use_keyword_intelligence' => (bool) ($input['use_keyword_intelligence'] ?? true),
             'use_mcp_context' => (bool) ($input['use_mcp_context'] ?? true),
+            'auto_approve' => ! empty($input['auto_approve']),
         ];
     }
 
@@ -169,6 +170,7 @@ final class NewContentSuggestionOptions
             'use_site_context' => $normalized['use_site_context'],
             'use_keyword_intelligence' => $normalized['use_keyword_intelligence'],
             'use_mcp_context' => $normalized['use_mcp_context'],
+            'auto_approve' => $normalized['auto_approve'],
         ];
     }
 

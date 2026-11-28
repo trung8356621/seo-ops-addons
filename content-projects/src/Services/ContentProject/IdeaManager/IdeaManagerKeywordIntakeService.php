@@ -183,6 +183,7 @@ final class IdeaManagerKeywordIntakeService
         $items = is_array($snap['note_items'] ?? null) ? $snap['note_items'] : [];
         $revision = (int) ($snap['revision'] ?? 0);
         $workspaceId = (int) ($snap['workspace_id'] ?? $snap['id'] ?? 0);
+        $chungGroupId = app(IdeaGroupService::class)->ensureSystemGroupIdForSite($siteId, $actorId);
         $toAppend = [];
 
         foreach ($phrases as $phrase) {
@@ -196,6 +197,9 @@ final class IdeaManagerKeywordIntakeService
             $item['source_site_id'] = $siteId;
             if ($domain !== '') {
                 $item['source_domain'] = $domain;
+            }
+            if ($chungGroupId > 0) {
+                $item['idea_group_id'] = $chungGroupId;
             }
             // Re-normalize so provenance survives AuditNoteDnaNormalizer allow-list.
             $normalized = AuditNoteDnaNormalizer::normalizeNoteItem($item);

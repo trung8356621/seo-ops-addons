@@ -35,6 +35,9 @@ use Omnichannel\Addons\AiPrompt\Contracts\DecisionModelSource;
 use Filament\Facades\Filament;
 use Filament\Support\Facades\FilamentView;
 use Filament\View\PanelsRenderHook;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\HtmlString;
 use Omnichannel\Addons\AgentRuntime\Console\RunRoutingCasesCommand;
 use Omnichannel\Addons\AgentRuntime\Access\AgentActorAccessResolver;
@@ -47,6 +50,8 @@ use Omnichannel\Addons\AgentRuntime\Access\EloquentAgentWorkStatsReader;
 use Omnichannel\Addons\AgentRuntime\Integration\AgentOperationHandlerRegistry;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponse;
 use Omnichannel\Addons\AgentRuntime\Integration\SeoOpsAgentIntegration;
+use Omnichannel\Addons\AgentRuntime\StructuredRag\EvidenceContextBuilder;
+use Omnichannel\Addons\AgentRuntime\StructuredRag\StructuredRetrievalPlanner;
 
 final class AgentRuntimeServiceProvider extends ServiceProvider
 {
@@ -124,6 +129,14 @@ final class AgentRuntimeServiceProvider extends ServiceProvider
         });
         $this->app->singleton(SemanticRoutingConfig::class, static fn ($app): SemanticRoutingConfig => new SemanticRoutingConfig(null, $app->make(AgentIntegrationRegistry::class)));
         $this->app->singleton(LocalAgentToolRouter::class);
+        $this->app->singleton(StructuredRetrievalPlanner::class, static fn (): StructuredRetrievalPlanner => new StructuredRetrievalPlanner(
+            maxCapabilities: max(1, (int) config('agent-runtime.structured_rag.max_capabilities', 5)),
+        ));
+        $this->app->singleton(EvidenceContextBuilder::class, static fn (): EvidenceContextBuilder => new EvidenceContextBuilder(
+            maxSources: max(1, (int) config('agent-runtime.structured_rag.max_sources', 5)),
+            maxRecordsPerList: max(1, (int) config('agent-runtime.structured_rag.max_records_per_list', 25)),
+            maxEvidenceBytes: max(4096, (int) config('agent-runtime.structured_rag.max_evidence_bytes', 120000)),
+        ));
         $this->app->singleton(AnswerModelGateway::class, static function ($app): AnswerModelGateway {
             $max = (int) config('agent-runtime.answer_max_output_tokens', 2048);
 
@@ -140,8 +153,10 @@ final class AgentRuntimeServiceProvider extends ServiceProvider
     {
         $this->loadViewsFrom(dirname(__DIR__).'/resources/views', 'agent-runtime');
         $this->loadMigrationsFrom(dirname(__DIR__).'/database/migrations');
+        $this->registerQaRateLimiter();
         if (! $this->app->routesAreCached()) {
             $this->loadRoutesFrom(dirname(__DIR__).'/routes/web.php');
+            $this->loadRoutesFrom(dirname(__DIR__).'/routes/api-qa.php');
         }
         $this->registerGlobalHeaderLauncherHook();
         $this->registerGlobalDrawerHook();
@@ -149,6 +164,16 @@ final class AgentRuntimeServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->commands([RunRoutingCasesCommand::class]);
         }
+    }
+
+    private function registerQaRateLimiter(): void
+    {
+        RateLimiter::for('agent-qa', static function (Request $request): Limit {
+            $perMinute = max(1, (int) config('agent-runtime.qa_api.rate_limit_per_minute', 30));
+            $tokenHash = hash('sha256', (string) $request->bearerToken());
+
+            return Limit::perMinute($perMinute)->by('agent-qa:'.$tokenHash.':'.$request->ip());
+        });
     }
 
     private function registerSettingsSection(): void

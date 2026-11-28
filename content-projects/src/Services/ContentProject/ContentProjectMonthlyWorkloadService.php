@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\ContentProjects\Services\ContentProject;
 
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\PlanningMonthBackfill;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectStaffAvailabilityService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterCapacitySettingsService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService;
@@ -184,7 +185,8 @@ final class ContentProjectMonthlyWorkloadService
         if ($scope === self::SCOPE_ACTIVE || $scope === self::SCOPE_ALL) {
             $this->accumulateDomainTaskCounts(
                 $countsBySiteId,
-                $this->baseItemQuery($monthDate, self::SCOPE_ACTIVE),
+                $monthDate,
+                self::SCOPE_ACTIVE,
                 active: true,
             );
         }
@@ -250,7 +252,8 @@ final class ContentProjectMonthlyWorkloadService
         if ($scope === self::SCOPE_ACTIVE || $scope === self::SCOPE_ALL) {
             $this->accumulateWriterTaskCounts(
                 $countsByUserId,
-                $this->baseItemQuery($monthDate, self::SCOPE_ACTIVE),
+                $monthDate,
+                self::SCOPE_ACTIVE,
                 active: true,
             );
         }
@@ -302,31 +305,64 @@ final class ContentProjectMonthlyWorkloadService
     }
 
     /**
-     * @param  array<int, array{active_count: int, archived_count: int}>  $countsBySiteId
-     * @param  \Illuminate\Database\Query\Builder  $query
+     * @return list<object>
      */
-    private function accumulateDomainTaskCounts(array &$countsBySiteId, $query, bool $active): void
+    private function resolvedTaskRowsForMonth(string $monthDate, string $scope): array
     {
-        $raw = (clone $query)
-            ->whereNotNull('t.site_id')
-            ->where('t.site_id', '>', 0)
-            ->groupBy('t.site_id')
-            ->selectRaw('t.site_id as site_id, COUNT(t.id) as item_count')
+        $monthYm = ContentProjectMonthContext::normalize($monthDate);
+        $raw = $this->baseItemQuery($monthDate, $scope)
+            ->select([
+                't.id',
+                't.site_id',
+                'p.user_id',
+                't.planning_month',
+                't.created_at',
+                't.target_date',
+                'p.month as project_month',
+            ])
             ->get();
 
+        $seenTaskIds = [];
+        $rows = [];
         foreach ($raw as $row) {
+            $taskId = (int) ($row->id ?? 0);
+            if ($taskId <= 0 || isset($seenTaskIds[$taskId])) {
+                continue;
+            }
+            $resolvedMonth = PlanningMonthBackfill::resolve([
+                'planning_month' => $row->planning_month ?? null,
+                'created_at' => $row->created_at ?? null,
+                'target_date' => $row->target_date ?? null,
+                'project_month' => $row->project_month ?? null,
+                'project_is_draft' => false,
+            ]);
+            if ($resolvedMonth !== $monthYm) {
+                continue;
+            }
+            $seenTaskIds[$taskId] = true;
+            $rows[] = $row;
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param  array<int, array{active_count: int, archived_count: int}>  $countsBySiteId
+     */
+    private function accumulateDomainTaskCounts(array &$countsBySiteId, string $monthDate, string $scope, bool $active): void
+    {
+        foreach ($this->resolvedTaskRowsForMonth($monthDate, $scope) as $row) {
             $siteId = (int) ($row->site_id ?? 0);
-            $count = max(0, (int) ($row->item_count ?? 0));
-            if ($siteId <= 0 || $count <= 0) {
+            if ($siteId <= 0) {
                 continue;
             }
             if (! isset($countsBySiteId[$siteId])) {
                 $countsBySiteId[$siteId] = ['active_count' => 0, 'archived_count' => 0];
             }
             if ($active) {
-                $countsBySiteId[$siteId]['active_count'] += $count;
+                $countsBySiteId[$siteId]['active_count']++;
             } else {
-                $countsBySiteId[$siteId]['archived_count'] += $count;
+                $countsBySiteId[$siteId]['archived_count']++;
             }
         }
     }
@@ -359,30 +395,21 @@ final class ContentProjectMonthlyWorkloadService
 
     /**
      * @param  array<int, array{active_count: int, archived_count: int}>  $countsByUserId
-     * @param  \Illuminate\Database\Query\Builder  $query
      */
-    private function accumulateWriterTaskCounts(array &$countsByUserId, $query, bool $active): void
+    private function accumulateWriterTaskCounts(array &$countsByUserId, string $monthDate, string $scope, bool $active): void
     {
-        $raw = (clone $query)
-            ->whereNotNull('p.user_id')
-            ->where('p.user_id', '>', 0)
-            ->groupBy('p.user_id')
-            ->selectRaw('p.user_id as user_id, COUNT(t.id) as item_count')
-            ->get();
-
-        foreach ($raw as $row) {
+        foreach ($this->resolvedTaskRowsForMonth($monthDate, $scope) as $row) {
             $userId = (int) ($row->user_id ?? 0);
-            $count = max(0, (int) ($row->item_count ?? 0));
-            if ($userId <= 0 || $count <= 0) {
+            if ($userId <= 0) {
                 continue;
             }
             if (! isset($countsByUserId[$userId])) {
                 $countsByUserId[$userId] = ['active_count' => 0, 'archived_count' => 0];
             }
             if ($active) {
-                $countsByUserId[$userId]['active_count'] += $count;
+                $countsByUserId[$userId]['active_count']++;
             } else {
-                $countsByUserId[$userId]['archived_count'] += $count;
+                $countsByUserId[$userId]['archived_count']++;
             }
         }
     }
@@ -460,10 +487,14 @@ final class ContentProjectMonthlyWorkloadService
                     ->where('p.kind', SeoProject::KIND_MONTHLY)
                     ->orWhereNull('p.kind');
             })
-            // Execution month — never archived_at month.
-            ->whereDate('p.month', $monthDate)
             ->whereNotNull('ai.article_id')
             ->where('ai.article_id', '>', 0);
+
+        if (Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_month')) {
+            $query->whereRaw('COALESCE(t.planning_month, p.month) = ?', [$monthDate]);
+        } else {
+            $query->whereDate('p.month', $monthDate);
+        }
 
         ContentProjectGlobalLegacyArchive::excludeFromProjectAlias($query, 'p');
 
@@ -496,10 +527,24 @@ final class ContentProjectMonthlyWorkloadService
                     ->where('p.kind', SeoProject::KIND_MONTHLY)
                     ->orWhereNull('p.kind');
             })
-            // Execution month — never archived_at month.
-            ->whereDate('p.month', $monthDate)
             ->whereNull('t.archived_at')
-            ->where('t.status', '!=', SeoProjectTask::STATUS_CANCELLED);
+            ->where('t.status', '!=', SeoProjectTask::STATUS_CANCELLED)
+            ->where('t.status', '!=', SeoProjectTask::STATUS_ARCHIVED);
+
+        if (Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_month')) {
+            $query->where(function ($q) use ($monthDate): void {
+                $q->whereDate('t.planning_month', $monthDate)
+                    ->orWhere(function ($fallback) use ($monthDate): void {
+                        $fallback->whereNull('t.planning_month')
+                            ->where(function ($inner) use ($monthDate): void {
+                                $inner->whereDate('p.month', $monthDate)
+                                    ->orWhereNull('p.month');
+                            });
+                    });
+            });
+        } else {
+            $query->whereDate('p.month', $monthDate);
+        }
 
         if (Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'deleted_at')) {
             $query->whereNull('t.deleted_at');

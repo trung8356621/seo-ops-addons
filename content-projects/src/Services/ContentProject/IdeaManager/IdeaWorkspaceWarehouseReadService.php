@@ -50,6 +50,20 @@ final class IdeaWorkspaceWarehouseReadService
         $items = [];
         $siteMeta = [];
         $latestUpdated = null;
+        $groupService = app(IdeaGroupService::class);
+        $groups = $groupService->listGroups($actorUserId);
+        $defaultGroupId = 0;
+        $validGroupIds = [];
+        foreach ($groups as $g) {
+            $gid = (int) ($g['id'] ?? 0);
+            if ($gid > 0) {
+                $validGroupIds[$gid] = true;
+                if (! empty($g['is_system']) && $defaultGroupId === 0) {
+                    $defaultGroupId = $gid;
+                }
+            }
+        }
+        $countsByGroup = [];
 
         foreach ($sites as $site) {
             $siteId = (int) $site->getKey();
@@ -98,14 +112,29 @@ final class IdeaWorkspaceWarehouseReadService
                 // Stable UI identity across sites (cluster_ref alone can collide).
                 $ref = (string) ($item['cluster_ref'] ?? '');
                 $item['warehouse_key'] = $siteId.':'.($ref !== '' ? $ref : sha1(json_encode($item) ?: uniqid('im', true)));
+                $gid = (int) ($item['idea_group_id'] ?? 0);
+                if ($gid <= 0 || ! isset($validGroupIds[$gid])) {
+                    $gid = $defaultGroupId;
+                }
+                if ($gid > 0) {
+                    $item['idea_group_id'] = $gid;
+                    $countsByGroup[$gid] = ($countsByGroup[$gid] ?? 0) + 1;
+                }
                 $items[] = $item;
             }
+        }
+
+        foreach ($groups as $idx => $g) {
+            $gid = (int) ($g['id'] ?? 0);
+            $groups[$idx]['count'] = (int) ($countsByGroup[$gid] ?? 0);
         }
 
         return [
             'status' => IdeaWorkspacePersistenceService::STATUS_OK,
             'note_items' => array_values($items),
             'item_count' => count($items),
+            'groups' => $groups,
+            'default_group_id' => $defaultGroupId,
             'sites' => $siteMeta,
             // Compat fields for Alpine bootstrap that still reads revision/site_id.
             'revision' => 0,

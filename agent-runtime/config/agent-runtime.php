@@ -59,4 +59,25 @@ return [
         'installation_id' => env('AGENT_RUNTIME_INSTALLATION_ID', hash('sha256', (string) env('APP_URL', 'local'))),
         'timeout' => (int) env('AGENT_RUNTIME_FEEDBACK_TIMEOUT', 10),
     ],
+
+    'structured_rag' => [
+        'max_capabilities' => (int) env('AGENT_RAG_MAX_CAPABILITIES', 5),
+        'max_sources' => (int) env('AGENT_RAG_MAX_SOURCES', 5),
+        'max_records_per_list' => (int) env('AGENT_RAG_MAX_RECORDS_PER_LIST', 25),
+        'max_evidence_bytes' => (int) env('AGENT_RAG_MAX_EVIDENCE_BYTES', 120000),
+    ],
+
+    /*
+    | Temporary external QA API (/api/agent-qa/v1/*).
+    | Disabled by default. Authenticated via static Bearer API key from .env.
+    */
+    'qa_api' => [
+        'enabled' => (bool) env('AGENT_QA_API_ENABLED', false),
+        'key' => env('AGENT_QA_API_KEY'),
+        'user_id' => env('AGENT_QA_USER_ID') !== null && env('AGENT_QA_USER_ID') !== ''
+            ? (int) env('AGENT_QA_USER_ID')
+            : null,
+        'allowed_site_ids' => env('AGENT_QA_ALLOWED_SITE_IDS'),
+        'rate_limit_per_minute' => (int) env('AGENT_QA_RATE_LIMIT_PER_MINUTE', 30),
+    ],
 ];

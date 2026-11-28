@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning;
 
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectPlannerRun;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\SmartDraftPublishPlanner;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\McpPlanning\McpPlanningSignalService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\VocabularySuggestStagingQuery;
@@ -32,7 +33,8 @@ final class SitePlanningReadModel
 
     /**
      * Historical Site Planning matrix (Planner / reporting).
-     * Keeps Global Legacy import shells in distribution counts.
+     * Excludes Global Legacy import shells (`import_source = seo_content_archive_items`)
+     * so Site Planning and Dashboard Monthly Planning agree on canonical counts.
      *
      * @return array{
      *     months: list<array{key: string, label: string, year: int, month: string, is_current: bool}>,
@@ -41,9 +43,9 @@ final class SitePlanningReadModel
      *     active_month: string
      * }
      */
-    public function overview(?int $selectedSiteId = null, CarbonImmutable|Carbon|string|null $activeMonth = null): array
+    public function overview(?int $selectedSiteId = null, CarbonImmutable|Carbon|string|null $activeMonth = null, ?int $overrideLimit = null): array
     {
-        return $this->buildOverview($selectedSiteId, $activeMonth, excludeGlobalLegacy: false);
+        return $this->buildOverview($selectedSiteId, $activeMonth, excludeGlobalLegacy: true, overrideLimit: $overrideLimit);
     }
 
     /**
@@ -61,8 +63,9 @@ final class SitePlanningReadModel
     public function overviewForProjectsList(
         ?int $selectedSiteId = null,
         CarbonImmutable|Carbon|string|null $activeMonth = null,
+        ?int $overrideLimit = null,
     ): array {
-        return $this->buildOverview($selectedSiteId, $activeMonth, excludeGlobalLegacy: true);
+        return $this->buildOverview($selectedSiteId, $activeMonth, excludeGlobalLegacy: true, overrideLimit: $overrideLimit);
     }
 
     /**
@@ -77,6 +80,7 @@ final class SitePlanningReadModel
         ?int $selectedSiteId,
         CarbonImmutable|Carbon|string|null $activeMonth,
         bool $excludeGlobalLegacy,
+        ?int $overrideLimit = null,
     ): array {
         unset($selectedSiteId);
 
@@ -89,8 +93,16 @@ final class SitePlanningReadModel
             ->get(['id', 'domain']);
 
         $plannedBySiteMonth = [];
+        $dynamicLimitByMonth = [];
+        $smartPlanner = app(SmartDraftPublishPlanner::class);
         foreach ($months as $month) {
             $monthKeyYm = ContentProjectMonthContext::normalize($month['key']);
+            if ($overrideLimit !== null && $overrideLimit > 0) {
+                $dynamicLimitByMonth[$month['key']] = $overrideLimit;
+            } else {
+                $auto = $smartPlanner->resolveAutoMonthlyLimit($monthKeyYm);
+                $dynamicLimitByMonth[$month['key']] = $auto['valid'] ? (int) $auto['limit'] : null;
+            }
             foreach ($this->units->plannedCountsBySite($monthKeyYm, $excludeGlobalLegacy) as $siteId => $count) {
                 $plannedBySiteMonth[(int) $siteId][$month['key']] = (int) $count;
             }
@@ -102,10 +114,11 @@ final class SitePlanningReadModel
         foreach ($sites as $site) {
             $siteId = (int) $site->getKey();
             $domain = trim((string) ($site->domain ?? ''));
-            $target = $this->targets->forSite($site);
+            $fallbackTarget = $this->targets->forSite($site);
             $monthCells = [];
             foreach ($months as $month) {
                 $planned = (int) ($plannedBySiteMonth[$siteId][$month['key']] ?? 0);
+                $cellTarget = $dynamicLimitByMonth[$month['key']] ?? $fallbackTarget;
                 $monthCells[] = [
                     'key' => $month['key'],
                     'label' => $month['label'],
@@ -113,9 +126,9 @@ final class SitePlanningReadModel
                     'month' => $month['month'],
                     'is_current' => $month['is_current'],
                     'planned' => $planned,
-                    'target' => $target,
-                    'over_target' => $planned > $target,
-                    'delta' => $planned - $target,
+                    'target' => $cellTarget,
+                    'over_target' => $planned > $cellTarget,
+                    'delta' => $planned - $cellTarget,
                     'planning_month' => ContentProjectMonthContext::normalize($month['key']),
                 ];
             }
@@ -124,7 +137,7 @@ final class SitePlanningReadModel
                 'site_id' => $siteId,
                 'domain' => $domain !== '' ? $domain : '#'.$siteId,
                 'mcp_planning_count' => (int) ($mcpBySite[$siteId] ?? 0),
-                'monthly_target' => $target,
+                'monthly_target' => $dynamicLimitByMonth[$months[0]['key'] ?? ''] ?? $fallbackTarget,
                 'months' => $monthCells,
             ];
         }

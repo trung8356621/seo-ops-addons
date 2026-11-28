@@ -1249,8 +1249,25 @@
             display: flex;
             flex-wrap: wrap;
             align-items: center;
-            gap: 0.5rem 0.65rem;
+            gap: 0.45rem 0.65rem;
             margin-left: auto;
+        }
+        .cp-plan-draft-subrow {
+            flex: 1 0 100%;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.25rem 0.75rem;
+            margin-top: 0.35rem;
+            padding-top: 0.3rem;
+            border-top: 1px dashed var(--cp-plan-border);
+            font-size: 0.72rem;
+            line-height: 1.25;
+            color: var(--cp-plan-muted);
+        }
+        .dark .cp-plan-draft-subrow {
+            color: #9ca3af;
         }
         .cp-plan-btn--quarantine {
             border: 1px solid var(--cp-plan-border);

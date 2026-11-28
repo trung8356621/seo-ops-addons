@@ -115,6 +115,66 @@
             .dark .im-btn--ghost { background: #1f2937; color: #e5e7eb; border-color: #374151; }
             .dark .im-btn--danger { background: rgba(190,18,60,.2); color: #fecdd3; border-color: #9f1239; }
 
+            .im-history { position: relative; }
+            .im-history__panel {
+                position: absolute; right: 0; top: calc(100% + 0.35rem); z-index: 40;
+                width: min(34rem, 92vw); max-height: 26rem; display: flex; flex-direction: column;
+                border: 1px solid #d1d5db; border-radius: 0.65rem; background: #fff;
+                box-shadow: 0 12px 28px rgba(15, 23, 42, .16);
+            }
+            .dark .im-history__panel { border-color: #374151; background: #111827; box-shadow: 0 12px 28px rgba(0, 0, 0, .45); }
+            .im-history__head {
+                display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+                padding: 0.5rem 0.7rem; border-bottom: 1px solid #e5e7eb; font-size: 0.78rem; font-weight: 700;
+            }
+            .dark .im-history__head { border-color: #374151; }
+            .im-history__list { overflow-y: auto; padding: 0.45rem; display: flex; flex-direction: column; gap: 0.4rem; }
+            .im-history__row {
+                border: 1px solid #e5e7eb; border-radius: 0.5rem; padding: 0.45rem 0.55rem;
+                display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.75rem; background: #f9fafb;
+            }
+            .dark .im-history__row { border-color: #374151; background: #1f2937; }
+            .im-history__top { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; flex-wrap: wrap; }
+            .im-history__meta { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; flex-wrap: wrap; color: #4b5563; font-size: 0.72rem; }
+            .dark .im-history__meta { color: #9ca3af; }
+            .im-history__err { color: #b91c1c; font-size: 0.71rem; line-height: 1.3; word-break: break-word; }
+            .dark .im-history__err { color: #fca5a5; }
+            .im-hbadge {
+                display: inline-flex; align-items: center; border-radius: 999px;
+                padding: 0.1rem 0.45rem; font-size: 0.68rem; font-weight: 700;
+            }
+            .im-hbadge--running, .im-hbadge--queued, .im-hbadge--recovering { background: #dbeafe; color: #1d4ed8; }
+            .im-hbadge--waiting_retry { background: #fef3c7; color: #b45309; }
+            .im-hbadge--completed { background: #dcfce7; color: #15803d; }
+            .im-hbadge--partial { background: #ffedd5; color: #c2410c; }
+            .im-hbadge--failed { background: #fee2e2; color: #b91c1c; }
+            .im-hbadge--stale { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+            .im-hbadge--cancelled { background: #f3f4f6; color: #4b5563; }
+
+            .im-group-bar {
+                flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem;
+                padding: 0.35rem 0.65rem; border-bottom: 1px solid #e5e7eb; background: #f9fafb;
+            }
+            .dark .im-group-bar { border-color: #374151; background: #0f172a; }
+            .im-group-tab {
+                display: inline-flex; align-items: center; gap: 0.3rem;
+                padding: 0.24rem 0.55rem; border-radius: 0.45rem;
+                border: 1px solid #e5e7eb; background: #fff; color: #374151;
+                font-size: 0.74rem; font-weight: 600; cursor: pointer;
+            }
+            .dark .im-group-tab { border-color: #374151; background: #1f2937; color: #d1d5db; }
+            .im-group-tab.is-active {
+                background: #2563eb; border-color: #2563eb; color: #fff;
+            }
+            .im-group-tab__count {
+                font-size: 0.68rem; font-weight: 700; opacity: .82;
+            }
+            .im-group-tab__act {
+                border: none; background: transparent; padding: 0 0.12rem; cursor: pointer;
+                font-size: 0.7rem; line-height: 1; opacity: .75; color: inherit;
+            }
+            .im-group-tab__act:hover { opacity: 1; }
+
             .im-banner {
                 border-radius: 0.65rem; padding: 0.65rem 0.75rem; border: 1px solid #bfdbfe;
                 background: #eff6ff; display: flex; flex-wrap: wrap; gap: 0.55rem; align-items: center; justify-content: space-between;
@@ -294,7 +354,9 @@
                         <select
                             class="im-input w-full"
                             style="width:100%;min-width:0"
+                            data-im-source-site-select="1"
                             wire:change="setSourceSite(Number($event.target.value))"
+                            x-on:idea-manager-source-filter-changed.window="const id = Number(($event.detail && ($event.detail.siteId ?? $event.detail[0])) || 0); if (id > 0) $el.value = String(id);"
                         >
                             @foreach ($sourceOptions as $opt)
                                 <option value="{{ $opt['id'] }}" @selected((int) ($sourceFilter['site_id'] ?? 0) === (int) $opt['id'])>
@@ -362,6 +424,215 @@
             <section class="im-main" data-im-warehouse="1">
                 <div class="im-main__head">
                     <div class="im-main__title">{{ __('seo-content-ai::filament.projects.idea_manager_warehouse_title') }}</div>
+                    <div
+                        class="im-history"
+                        wire:ignore
+                        x-data="ideaManagerGenerateHistory({ initialHistory: @js($this->generateHistory()) })"
+                        x-on:idea-manager-history-refresh.window="refresh()"
+                        x-on:keydown.escape.window="open = false"
+                    >
+                        <button
+                            type="button"
+                            class="im-btn im-btn--ghost"
+                            data-im-history-toggle="1"
+                            x-on:click="toggle()"
+                        >
+                            <span>Lịch sử Generate</span>
+                            <span
+                                class="im-pill im-pill--blue"
+                                x-show="rows.length > 0"
+                                x-text="rows.length"
+                            ></span>
+                        </button>
+                        <div
+                            class="im-history__panel"
+                            data-im-history-panel="1"
+                            x-show="open"
+                            x-cloak
+                            x-on:click.outside="open = false"
+                        >
+                            <div class="im-history__head">
+                                <span>Lịch sử Generate (mới nhất trước)</span>
+                                <button
+                                    type="button"
+                                    class="im-btn im-btn--ghost"
+                                    style="padding:0.2rem 0.5rem;font-size:0.72rem"
+                                    data-im-history-refresh="1"
+                                    :disabled="loading"
+                                    x-on:click="refresh()"
+                                >
+                                    <span x-text="loading ? 'Đang tải…' : 'Làm mới'"></span>
+                                </button>
+                            </div>
+                            <div class="im-history__list">
+                                <template x-if="feedback">
+                                    <div class="text-xs px-2 py-1 rounded border border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200" x-text="feedback"></div>
+                                </template>
+                                <template x-if="rows.length === 0">
+                                    <div class="text-xs text-gray-500 p-3 text-center">Chưa có lượt Generate nào.</div>
+                                </template>
+                                <template x-for="row in rows" :key="'gh-' + row.planner_run_id">
+                                    <div class="im-history__row" :data-im-history-run="row.planner_run_id">
+                                        <div class="im-history__top">
+                                            <div class="flex items-center gap-1.5 flex-wrap">
+                                                <span class="font-bold" x-text="'#' + row.planner_run_id"></span>
+                                                <span class="font-medium" x-text="row.domain"></span>
+                                                <span class="im-hbadge" :class="'im-hbadge--' + row.status" x-text="row.status_label"></span>
+                                            </div>
+                                            <span class="text-[11px] text-gray-500" x-text="row.started_at_short || row.started_at"></span>
+                                        </div>
+                                        <div class="im-history__meta">
+                                            <span>
+                                                Xử lý: <strong x-text="row.processed + '/' + row.requested"></strong>
+                                                · Draft tạo: <strong x-text="row.created_drafts"></strong>
+                                            </span>
+                                            <div class="flex items-center gap-1.5">
+                                                <button
+                                                    type="button"
+                                                    class="underline text-blue-600 dark:text-blue-400"
+                                                    data-im-history-detail="1"
+                                                    x-on:click="openDetail(row.planner_run_id)"
+                                                >Chi tiết</button>
+                                                <template x-if="row.can_resume">
+                                                    <button
+                                                        type="button"
+                                                        class="im-btn im-btn--primary"
+                                                        style="padding:0.18rem 0.5rem;font-size:0.7rem"
+                                                        :disabled="retryingId === row.planner_run_id"
+                                                        x-on:click="retryOrResume(row.planner_run_id)"
+                                                    >
+                                                        <span x-text="retryingId === row.planner_run_id ? 'Đang gửi…' : 'Tiếp tục'"></span>
+                                                    </button>
+                                                </template>
+                                                <template x-if="row.can_retry">
+                                                    <button
+                                                        type="button"
+                                                        class="im-btn im-btn--danger"
+                                                        style="padding:0.18rem 0.5rem;font-size:0.7rem"
+                                                        :disabled="retryingId === row.planner_run_id"
+                                                        x-on:click="retryOrResume(row.planner_run_id)"
+                                                    >
+                                                        <span x-text="retryingId === row.planner_run_id ? 'Đang gửi…' : 'Thử lại'"></span>
+                                                    </button>
+                                                </template>
+                                            </div>
+                                        </div>
+                                        <template x-if="row.error_summary">
+                                            <div class="im-history__err" x-text="row.error_summary"></div>
+                                        </template>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+
+                        <div
+                            class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+                            data-im-history-detail-modal="1"
+                            x-show="detailOpen"
+                            x-cloak
+                            x-on:keydown.escape.window="closeDetail()"
+                        >
+                            <div
+                                class="w-full max-w-lg rounded-xl border border-gray-200 bg-white p-4 shadow-xl dark:border-gray-700 dark:bg-gray-900"
+                                x-on:click.stop
+                            >
+                                <div class="flex items-center justify-between gap-2 border-b border-gray-200 pb-2.5 dark:border-gray-700">
+                                    <div class="flex items-center gap-2">
+                                        <span class="font-bold text-sm" x-text="detail ? ('Chi tiết Generate #' + detail.planner_run_id) : 'Chi tiết Generate'"></span>
+                                        <template x-if="detail">
+                                            <span class="im-hbadge" :class="'im-hbadge--' + detail.status" x-text="detail.status_label"></span>
+                                        </template>
+                                    </div>
+                                    <button type="button" class="im-btn im-btn--ghost" style="padding:0.2rem 0.55rem;font-size:0.75rem" x-on:click="closeDetail()">Đóng</button>
+                                </div>
+
+                                <div class="mt-3 text-xs">
+                                    <template x-if="detailLoading">
+                                        <div class="py-6 text-center text-gray-500">Đang tải chi tiết Run…</div>
+                                    </template>
+                                    <template x-if="!detailLoading && detailError">
+                                        <div class="rounded-lg border border-red-200 bg-red-50 p-3 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300" x-text="detailError"></div>
+                                    </template>
+                                    <template x-if="!detailLoading && detail">
+                                        <div class="space-y-3">
+                                            <dl class="grid grid-cols-2 gap-x-4 gap-y-2">
+                                                <div>
+                                                    <dt class="text-gray-500">Domain đích</dt>
+                                                    <dd class="font-semibold" x-text="detail.domain"></dd>
+                                                </div>
+                                                <div>
+                                                    <dt class="text-gray-500">Trạng thái</dt>
+                                                    <dd class="font-semibold" x-text="detail.status_label"></dd>
+                                                </div>
+                                                <div>
+                                                    <dt class="text-gray-500">Bắt đầu</dt>
+                                                    <dd x-text="detail.started_at || '—'"></dd>
+                                                </div>
+                                                <div>
+                                                    <dt class="text-gray-500">Cập nhật / Kết thúc</dt>
+                                                    <dd x-text="(detail.finished_at && detail.finished_at !== '—') ? detail.finished_at : (detail.updated_at || '—')"></dd>
+                                                </div>
+                                                <div>
+                                                    <dt class="text-gray-500">Tổng Idea yêu cầu</dt>
+                                                    <dd class="font-semibold" x-text="detail.requested"></dd>
+                                                </div>
+                                                <div>
+                                                    <dt class="text-gray-500">Đã xử lý / Draft tạo</dt>
+                                                    <dd class="font-semibold" x-text="detail.processed + ' / ' + detail.created_drafts"></dd>
+                                                </div>
+                                                <div>
+                                                    <dt class="text-gray-500">Prompt Result</dt>
+                                                    <dd x-text="(detail.prompt_result_id ? ('#' + detail.prompt_result_id + ' · ') : '') + (detail.prompt_result_status || '—')"></dd>
+                                                </div>
+                                                <div>
+                                                    <dt class="text-gray-500">Provider / Model</dt>
+                                                    <dd x-text="(detail.provider || '—') + (detail.model && detail.model !== '—' ? (' / ' + detail.model) : '')"></dd>
+                                                </div>
+                                                <div>
+                                                    <dt class="text-gray-500">Số lần Retry</dt>
+                                                    <dd x-text="detail.retry_count || 0"></dd>
+                                                </div>
+                                                <div>
+                                                    <dt class="text-gray-500">Trùng / Từ chối</dt>
+                                                    <dd x-text="(detail.duplicate_skipped || 0) + ' / ' + (detail.rejected_skipped || 0)"></dd>
+                                                </div>
+                                            </dl>
+
+                                            <template x-if="detail.error_summary">
+                                                <div class="rounded-lg border border-red-200 bg-red-50 p-2.5 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+                                                    <div class="font-semibold mb-0.5">Lỗi</div>
+                                                    <div class="break-words" x-text="detail.error_summary"></div>
+                                                </div>
+                                            </template>
+
+                                            <div class="flex items-center justify-end gap-2 border-t border-gray-200 pt-2.5 dark:border-gray-700">
+                                                <template x-if="detail.can_resume">
+                                                    <button
+                                                        type="button"
+                                                        class="im-btn im-btn--primary"
+                                                        :disabled="retryingId === detail.planner_run_id"
+                                                        x-on:click="retryOrResume(detail.planner_run_id, true)"
+                                                    >
+                                                        <span x-text="retryingId === detail.planner_run_id ? 'Đang gửi…' : 'Tiếp tục'"></span>
+                                                    </button>
+                                                </template>
+                                                <template x-if="detail.can_retry">
+                                                    <button
+                                                        type="button"
+                                                        class="im-btn im-btn--danger"
+                                                        :disabled="retryingId === detail.planner_run_id"
+                                                        x-on:click="retryOrResume(detail.planner_run_id, true)"
+                                                    >
+                                                        <span x-text="retryingId === detail.planner_run_id ? 'Đang gửi…' : 'Thử lại'"></span>
+                                                    </button>
+                                                </template>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div
                     class="im-main__body"
@@ -428,6 +699,30 @@
 
                     <template x-if="siteId > 0">
                         <div class="im-main__shell">
+                            <div
+                                class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+                                data-im-group-delete-modal="1"
+                                x-show="!!deletingGroup"
+                                x-cloak
+                                x-on:keydown.escape.window="deletingGroup = null"
+                            >
+                                <div class="w-full max-w-md rounded-xl border border-gray-200 bg-white p-4 shadow-xl dark:border-gray-700 dark:bg-gray-900" x-on:click.stop>
+                                    <div class="font-bold text-sm text-red-700 dark:text-red-400">Xác nhận xóa nhóm Idea</div>
+                                    <p class="mt-2 text-xs text-gray-700 dark:text-gray-300" x-show="deletingGroup">
+                                        Nhóm <strong x-text="deletingGroup ? deletingGroup.name : ''"></strong> hiện có
+                                        <strong x-text="deletingGroup ? groupCount(deletingGroup.id) : 0"></strong> Idea.
+                                        Khi xóa nhóm, <strong>toàn bộ Idea trong nhóm này sẽ bị xóa khỏi Kho Idea</strong> (không chuyển về Chung).
+                                        Bài viết, Draft và Planner Run đã tạo trước đó không bị ảnh hưởng.
+                                    </p>
+                                    <div class="mt-3 flex items-center justify-end gap-2">
+                                        <button type="button" class="im-btn im-btn--ghost" :disabled="groupBusy" x-on:click="deletingGroup = null">Hủy</button>
+                                        <button type="button" class="im-btn im-btn--danger" data-im-group-delete-confirm="1" :disabled="groupBusy" x-on:click="executeDeleteGroup()">
+                                            <span x-text="groupBusy ? 'Đang xóa…' : 'Xóa nhóm & Idea'"></span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div class="im-main__sticky">
                                 <details x-show="debugEnabled" x-cloak class="im-debug" data-im-debug="1" open>
                                 <summary>Idea Manager runtime diagnostics (temporary)</summary>
@@ -490,6 +785,24 @@
                                 <span class="im-pill im-pill--blue" x-text="'{{ __('seo-content-ai::filament.projects.idea_manager_selected_count', ['count' => '__N__']) }}'.replace('__N__', String(selectedCount()))"></span>
                                 <button type="button" class="im-btn im-btn--ghost" x-on:click="selectAllVisible()">{{ __('seo-content-ai::filament.projects.idea_manager_select_all') }}</button>
                                 <button type="button" class="im-btn im-btn--ghost" x-on:click="clearSelection()">{{ __('seo-content-ai::filament.projects.idea_manager_clear_selection') }}</button>
+                                <template x-if="selectedCount() > 0 && groups.length > 1">
+                                    <span class="inline-flex items-center gap-1" data-im-move-group-bar="1">
+                                        <select class="im-input" style="min-width:7.5rem;padding:0.3rem 1.8rem 0.3rem 0.5rem;font-size:0.75rem" x-model="moveTargetGroupId" data-im-move-group-select="1">
+                                            <option value="">Chuyển nhóm…</option>
+                                            <template x-for="g in groups" :key="'mv-' + g.id">
+                                                <option :value="g.id" :disabled="Number(g.id) === Number(activeGroupId)" x-text="g.name"></option>
+                                            </template>
+                                        </select>
+                                        <button
+                                            type="button"
+                                            class="im-btn im-btn--ghost"
+                                            style="padding:0.32rem 0.55rem;font-size:0.75rem"
+                                            data-im-move-group-btn="1"
+                                            :disabled="!moveTargetGroupId || groupBusy"
+                                            x-on:click="moveSelectedToGroup()"
+                                        >Chuyển</button>
+                                    </span>
+                                </template>
                             </div>
 
                             <div class="im-actions">
@@ -529,6 +842,115 @@
                                     </div>
                                 </template>
                             </div>
+
+                            <div class="im-actions" data-im-bulk-dna-bar="1">
+                                <span class="text-xs font-medium text-gray-700 dark:text-gray-300">DNA mục tiêu tất cả Idea trong nhóm</span>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    max="100"
+                                    class="im-input im-target"
+                                    data-im-bulk-dna-input="1"
+                                    x-model.number="bulkGroupDnaTarget"
+                                    :disabled="groupBusy"
+                                    x-on:keydown.enter.prevent.stop="applyBulkGroupDna()"
+                                />
+                                <button
+                                    type="button"
+                                    class="im-btn im-btn--primary"
+                                    style="padding:0.32rem 0.65rem;font-size:0.75rem"
+                                    data-im-bulk-dna-apply="1"
+                                    :disabled="groupBusy || groupCount(activeGroupId) === 0"
+                                    x-on:click="applyBulkGroupDna()"
+                                >Áp dụng</button>
+                                <span class="text-xs text-green-700 dark:text-green-400" x-show="bulkDnaNotice" x-text="bulkDnaNotice" x-cloak></span>
+                                <span class="text-xs text-red-600 dark:text-red-400" x-show="bulkDnaError" x-text="bulkDnaError" x-cloak></span>
+                            </div>
+                            </div>
+
+                            <div class="im-group-bar" data-im-group-bar="1">
+                                <template x-for="grp in groups" :key="'im-grp-' + grp.id">
+                                    <div
+                                        class="im-group-tab"
+                                        :class="{ 'is-active': Number(activeGroupId) === Number(grp.id) }"
+                                        :data-im-group-tab="grp.id"
+                                    >
+                                        <template x-if="renamingGroupId !== Number(grp.id)">
+                                            <button
+                                                type="button"
+                                                class="inline-flex items-center gap-1"
+                                                x-on:click="selectGroup(grp.id)"
+                                            >
+                                                <span x-text="grp.name"></span>
+                                                <span class="im-group-tab__count" x-text="'(' + groupCount(grp.id) + ')'"></span>
+                                            </button>
+                                        </template>
+                                        <template x-if="renamingGroupId === Number(grp.id)">
+                                            <span class="inline-flex items-center gap-1">
+                                                <input
+                                                    type="text"
+                                                    class="im-input"
+                                                    style="padding:0.12rem 0.35rem;font-size:0.72rem;min-width:6rem;color:#111827"
+                                                    x-model="renameGroupName"
+                                                    x-on:keydown.enter.prevent.stop="saveRenameGroup(grp.id)"
+                                                    x-on:keydown.escape.prevent.stop="renamingGroupId = 0"
+                                                />
+                                                <button type="button" class="im-group-tab__act" title="Lưu" x-on:click="saveRenameGroup(grp.id)">✓</button>
+                                                <button type="button" class="im-group-tab__act" title="Hủy" x-on:click="renamingGroupId = 0">×</button>
+                                            </span>
+                                        </template>
+                                        <template x-if="!grp.is_system && renamingGroupId !== Number(grp.id)">
+                                            <span class="inline-flex items-center gap-0.5 ml-0.5">
+                                                <button
+                                                    type="button"
+                                                    class="im-group-tab__act"
+                                                    title="Đổi tên nhóm"
+                                                    data-im-group-rename="1"
+                                                    x-on:click.stop="startRenameGroup(grp)"
+                                                >✎</button>
+                                                <button
+                                                    type="button"
+                                                    class="im-group-tab__act"
+                                                    title="Xóa nhóm và toàn bộ Idea trong nhóm"
+                                                    data-im-group-delete="1"
+                                                    x-on:click.stop="confirmDeleteGroup(grp)"
+                                                >×</button>
+                                            </span>
+                                        </template>
+                                    </div>
+                                </template>
+
+                                <template x-if="groups.length < 5 && !showNewGroup">
+                                    <button
+                                        type="button"
+                                        class="im-group-tab"
+                                        title="Thêm nhóm mới (tối đa 5 nhóm)"
+                                        data-im-group-add="1"
+                                        x-on:click="openNewGroup()"
+                                    >+</button>
+                                </template>
+
+                                <template x-if="showNewGroup">
+                                    <span class="inline-flex items-center gap-1">
+                                        <input
+                                            type="text"
+                                            class="im-input"
+                                            style="padding:0.18rem 0.45rem;font-size:0.74rem;min-width:8rem"
+                                            placeholder="Tên nhóm mới…"
+                                            data-im-group-new-input="1"
+                                            x-model="newGroupName"
+                                            :disabled="groupBusy"
+                                            x-on:keydown.enter.prevent.stop="createGroup()"
+                                            x-on:keydown.escape.prevent.stop="showNewGroup = false; newGroupName = ''; groupError = ''"
+                                        />
+                                        <button type="button" class="im-btn im-btn--primary" style="padding:0.2rem 0.5rem;font-size:0.72rem" :disabled="groupBusy" x-on:click="createGroup()">Lưu</button>
+                                        <button type="button" class="im-btn im-btn--ghost" style="padding:0.2rem 0.45rem;font-size:0.72rem" x-on:click="showNewGroup = false; newGroupName = ''; groupError = ''">Hủy</button>
+                                    </span>
+                                </template>
+
+                                <template x-if="groupError">
+                                    <span class="text-xs text-red-600 dark:text-red-400" x-text="groupError"></span>
+                                </template>
                             </div>
 
                             <div class="im-main__list">
@@ -543,7 +965,33 @@
                                             <div class="min-w-0 flex-1 flex gap-2">
                                                 <input type="checkbox" class="mt-1" :checked="isSelected(itemKey(item))" x-on:change="toggleSelect(itemKey(item))" />
                                                 <div class="min-w-0 flex-1">
-                                                    <div class="im-card__title" x-text="item.cluster_name_snapshot || item.seed_text"></div>
+                                                    <template x-if="editingKey !== itemKey(item)">
+                                                        <div
+                                                            class="im-card__title cursor-text"
+                                                            title="Double-click để sửa tên Idea"
+                                                            data-im-idea-title="1"
+                                                            x-on:dblclick.stop="startRename(item)"
+                                                            x-text="item.cluster_name_snapshot || item.seed_text"
+                                                        ></div>
+                                                    </template>
+                                                    <template x-if="editingKey === itemKey(item)">
+                                                        <div class="space-y-1">
+                                                            <input
+                                                                type="text"
+                                                                class="im-input w-full text-sm font-semibold"
+                                                                data-im-rename-input="1"
+                                                                x-model="editingValue"
+                                                                :disabled="savingRenameKey === itemKey(item)"
+                                                                x-on:keydown.enter.prevent.stop="commitRename(item)"
+                                                                x-on:keydown.escape.prevent.stop="cancelRename(item)"
+                                                                x-on:blur="commitRename(item)"
+                                                            />
+                                                            <div class="flex items-center gap-2 text-[11px]">
+                                                                <span class="text-blue-600 dark:text-blue-400" x-show="savingRenameKey === itemKey(item)" x-cloak>Đang lưu…</span>
+                                                                <span class="text-red-600 dark:text-red-400" x-show="renameErrorByKey[itemKey(item)]" x-text="renameErrorByKey[itemKey(item)]" x-cloak></span>
+                                                            </div>
+                                                        </div>
+                                                    </template>
                                                     <div class="im-card__meta">
                                                         <span class="im-pill" x-text="sourceLabel(item)"></span>
                                                         <span class="im-pill" x-text="'{{ __('seo-content-ai::filament.projects.idea_manager_source_domain_badge', ['domain' => '__D__']) }}'.replace('__D__', ideaProvenanceDomain(item))"></span>
@@ -612,10 +1060,12 @@
                             targetDomain: @js((string) ($dist['target_domain'] ?? '')),
                             activeMonthLabel: @js(\Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::display($dist['active_month'])),
                             capacityLabel: @js($dist['planned'] !== null ? (((int) $dist['planned']).' / '.((int) $dist['target'])) : ''),
+                            activeRunsBySite: @js($this->activeDistributionRunsBySite()),
                          })"
                          x-on:im-selection-changed.window="onSelection($event.detail)"
                          x-on:idea-manager-target-changed.window="onTargetChanged($event.detail)"
-                         x-on:idea-manager-active-month-changed.window="onActiveMonthChanged($event.detail)">
+                         x-on:idea-manager-active-month-changed.window="onActiveMonthChanged($event.detail)"
+                         x-on:idea-manager-run-started.window="onExternalRunStarted($event.detail)">
                         <div class="im-dist__head">
                             <div class="font-semibold text-sm">{{ __('seo-content-ai::filament.projects.idea_manager_distribution_title') }}</div>
                             <div class="im-dist__meta">
@@ -736,6 +1186,94 @@
 
 
     <script>
+        function ideaManagerGenerateHistory(cfg) {
+            return {
+                open: false,
+                loading: false,
+                retryingId: 0,
+                feedback: '',
+                rows: Array.isArray(cfg && cfg.initialHistory) ? cfg.initialHistory : [],
+                detailOpen: false,
+                detailLoading: false,
+                detailError: '',
+                detail: null,
+
+                toggle() {
+                    this.open = !this.open;
+                    if (this.open) {
+                        this.refresh();
+                    }
+                },
+
+                async openDetail(runId) {
+                    const id = Number(runId || 0);
+                    if (id <= 0) return;
+                    this.detailOpen = true;
+                    this.detailLoading = true;
+                    this.detailError = '';
+                    this.detail = null;
+                    try {
+                        const res = await this.$wire.generateRunDetail(id);
+                        if (res && res.ok) {
+                            this.detail = res;
+                        } else {
+                            this.detailError = (res && res.message) ? String(res.message) : 'Không thể tải chi tiết Run.';
+                        }
+                    } catch (_e) {
+                        this.detailError = 'Không có quyền hoặc lỗi tải chi tiết Run.';
+                    } finally {
+                        this.detailLoading = false;
+                    }
+                },
+
+                closeDetail() {
+                    this.detailOpen = false;
+                },
+
+                async refresh() {
+                    this.loading = true;
+                    try {
+                        const data = await this.$wire.generateHistory();
+                        this.rows = Array.isArray(data) ? data : [];
+                    } catch (_e) {
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                async retryOrResume(runId, reloadDetail = false) {
+                    const id = Number(runId || 0);
+                    if (id <= 0 || this.retryingId > 0) return;
+                    this.retryingId = id;
+                    this.feedback = '';
+                    try {
+                        const res = await this.$wire.retryDistributionRun(id);
+                        if (res && res.ok) {
+                            this.feedback = String(res.message || ('Đã gửi lại Run #' + id));
+                            window.dispatchEvent(new CustomEvent('idea-manager-run-started', {
+                                detail: {
+                                    siteId: Number(res.site_id || 0),
+                                    plannerRunId: Number(res.planner_run_id || id),
+                                    status: String(res.status || 'recovering'),
+                                },
+                            }));
+                            await this.refresh();
+                            if (reloadDetail && this.detailOpen) {
+                                await this.openDetail(id);
+                            }
+                        } else {
+                            this.feedback = (res && res.message) ? String(res.message) : 'Không thể Retry Run này.';
+                            await this.refresh();
+                        }
+                    } catch (_e) {
+                        this.feedback = 'Lỗi kết nối khi gửi Retry.';
+                    } finally {
+                        this.retryingId = 0;
+                    }
+                },
+            };
+        }
+
         function ideaManagerClusterBridge(cfg) {
             return {
                 rows: cfg.rows || [],
@@ -763,15 +1301,53 @@
                 exactCount: 0,
                 unknownCount: 0,
                 checking: false,
-                generating: false,
-                reconciling: false,
-                confirming: false,
-                pendingRequestKey: '',
-                activeRunId: 0,
-                result: null,
+                runsBySite: {},
                 _timer: null,
-                _pollTimer: null,
+                _pollTimers: {},
                 _reqSeq: 0,
+
+                siteState(siteId = null) {
+                    const id = Number(siteId !== null ? siteId : this.targetSiteId);
+                    if (id <= 0) {
+                        return {
+                            generating: false,
+                            reconciling: false,
+                            confirming: false,
+                            pendingRequestKey: '',
+                            activeRunId: 0,
+                            result: null,
+                        };
+                    }
+                    const key = String(id);
+                    if (!this.runsBySite[key]) {
+                        this.runsBySite[key] = {
+                            generating: false,
+                            reconciling: false,
+                            confirming: false,
+                            pendingRequestKey: '',
+                            activeRunId: 0,
+                            result: null,
+                        };
+                    }
+
+                    return this.runsBySite[key];
+                },
+
+                get generating() {
+                    return !!this.siteState().generating;
+                },
+                get reconciling() {
+                    return !!this.siteState().reconciling;
+                },
+                get confirming() {
+                    return !!this.siteState().confirming;
+                },
+                get activeRunId() {
+                    return Number(this.siteState().activeRunId || 0);
+                },
+                get result() {
+                    return this.siteState().result || null;
+                },
 
                 get displayItems() {
                     // Selection is SSOT — analysis overlays evidence; never hide while checking.
@@ -801,14 +1377,40 @@
                     });
                 },
 
-                init() {},
+                init() {
+                    const active = (cfg && cfg.activeRunsBySite && typeof cfg.activeRunsBySite === 'object')
+                        ? cfg.activeRunsBySite
+                        : {};
+                    for (const [siteKey, run] of Object.entries(active)) {
+                        const sid = Number((run && run.site_id) || siteKey || 0);
+                        const runId = Number((run && run.planner_run_id) || 0);
+                        if (sid <= 0 || runId <= 0) continue;
+                        const st = this.siteState(sid);
+                        st.generating = true;
+                        st.confirming = true;
+                        st.activeRunId = runId;
+                        this.startRunPolling(runId, sid);
+                    }
+                },
 
                 canCheckNow() {
                     return this.targetSiteId > 0
                         && this.items.length > 0
-                        && !this.checking
-                        && !this.generating
-                        && !this.reconciling;
+                        && !this.checking;
+                },
+
+                onExternalRunStarted(detail) {
+                    const d = detail || {};
+                    const sid = Number(d.siteId || 0);
+                    const runId = Number(d.plannerRunId || 0);
+                    if (sid <= 0 || runId <= 0) return;
+                    const st = this.siteState(sid);
+                    st.generating = true;
+                    st.confirming = true;
+                    st.reconciling = false;
+                    st.activeRunId = runId;
+                    st.result = null;
+                    this.startRunPolling(runId, sid);
                 },
 
                 canDistributeNow() {
@@ -827,8 +1429,11 @@
                     const d = detail || {};
                     this.count = Number(d.count || 0);
                     this.items = Array.isArray(d.items) ? d.items : [];
-                    this.result = null;
-                    this.pendingRequestKey = '';
+                    const st = this.siteState();
+                    if (!st.generating && !st.reconciling) {
+                        st.result = null;
+                        st.pendingRequestKey = '';
+                    }
                     // Invalidate stale check results for removed refs; keep others until user re-checks.
                     const keep = {};
                     for (const it of this.items) {
@@ -847,13 +1452,15 @@
                         : ((d[0] !== undefined && d[0] !== null) ? d[0] : this.targetSiteId);
                     this.targetSiteId = Number(raw || 0);
                     if (d.domain) this.targetDomain = String(d.domain);
-                    this.result = null;
-                    this.pendingRequestKey = '';
+                    // Preserve per-site runsBySite state when switching domains.
                     // Invalidate stale check results — keep selected items intact.
                     this.analysisByRef = {};
                     this.warningCount = 0;
                     this.exactCount = 0;
                     this.unknownCount = 0;
+                    if (this.targetSiteId > 0 && this.items.length > 0) {
+                        this.schedulePreview();
+                    }
                 },
 
                 onActiveMonthChanged(detail) {
@@ -865,7 +1472,10 @@
                             this.activeMonthLabel = parts[1] + '/' + parts[0];
                         }
                     }
-                    this.pendingRequestKey = '';
+                    const st = this.siteState();
+                    if (!st.generating && !st.reconciling) {
+                        st.pendingRequestKey = '';
+                    }
                 },
 
                 recomputeCounts() {
@@ -976,53 +1586,60 @@
 
                 async distributeWithAi() {
                     if (!this.canDistributeNow()) return;
+                    const siteId = Number(this.targetSiteId || 0);
+                    if (siteId <= 0) return;
+                    const st = this.siteState(siteId);
                     const confirmTpl = @js(__('seo-content-ai::filament.projects.idea_manager_distribution_ai_confirm'));
                     const msg = String(confirmTpl)
                         .replace(':count', String(this.items.length))
-                        .replace(':domain', String(this.targetDomain || ('#' + this.targetSiteId)))
+                        .replace(':domain', String(this.targetDomain || ('#' + siteId)))
                         .replace(':month', String(this.activeMonthLabel || ''));
                     if (!window.confirm(msg)) return;
 
-                    if (!this.pendingRequestKey) {
-                        this.pendingRequestKey = (window.crypto && typeof window.crypto.randomUUID === 'function')
+                    if (!st.pendingRequestKey) {
+                        st.pendingRequestKey = (window.crypto && typeof window.crypto.randomUUID === 'function')
                             ? window.crypto.randomUUID()
                             : ('req-' + Date.now() + '-' + Math.random().toString(36).slice(2));
                     }
 
-                    this.generating = true;
-                    this.confirming = true;
-                    this.result = null;
+                    st.generating = true;
+                    st.confirming = true;
+                    st.result = null;
                     try {
-                        const res = await this.$wire.distributeWithAi(this.items, this.pendingRequestKey);
+                        const res = await this.$wire.distributeWithAi(this.items, st.pendingRequestKey);
                         if (!res || !res.ok || !res.planner_run_id) {
-                            this.result = {
+                            st.result = {
                                 ok: false,
                                 status: 'failed',
                                 message: (res && res.message) ? res.message : 'AI generation failed',
                                 run_detail_url: (res && res.run_detail_url) || null,
                             };
-                            this.generating = false;
-                            this.confirming = false;
+                            st.generating = false;
+                            st.confirming = false;
                             return;
                         }
-                        this.activeRunId = Number(res.planner_run_id);
-                        this.startRunPolling(this.activeRunId);
+                        st.activeRunId = Number(res.planner_run_id);
+                        window.dispatchEvent(new CustomEvent('idea-manager-history-refresh'));
+                        this.startRunPolling(st.activeRunId, siteId);
                     } catch (e) {
                         // Network timeout / disconnect: reconcile with server before allowing retry.
-                        await this.reconcileAfterTimeout();
+                        await this.reconcileAfterTimeout(siteId);
                     }
                 },
 
-                startRunPolling(runId) {
-                    if (this._pollTimer) clearTimeout(this._pollTimer);
+                startRunPolling(runId, siteId = null) {
+                    const sid = Number(siteId !== null ? siteId : this.targetSiteId);
+                    const key = String(sid);
+                    if (this._pollTimers[key]) clearTimeout(this._pollTimers[key]);
                     const tick = async () => {
+                        const st = this.siteState(sid);
                         try {
                             const poll = await this.$wire.pollDistributionRun(runId);
                             if (poll && poll.terminal) {
-                                this.generating = false;
-                                this.confirming = false;
-                                this.pendingRequestKey = '';
-                                this.result = {
+                                st.generating = false;
+                                st.confirming = false;
+                                st.pendingRequestKey = '';
+                                st.result = {
                                     ok: !!poll.ok,
                                     status: poll.status,
                                     added: Number(poll.added || 0),
@@ -1030,28 +1647,32 @@
                                     message: poll.error || '',
                                     run_detail_url: poll.run_detail_url || null,
                                 };
+                                delete this._pollTimers[key];
+                                window.dispatchEvent(new CustomEvent('idea-manager-history-refresh'));
                                 return;
                             }
                         } catch (_e) {}
-                        this._pollTimer = setTimeout(tick, 2500);
+                        this._pollTimers[key] = setTimeout(tick, 2500);
                     };
-                    this._pollTimer = setTimeout(tick, 1500);
+                    this._pollTimers[key] = setTimeout(tick, 1500);
                 },
 
-                async reconcileAfterTimeout() {
-                    this.reconciling = true;
+                async reconcileAfterTimeout(siteId = null) {
+                    const sid = Number(siteId !== null ? siteId : this.targetSiteId);
+                    const st = this.siteState(sid);
+                    st.reconciling = true;
                     try {
-                        const run = await this.$wire.reconcileDistributionRun(this.targetSiteId);
+                        const run = await this.$wire.reconcileDistributionRun(sid);
                         if (run && run.found && !run.terminal) {
-                            this.activeRunId = Number(run.planner_run_id || 0);
-                            this.reconciling = false;
-                            if (this.activeRunId > 0) {
-                                this.startRunPolling(this.activeRunId);
+                            st.activeRunId = Number(run.planner_run_id || 0);
+                            st.reconciling = false;
+                            if (st.activeRunId > 0) {
+                                this.startRunPolling(st.activeRunId, sid);
                                 return;
                             }
                         }
                         if (run && run.found && run.terminal) {
-                            this.result = {
+                            st.result = {
                                 ok: !!run.ok,
                                 status: run.status,
                                 added: Number(run.added || 0),
@@ -1059,20 +1680,20 @@
                                 message: run.error || '',
                                 run_detail_url: run.run_detail_url || null,
                             };
-                            this.pendingRequestKey = '';
+                            st.pendingRequestKey = '';
                         } else {
-                            this.result = {
+                            st.result = {
                                 ok: false,
                                 status: 'failed',
                                 message: 'Request timed out',
                             };
                         }
                     } catch (_e) {
-                        this.result = { ok: false, status: 'failed', message: 'Reconcile failed' };
+                        st.result = { ok: false, status: 'failed', message: 'Reconcile failed' };
                     } finally {
-                        this.reconciling = false;
-                        this.generating = false;
-                        this.confirming = false;
+                        st.reconciling = false;
+                        st.generating = false;
+                        st.confirming = false;
                     }
                 },
 
@@ -1143,6 +1764,25 @@
                 lastSyncAttemptAt: 0,
                 _forceOverwrite: false,
                 _forceOverwriteSiteId: 0,
+                editingKey: '',
+                editingValue: '',
+                editingOriginal: '',
+                savingRenameKey: '',
+                renameErrorByKey: {},
+                groups: [],
+                defaultGroupId: 0,
+                activeGroupId: 0,
+                showNewGroup: false,
+                newGroupName: '',
+                groupBusy: false,
+                groupError: '',
+                renamingGroupId: 0,
+                renameGroupName: '',
+                deletingGroup: null,
+                moveTargetGroupId: '',
+                bulkGroupDnaTarget: 5,
+                bulkDnaNotice: '',
+                bulkDnaError: '',
 
                 // Temporary runtime diagnostics (?idea_debug=1, manager+). Read-only.
                 debugEnabled: !!cfg.debugEnabled,
@@ -1462,6 +2102,7 @@
                             revision: 0, note_items: [], updated_at: null, item_count: 0, sites: {}
                         };
                         this.applyServerSiteMeta(server);
+                        this.syncGroupsFromSnapshot(server);
                         this.debugLivewireCount = Array.isArray(this.serverMeta.note_items)
                             ? this.serverMeta.note_items.length
                             : Number(server.item_count || 0);
@@ -1768,8 +2409,13 @@
                 filteredItems() {
                     const q = (this.search || '').trim().toLowerCase();
                     const src = this.sourceTypeFilter || 'all';
-                    // Global warehouse: search is independent of sourceFilterSiteId / destination.
+                    const activeGid = Number(this.activeGroupId || this.defaultGroupId || 0);
+                    // Global warehouse: search is independent of sourceFilterSiteId / destination, scoped to active group.
                     return this.items.filter((it) => {
+                        if (activeGid > 0) {
+                            const itemGid = Number(it?.idea_group_id || this.defaultGroupId || 0);
+                            if (itemGid !== activeGid) return false;
+                        }
                         if (src !== 'all') {
                             const t = String(it?.source_type || 'cluster');
                             if (src === 'manual' && t !== 'manual_seed') return false;
@@ -1897,6 +2543,7 @@
                         owner_site_id: owner,
                         owner_domain: this.siteDomain || '',
                         warehouse_key: owner + ':' + ref,
+                        idea_group_id: Number(this.activeGroupId || this.defaultGroupId || 0) || undefined,
                     };
                     this.items.push(item);
                     this.manualDraft = '';
@@ -1921,6 +2568,8 @@
                             item.owner_site_id = owner;
                             item.owner_domain = this.siteDomain || '';
                             item.warehouse_key = owner + ':' + String(item.cluster_ref || '');
+                            const gid = Number(this.activeGroupId || this.defaultGroupId || 0);
+                            if (gid > 0) item.idea_group_id = gid;
                             this.items.push(item);
                         }
                     }
@@ -2022,6 +2671,8 @@
                             item.owner_site_id = owner;
                             item.owner_domain = this.siteDomain || '';
                             item.warehouse_key = owner + ':' + String(item.cluster_ref || '');
+                            const gid = Number(this.activeGroupId || this.defaultGroupId || 0);
+                            if (gid > 0) item.idea_group_id = gid;
                             this.items.push(item);
                         }
                     }
@@ -2091,6 +2742,328 @@
                     this.scanLegacyAudit();
                 },
 
+                startRename(item) {
+                    if (!item) return;
+                    const key = this.itemKey(item);
+                    const current = String(item.cluster_name_snapshot || item.seed_text || '').trim();
+                    this.editingKey = key;
+                    this.editingOriginal = current;
+                    this.editingValue = current;
+                    if (this.renameErrorByKey[key]) {
+                        delete this.renameErrorByKey[key];
+                    }
+                    this.$nextTick(() => {
+                        const input = document.querySelector('[data-im-rename-input="1"]');
+                        if (input && typeof input.focus === 'function') {
+                            input.focus();
+                            if (typeof input.select === 'function') {
+                                input.select();
+                            }
+                        }
+                    });
+                },
+
+                cancelRename(item) {
+                    const key = item ? this.itemKey(item) : this.editingKey;
+                    if (key && this.renameErrorByKey[key]) {
+                        delete this.renameErrorByKey[key];
+                    }
+                    this.editingKey = '';
+                    this.editingValue = '';
+                    this.editingOriginal = '';
+                },
+
+                async commitRename(item) {
+                    if (!item) return;
+                    const key = this.itemKey(item);
+                    if (this.editingKey !== key || this.savingRenameKey === key) return;
+
+                    const trimmed = String(this.editingValue || '').trim().replace(/\s+/g, ' ');
+                    const orig = String(this.editingOriginal || '').trim().replace(/\s+/g, ' ');
+
+                    if (trimmed === orig) {
+                        this.cancelRename(item);
+                        return;
+                    }
+
+                    if (trimmed === '') {
+                        this.renameErrorByKey = { ...this.renameErrorByKey, [key]: 'Tên Idea không được để trống.' };
+                        return;
+                    }
+
+                    const owner = this.ownerOf(item);
+                    if (owner <= 0 || !item.cluster_ref) {
+                        this.renameErrorByKey = { ...this.renameErrorByKey, [key]: 'Không xác định được domain sở hữu Idea.' };
+                        return;
+                    }
+
+                    this.savingRenameKey = key;
+                    if (this.renameErrorByKey[key]) {
+                        const copy = { ...this.renameErrorByKey };
+                        delete copy[key];
+                        this.renameErrorByKey = copy;
+                    }
+
+                    try {
+                        const res = await this.$wire.renameIdeaItem(owner, String(item.cluster_ref), trimmed);
+                        if (res && res.ok) {
+                            const finalName = String(res.name || trimmed);
+                            item.cluster_name_snapshot = finalName;
+                            if (item.seed_text !== undefined) {
+                                item.seed_text = finalName;
+                            }
+                            const sid = String(owner);
+                            if (res.revision !== undefined && this.siteRevisions[sid]) {
+                                this.siteRevisions[sid] = {
+                                    ...this.siteRevisions[sid],
+                                    revision: Number(res.revision),
+                                    updated_at: res.updated_at || this.siteRevisions[sid].updated_at,
+                                };
+                            }
+                            this.editingKey = '';
+                            this.editingValue = '';
+                            this.editingOriginal = '';
+                            this.persistDraft();
+                            this.emitSelection();
+                        } else {
+                            const errMsg = (res && res.message) ? String(res.message) : 'Không thể lưu tên Idea.';
+                            this.renameErrorByKey = { ...this.renameErrorByKey, [key]: errMsg };
+                        }
+                    } catch (_e) {
+                        this.renameErrorByKey = { ...this.renameErrorByKey, [key]: 'Lỗi kết nối khi lưu tên Idea.' };
+                    } finally {
+                        this.savingRenameKey = '';
+                    }
+                },
+
+                syncGroupsFromSnapshot(snap) {
+                    const rawGroups = Array.isArray(snap && snap.groups) ? snap.groups : [];
+                    this.groups = rawGroups.map((g) => ({
+                        id: Number(g.id || 0),
+                        name: String(g.name || ''),
+                        is_system: !!g.is_system,
+                        sort_order: Number(g.sort_order || 0),
+                    })).filter((g) => g.id > 0);
+                    const defId = Number((snap && snap.default_group_id) || 0)
+                        || Number((this.groups.find((g) => g.is_system) || {}).id || 0);
+                    this.defaultGroupId = defId;
+
+                    let savedActive = 0;
+                    try {
+                        savedActive = Number(localStorage.getItem('seoOps:idea-manager:active-group') || 0);
+                    } catch (_e) {}
+                    const candidate = Number(this.activeGroupId || savedActive || defId);
+                    const valid = this.groups.some((g) => Number(g.id) === candidate);
+                    this.activeGroupId = valid ? candidate : defId;
+                },
+
+                groupCount(groupId) {
+                    const gid = Number(groupId || 0);
+                    if (gid <= 0) return 0;
+                    let cnt = 0;
+                    for (const it of (this.items || [])) {
+                        const itemGid = Number((it && it.idea_group_id) || this.defaultGroupId || 0);
+                        if (itemGid === gid) cnt++;
+                    }
+                    return cnt;
+                },
+
+                selectGroup(groupId) {
+                    const gid = Number(groupId || 0);
+                    if (gid <= 0 || gid === Number(this.activeGroupId)) return;
+                    this.activeGroupId = gid;
+                    this.moveTargetGroupId = '';
+                    this.clearSelection();
+                    try {
+                        localStorage.setItem('seoOps:idea-manager:active-group', String(gid));
+                    } catch (_e) {}
+                },
+
+                openNewGroup() {
+                    this.showNewGroup = true;
+                    this.newGroupName = '';
+                    this.groupError = '';
+                    this.$nextTick(() => {
+                        const el = document.querySelector('[data-im-group-new-input="1"]');
+                        if (el && typeof el.focus === 'function') el.focus();
+                    });
+                },
+
+                async createGroup() {
+                    const name = String(this.newGroupName || '').trim();
+                    if (!name) {
+                        this.groupError = 'Tên nhóm không được để trống.';
+                        return;
+                    }
+                    this.groupBusy = true;
+                    this.groupError = '';
+                    try {
+                        const res = await this.$wire.createIdeaGroup(name);
+                        if (res && res.ok) {
+                            if (res.snapshot) this.syncGroupsFromSnapshot(res.snapshot);
+                            if (res.group && res.group.id) this.selectGroup(res.group.id);
+                            this.showNewGroup = false;
+                            this.newGroupName = '';
+                        } else {
+                            this.groupError = (res && res.message) ? String(res.message) : 'Không thể tạo nhóm.';
+                        }
+                    } catch (_e) {
+                        this.groupError = 'Lỗi kết nối khi tạo nhóm.';
+                    } finally {
+                        this.groupBusy = false;
+                    }
+                },
+
+                startRenameGroup(grp) {
+                    if (!grp || grp.is_system) return;
+                    this.renamingGroupId = Number(grp.id);
+                    this.renameGroupName = String(grp.name || '');
+                    this.groupError = '';
+                },
+
+                async saveRenameGroup(groupId) {
+                    const name = String(this.renameGroupName || '').trim();
+                    if (!name) {
+                        this.groupError = 'Tên nhóm không được để trống.';
+                        return;
+                    }
+                    this.groupBusy = true;
+                    this.groupError = '';
+                    try {
+                        const res = await this.$wire.renameIdeaGroup(Number(groupId), name);
+                        if (res && res.ok) {
+                            if (res.snapshot) this.syncGroupsFromSnapshot(res.snapshot);
+                            this.renamingGroupId = 0;
+                        } else {
+                            this.groupError = (res && res.message) ? String(res.message) : 'Không thể đổi tên nhóm.';
+                        }
+                    } catch (_e) {
+                        this.groupError = 'Lỗi kết nối khi đổi tên nhóm.';
+                    } finally {
+                        this.groupBusy = false;
+                    }
+                },
+
+                confirmDeleteGroup(grp) {
+                    if (!grp || grp.is_system) return;
+                    this.groupError = '';
+                    this.deletingGroup = grp;
+                },
+
+                async executeDeleteGroup() {
+                    if (!this.deletingGroup || this.groupBusy) return;
+                    const gid = Number(this.deletingGroup.id || 0);
+                    if (gid <= 0) return;
+                    this.groupBusy = true;
+                    this.groupError = '';
+                    try {
+                        const res = await this.$wire.deleteIdeaGroup(gid);
+                        if (res && res.ok) {
+                            this.deletingGroup = null;
+                            this.clearSelection();
+                            const nextItems = this.items.filter((it) => Number((it && it.idea_group_id) || this.defaultGroupId) !== gid);
+                            this.setWorkingItems(nextItems, 'delete_group', 'server', 0);
+                            if (res.snapshot) {
+                                this.applyServerSiteMeta(res.snapshot);
+                                this.syncGroupsFromSnapshot(res.snapshot);
+                            }
+                            this.activeGroupId = Number(res.default_group_id || this.defaultGroupId || 0);
+                            try {
+                                localStorage.setItem('seoOps:idea-manager:active-group', String(this.activeGroupId));
+                            } catch (_e) {}
+                            this.persistDraft();
+                        } else {
+                            this.groupError = (res && res.message) ? String(res.message) : 'Không thể xóa nhóm.';
+                            this.deletingGroup = null;
+                        }
+                    } catch (_e) {
+                        this.groupError = 'Lỗi kết nối khi xóa nhóm.';
+                        this.deletingGroup = null;
+                    } finally {
+                        this.groupBusy = false;
+                    }
+                },
+
+                async moveSelectedToGroup() {
+                    const targetGid = Number(this.moveTargetGroupId || 0);
+                    if (targetGid <= 0 || this.groupBusy) return;
+                    const selected = this.selectedItems();
+                    if (!selected.length) return;
+                    const targets = selected.map((it) => ({
+                        site_id: this.ownerOf(it),
+                        cluster_ref: String(it.cluster_ref || ''),
+                    })).filter((t) => t.site_id > 0 && t.cluster_ref !== '');
+                    if (!targets.length) return;
+
+                    this.groupBusy = true;
+                    this.groupError = '';
+                    try {
+                        const res = await this.$wire.moveIdeasToGroup(targets, targetGid);
+                        if (res && res.ok) {
+                            const refSet = new Set(targets.map((t) => t.site_id + ':' + t.cluster_ref));
+                            for (const it of this.items) {
+                                const k = this.ownerOf(it) + ':' + String(it.cluster_ref || '');
+                                if (refSet.has(k)) {
+                                    it.idea_group_id = targetGid;
+                                }
+                            }
+                            if (res.snapshot) {
+                                this.applyServerSiteMeta(res.snapshot);
+                                this.syncGroupsFromSnapshot(res.snapshot);
+                            }
+                            this.moveTargetGroupId = '';
+                            this.clearSelection();
+                            this.persistDraft();
+                        } else {
+                            this.groupError = (res && res.message) ? String(res.message) : 'Không thể chuyển nhóm.';
+                        }
+                    } catch (_e) {
+                        this.groupError = 'Lỗi kết nối khi chuyển nhóm.';
+                    } finally {
+                        this.groupBusy = false;
+                    }
+                },
+
+                async applyBulkGroupDna() {
+                    const gid = Number(this.activeGroupId || this.defaultGroupId || 0);
+                    if (gid <= 0 || this.groupBusy || this.groupCount(gid) === 0) return;
+
+                    const targetVal = Number(this.bulkGroupDnaTarget || 0);
+                    this.bulkDnaNotice = '';
+                    this.bulkDnaError = '';
+                    if (!Number.isInteger(targetVal) || targetVal < 1 || targetVal > 100) {
+                        this.bulkDnaError = 'DNA mục tiêu phải là số nguyên từ 1 đến 100.';
+                        return;
+                    }
+
+                    this.groupBusy = true;
+                    try {
+                        const res = await this.$wire.bulkSetGroupTargetDna(gid, targetVal);
+                        if (res && res.ok) {
+                            for (const it of (this.items || [])) {
+                                const itemGid = Number((it && it.idea_group_id) || this.defaultGroupId || 0);
+                                if (itemGid === gid) {
+                                    const spec = this.specifiedCount(it);
+                                    it.target_dna_count = Math.min(100, Math.max(targetVal, spec));
+                                }
+                            }
+                            if (res.snapshot) {
+                                this.applyServerSiteMeta(res.snapshot);
+                                this.syncGroupsFromSnapshot(res.snapshot);
+                            }
+                            this.persistDraft();
+                            this.emitSelection();
+                            this.bulkDnaNotice = String(res.message || ('Đã áp dụng DNA = ' + targetVal + ' cho ' + (res.updated_count || 0) + ' Idea.'));
+                        } else {
+                            this.bulkDnaError = (res && res.message) ? String(res.message) : 'Không thể cập nhật DNA mục tiêu.';
+                        }
+                    } catch (_e) {
+                        this.bulkDnaError = 'Lỗi kết nối khi cập nhật DNA mục tiêu.';
+                    } finally {
+                        this.groupBusy = false;
+                    }
+                },
+
                 addCluster(row) {
                     if (!row) return;
                     if (this.findDup(row.cluster_ref, row.cluster_name)) return;
@@ -2121,6 +3094,7 @@
                         owner_site_id: owner,
                         owner_domain: this.siteDomain || '',
                         warehouse_key: owner + ':' + String(row.cluster_ref || ''),
+                        idea_group_id: Number(this.activeGroupId || this.defaultGroupId || 0) || undefined,
                     });
                     this.expanded[row.cluster_ref] = true;
                     this.markDirty(owner);

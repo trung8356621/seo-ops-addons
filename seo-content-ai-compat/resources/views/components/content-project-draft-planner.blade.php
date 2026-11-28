@@ -350,14 +350,24 @@
                             <label class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200" for="draft-split-target-month">
                                 {{ __('seo-content-ai::filament.projects.draft_split_target_month') }}
                             </label>
-                            <div
-                                class="cp-month-picker"
-                                data-split-field="target_month"
-                                data-split-target-month="{{ $splitTargetMonth }}"
-                                wire:key="cp-month-picker-{{ $splitTargetMonth }}"
-                                x-data="Object.assign(cpMonthPicker(), { selected: @entangle('draftSplitTargetMonth').live })"
-                                @keydown.escape.window="open = false"
-                            >
+                            @if (is_array($splitUi['smart_publish'] ?? null))
+                                <div
+                                    id="draft-split-target-month"
+                                    class="inline-flex items-center rounded-md border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm font-semibold text-gray-900 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
+                                    data-split-field="target_month_readonly"
+                                    data-split-target-month="{{ $splitTargetMonth }}"
+                                >
+                                    {{ $splitTargetMonthLabel }}
+                                </div>
+                            @else
+                                <div
+                                    class="cp-month-picker"
+                                    data-split-field="target_month"
+                                    data-split-target-month="{{ $splitTargetMonth }}"
+                                    wire:key="cp-month-picker-{{ $splitTargetMonth }}"
+                                    x-data="Object.assign(cpMonthPicker(), { selected: @entangle('draftSplitTargetMonth').live })"
+                                    @keydown.escape.window="open = false"
+                                >
                                 <button
                                     type="button"
                                     id="draft-split-target-month"
@@ -398,6 +408,7 @@
                                     </div>
                                 </div>
                             </div>
+                            @endif
                         </div>
 
                         <div class="cp-draft-split-layout">
@@ -405,42 +416,86 @@
                                 <legend class="text-sm font-medium text-gray-700 dark:text-gray-200">
                                     {{ __('seo-content-ai::filament.projects.draft_split_items') }}
                                 </legend>
-                                <p class="text-xs text-gray-500 dark:text-gray-400" data-split-assign-count="1">
-                                    {{ __('seo-content-ai::filament.projects.draft_split_will_assign', ['count' => $splitSelectedCount]) }}
-                                </p>
+                                @if (is_array($splitUi['smart_publish'] ?? null))
+                                    @php($smartPub = $splitUi['smart_publish'])
+                                    <div class="space-y-2.5 text-sm" data-smart-publish-preview="1">
+                                        <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-white/10">
+                                            <table class="min-w-full text-xs">
+                                                <thead>
+                                                    <tr class="bg-gray-50 text-left font-semibold text-gray-600 dark:bg-white/5 dark:text-gray-300">
+                                                        <th class="px-2.5 py-2">Domain</th>
+                                                        <th class="px-2.5 py-2 text-right">Đã phân phối</th>
+                                                        <th class="px-2.5 py-2 text-right">Giới hạn</th>
+                                                        <th class="px-2.5 py-2 text-right">Sẽ Publish</th>
+                                                        <th class="px-2.5 py-2 text-right">Draft còn lại</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-gray-100 dark:divide-white/10">
+                                                    @foreach (($smartPub['rows'] ?? []) as $sRow)
+                                                        <tr>
+                                                            <td class="px-2.5 py-1.5 font-medium text-gray-900 dark:text-gray-100">{{ $sRow['domain'] ?? '' }}</td>
+                                                            <td class="px-2.5 py-1.5 text-right tabular-nums text-gray-700 dark:text-gray-200">{{ (int) ($sRow['existing'] ?? 0) }}</td>
+                                                            <td class="px-2.5 py-1.5 text-right tabular-nums text-gray-700 dark:text-gray-200">{{ (int) ($sRow['limit'] ?? 0) }}</td>
+                                                            <td class="px-2.5 py-1.5 text-right tabular-nums font-semibold {{ (int) ($sRow['publish_count'] ?? 0) > 0 ? 'text-primary-600 dark:text-primary-400' : 'text-gray-400' }}">{{ (int) ($sRow['publish_count'] ?? 0) }}</td>
+                                                            <td class="px-2.5 py-1.5 text-right tabular-nums text-gray-700 dark:text-gray-200">{{ (int) ($sRow['kept_in_draft'] ?? 0) }}</td>
+                                                        </tr>
+                                                    @endforeach
+                                                </tbody>
+                                                <tfoot>
+                                                    <tr class="border-t border-gray-200 bg-gray-50/70 font-semibold dark:border-white/10 dark:bg-white/5">
+                                                        <td class="px-2.5 py-1.5 text-gray-900 dark:text-gray-100">Tổng ({{ count($smartPub['receiving_domains'] ?? []) }} domain nhận bài)</td>
+                                                        <td class="px-2.5 py-1.5 text-right tabular-nums text-gray-500">—</td>
+                                                        <td class="px-2.5 py-1.5 text-right tabular-nums text-gray-500">—</td>
+                                                        <td class="px-2.5 py-1.5 text-right tabular-nums text-primary-600 dark:text-primary-400" data-smart-publish-count="1">{{ (int) ($smartPub['total_publish'] ?? 0) }}</td>
+                                                        <td class="px-2.5 py-1.5 text-right tabular-nums text-gray-900 dark:text-gray-100">{{ (int) ($smartPub['total_kept'] ?? 0) }}</td>
+                                                    </tr>
+                                                </tfoot>
+                                            </table>
+                                        </div>
+                                        @if (empty($smartPub['can_publish']))
+                                            <p class="text-xs font-medium text-warning-600 dark:text-warning-400">
+                                                Tất cả site trong tháng {{ $smartPub['month_label'] ?? '' }} đã đạt hạn mức hoặc chưa có Draft đã duyệt phù hợp.
+                                            </p>
+                                        @endif
+                                    </div>
+                                @else
+                                    <p class="text-xs text-gray-500 dark:text-gray-400" data-split-assign-count="1">
+                                        {{ __('seo-content-ai::filament.projects.draft_split_will_assign', ['count' => $splitSelectedCount]) }}
+                                    </p>
 
-                                <label class="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 px-3 py-3 dark:border-white/10">
-                                    <input type="radio" wire:model.live="draftSplitMode" value="first_n" class="mt-1" data-split-mode="first_n">
-                                    <span class="min-w-0 flex-1">
-                                        <span class="block text-sm font-medium text-gray-900 dark:text-gray-100">
-                                            {{ __('seo-content-ai::filament.projects.draft_split_first_n', ['count' => max(1, (int) ($this->draftSplitQuantity ?? 30))]) }}
+                                    <label class="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 px-3 py-3 dark:border-white/10">
+                                        <input type="radio" wire:model.live="draftSplitMode" value="first_n" class="mt-1" data-split-mode="first_n">
+                                        <span class="min-w-0 flex-1">
+                                            <span class="block text-sm font-medium text-gray-900 dark:text-gray-100">
+                                                {{ __('seo-content-ai::filament.projects.draft_split_first_n', ['count' => max(1, (int) ($this->draftSplitQuantity ?? 30))]) }}
+                                            </span>
+                                            <span class="mt-2 flex items-center gap-2">
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    max="{{ max(1, $draftItemCount) }}"
+                                                    wire:model.live.debounce.300ms="draftSplitQuantity"
+                                                    class="w-20 rounded-md border-gray-300 text-sm dark:border-gray-600 dark:bg-gray-800"
+                                                    data-split-field="quantity"
+                                                    @disabled(($this->draftSplitMode ?? '') !== 'first_n')
+                                                >
+                                                <span class="text-xs text-gray-500">{{ __('seo-content-ai::filament.projects.draft_split_first_n_unit') }}</span>
+                                            </span>
                                         </span>
-                                        <span class="mt-2 flex items-center gap-2">
-                                            <input
-                                                type="number"
-                                                min="1"
-                                                max="{{ max(1, $draftItemCount) }}"
-                                                wire:model.live.debounce.300ms="draftSplitQuantity"
-                                                class="w-20 rounded-md border-gray-300 text-sm dark:border-gray-600 dark:bg-gray-800"
-                                                data-split-field="quantity"
-                                                @disabled(($this->draftSplitMode ?? '') !== 'first_n')
-                                            >
-                                            <span class="text-xs text-gray-500">{{ __('seo-content-ai::filament.projects.draft_split_first_n_unit') }}</span>
-                                        </span>
-                                    </span>
-                                </label>
+                                    </label>
 
-                                <label class="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 px-3 py-3 dark:border-white/10">
-                                    <input type="radio" wire:model.live="draftSplitMode" value="all" class="mt-1" data-split-mode="all">
-                                    <span>
-                                        <span class="block text-sm font-medium text-gray-900 dark:text-gray-100">
-                                            {{ __('seo-content-ai::filament.projects.draft_split_all', ['count' => $draftItemCount]) }}
+                                    <label class="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 px-3 py-3 dark:border-white/10">
+                                        <input type="radio" wire:model.live="draftSplitMode" value="all" class="mt-1" data-split-mode="all">
+                                        <span>
+                                            <span class="block text-sm font-medium text-gray-900 dark:text-gray-100">
+                                                {{ __('seo-content-ai::filament.projects.draft_split_all', ['count' => $draftItemCount]) }}
+                                            </span>
+                                            <span class="mt-1 block text-xs text-gray-500">
+                                                {{ __('seo-content-ai::filament.projects.draft_split_all_count', ['count' => $draftItemCount]) }}
+                                            </span>
                                         </span>
-                                        <span class="mt-1 block text-xs text-gray-500">
-                                            {{ __('seo-content-ai::filament.projects.draft_split_all_count', ['count' => $draftItemCount]) }}
-                                        </span>
-                                    </span>
-                                </label>
+                                    </label>
+                                @endif
                             </fieldset>
 
                             {{-- Alpine on fieldset so heading totalRemaining can react to include/exclude; wire:ignore + wire:key keep scroll-safe remount. --}}

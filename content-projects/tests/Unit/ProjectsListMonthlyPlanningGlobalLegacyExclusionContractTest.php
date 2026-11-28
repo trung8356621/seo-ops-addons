@@ -13,11 +13,11 @@ use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 
 /**
- * Contract: Projects-list Monthly Planning excludes Global Legacy; Planner overview does not.
+ * Contract: Both Site Planning overview and Projects-list Monthly Planning exclude Global Legacy.
  */
 final class ProjectsListMonthlyPlanningGlobalLegacyExclusionContractTest extends TestCase
 {
-    public function test_projects_list_uses_scoped_overview_not_default(): void
+    public function test_projects_list_and_site_planning_both_exclude_global_legacy(): void
     {
         $list = (string) file_get_contents(
             (string) (new ReflectionClass(ListSeoProjects::class))->getFileName(),
@@ -41,12 +41,12 @@ final class ProjectsListMonthlyPlanningGlobalLegacyExclusionContractTest extends
 
         self::assertStringContainsString('function overviewForProjectsList', $read);
         self::assertStringContainsString('excludeGlobalLegacy: true', $read);
-        self::assertStringContainsString('excludeGlobalLegacy: false', $read);
+        self::assertStringNotContainsString('excludeGlobalLegacy: false', $read);
 
         self::assertStringContainsString('ContentProjectGlobalLegacyArchive::excludeFromProjectAlias', $agg);
         self::assertStringContainsString('bool $excludeGlobalLegacy = false', $agg);
 
-        self::assertStringContainsString('->overview(null, $this->resolvePlannerActiveMonth())', $planner);
+        self::assertStringContainsString('->overview(null, $this->resolvePlannerActiveMonth()', $planner);
         self::assertStringNotContainsString('overviewForProjectsList', $planner);
 
         self::assertStringContainsString('ContentProjectGlobalLegacyArchive::excludeFromProjectAlias', $workload);

@@ -14,6 +14,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectTaskPlanningAttri
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\PlanningMonthBackfill;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGlobalLegacyArchive;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemStateResolver;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 
@@ -186,7 +187,19 @@ final class ContentProjectMonthBalanceService
                 ]);
             }
 
+            $reconciliation = $this->validatePlanReconciliation($plan);
+            if (! $reconciliation['reconciled']) {
+                throw ValidationException::withMessages([
+                    'balance' => $reconciliation['error'] ?? __('seo-content-ai::filament.projects.balance_months_preview_stale'),
+                ]);
+            }
+
             $moved = $this->applyAllocation($snapshot, $plan);
+            if ($moved !== (int) ($plan['move_count'] ?? 0)) {
+                throw ValidationException::withMessages([
+                    'balance' => __('seo-content-ai::filament.projects.balance_months_preview_stale'),
+                ]);
+            }
 
             return [
                 'site_id' => $siteId,
@@ -404,12 +417,23 @@ final class ContentProjectMonthBalanceService
             ];
         }
 
+        $reconciliation = $this->validatePlanReconciliation($plan);
+        $fingerprint = (string) ($plan['fingerprint'] ?? '');
+        $canExecute = $reconciliation['reconciled']
+            && $fingerprint !== ''
+            && (int) ($plan['move_count'] ?? 0) > 0;
+
         return [
             'site_id' => $siteId,
             'domain' => $snapshot['domain'],
             'months' => $plan['months'],
             'mode' => (string) ($plan['mode'] ?? ContentProjectMonthBalancePlanner::DEFAULT_MODE),
             'rows' => $rows,
+            'total_before' => $reconciliation['total_before'],
+            'total_after' => $reconciliation['total_after'],
+            'reconciled' => $reconciliation['reconciled'],
+            'reconciliation_error' => $reconciliation['error'],
+            'transfer_summary' => $reconciliation['transfer_summary'],
             'movable_total' => (int) $snapshot['movable_total'],
             'fixed_total' => (int) $snapshot['fixed_total'],
             'excluded_total' => (int) ($snapshot['excluded_total'] ?? 0),
@@ -419,13 +443,104 @@ final class ContentProjectMonthBalanceService
             'fixed_changed' => 0,
             'fixed_reasons' => $snapshot['fixed_reasons'],
             'excluded_reasons' => $snapshot['excluded_reasons'] ?? [],
-            'fingerprint' => $plan['fingerprint'],
+            'fingerprint' => $fingerprint,
             'allocation' => $plan['allocation'],
             'moves' => $plan['moves'],
             'imbalance_before' => $plan['imbalance_before'],
             'imbalance_after' => $plan['imbalance_after'],
-            'can_execute' => true,
+            'can_execute' => $canExecute,
             'operation_id' => (string) Str::uuid(),
+        ];
+    }
+
+    /**
+     * Validate pure-move conservation (Total Before === Total After), unique task IDs,
+     * and resolved source/destination months.
+     *
+     * @param  array<string, mixed>  $plan
+     * @return array{
+     *     reconciled: bool,
+     *     total_before: int,
+     *     total_after: int,
+     *     transfer_summary: list<array{from: string, to: string, count: int, from_label: string, to_label: string}>,
+     *     error: ?string
+     * }
+     */
+    public function validatePlanReconciliation(array $plan): array
+    {
+        $months = is_array($plan['months'] ?? null) ? $plan['months'] : [];
+        $monthSet = array_fill_keys($months, true);
+        $currentByMonth = is_array($plan['current_by_month'] ?? null) ? $plan['current_by_month'] : [];
+        $targetByMonth = is_array($plan['target_by_month'] ?? null) ? $plan['target_by_month'] : [];
+        $moves = is_array($plan['moves'] ?? null) ? $plan['moves'] : [];
+
+        $totalBefore = array_sum(array_map('intval', $currentByMonth));
+        $totalAfter = array_sum(array_map('intval', $targetByMonth));
+
+        if ($totalBefore !== $totalAfter) {
+            return [
+                'reconciled' => false,
+                'total_before' => $totalBefore,
+                'total_after' => $totalAfter,
+                'transfer_summary' => [],
+                'error' => sprintf('Preview totals do not reconcile: before=%d, after=%d.', $totalBefore, $totalAfter),
+            ];
+        }
+
+        $seenTaskIds = [];
+        $flows = [];
+        foreach ($moves as $move) {
+            $taskId = (int) ($move['task_id'] ?? 0);
+            $from = (string) ($move['from'] ?? '');
+            $to = (string) ($move['to'] ?? '');
+            if ($taskId <= 0 || ! isset($monthSet[$from]) || ! isset($monthSet[$to]) || $from === $to) {
+                return [
+                    'reconciled' => false,
+                    'total_before' => $totalBefore,
+                    'total_after' => $totalAfter,
+                    'transfer_summary' => [],
+                    'error' => 'Preview contains an invalid or unresolved task transfer.',
+                ];
+            }
+            if (isset($seenTaskIds[$taskId])) {
+                return [
+                    'reconciled' => false,
+                    'total_before' => $totalBefore,
+                    'total_after' => $totalAfter,
+                    'transfer_summary' => [],
+                    'error' => sprintf('Duplicate task transfer detected for task #%d.', $taskId),
+                ];
+            }
+            $seenTaskIds[$taskId] = true;
+            $key = $from.'->'.$to;
+            if (! isset($flows[$key])) {
+                $flows[$key] = [
+                    'from' => $from,
+                    'to' => $to,
+                    'count' => 0,
+                    'from_label' => ContentProjectMonthContext::display($from),
+                    'to_label' => ContentProjectMonthContext::display($to),
+                ];
+            }
+            $flows[$key]['count']++;
+        }
+
+        if (count($moves) !== (int) ($plan['move_count'] ?? 0)) {
+            return [
+                'reconciled' => false,
+                'total_before' => $totalBefore,
+                'total_after' => $totalAfter,
+                'transfer_summary' => [],
+                'error' => 'Move count mismatch in balance preview.',
+            ];
+        }
+
+        return [
+            'reconciled' => true,
+            'total_before' => $totalBefore,
+            'total_after' => $totalAfter,
+            'transfer_summary' => array_values($flows),
+            'error' => null,
         ];
     }
 
@@ -458,6 +573,8 @@ final class ContentProjectMonthBalanceService
         if (Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'deleted_at')) {
             $query->whereNull('t.deleted_at');
         }
+
+        ContentProjectGlobalLegacyArchive::excludeFromProjectAlias($query, 'p');
 
         $monthSet = array_fill_keys($months, true);
 

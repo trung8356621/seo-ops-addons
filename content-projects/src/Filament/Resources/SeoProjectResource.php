@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\ContentProjects\Filament\Resources;
 
 
 use Omnichannel\Addons\Seo\Filament\Resources\SeoPanelResource;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGlobalLegacyArchive;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Forms\ContentProjectItemAdvancedForm;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Pages;
 use Omnichannel\Addons\Publishing\Filament\Pages\PublishingQueueHub;
@@ -1391,7 +1392,7 @@ class SeoProjectResource extends SeoPanelResource
     {
         // List hiện cả project đã archive (click → archive preview). Vault riêng vẫn giữ.
         // Staff/assign vẫn lọc active ở ContentProjectStaffAvailabilityService.
-        return static::applyProjectTenantScope(
+        $query = static::applyProjectTenantScope(
             parent::getEloquentQuery()
                 ->with(['user', 'site', 'currentArchive'])
                 ->withCount([
@@ -1407,6 +1408,10 @@ class SeoProjectResource extends SeoPanelResource
                         ->where('article_id', '>', 0),
                 ]),
         );
+
+        ContentProjectGlobalLegacyArchive::excludeFromProjectAlias($query, (new SeoProject)->getTable());
+
+        return $query;
     }
 
     /**

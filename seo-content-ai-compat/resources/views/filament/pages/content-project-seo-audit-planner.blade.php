@@ -62,6 +62,88 @@
                         </select>
                     </div>
 
+                    @php
+                        $autoLimitInfo = $this->autoMonthlyLimitInfo;
+                        $limitValid = ! empty($autoLimitInfo['valid']) || ! empty($autoLimitInfo['is_custom']);
+                        $stickyTargetMonth = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::parseOrNull(
+                            filled($this->draftSplitTargetMonth ?? null) ? (string) $this->draftSplitTargetMonth : null,
+                        ) ?? '';
+                        $stickyTargetMonthLabel = $stickyTargetMonth !== ''
+                            ? \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::display($stickyTargetMonth)
+                            : 'Chọn tháng';
+                        $totalMissing = $this->totalMissingForPublishMonth;
+                        $canPublishFromBar = $stickyTargetMonth !== ''
+                            && $limitValid
+                            && (int) ($autoLimitInfo['effective_limit'] ?? 0) > 0;
+                    @endphp
+                    <div class="cp-plan-draft-header__domain" data-draft-monthly-limit="1">
+                        <label class="cp-plan-draft-header__domain-label" for="cp-publish-monthly-limit">Giới hạn/tháng</label>
+                        <input
+                            id="cp-publish-monthly-limit"
+                            type="number"
+                            min="1"
+                            step="1"
+                            wire:model.live.debounce.300ms="publishMonthlyLimit"
+                            wire:loading.attr="disabled"
+                            wire:target="openPublishFromPlanner,confirmDraftSplit"
+                            class="cp-plan-inline-select cp-plan-inline-select--limit"
+                            style="width: 4.5rem;"
+                            aria-label="Giới hạn/tháng"
+                        />
+                    </div>
+
+                    <div class="cp-plan-draft-header__domain" data-draft-target-month="1">
+                        <label class="cp-plan-draft-header__domain-label" for="cp-sticky-publish-month">Tháng Publish</label>
+                        <div
+                            class="cp-month-picker"
+                            data-sticky-field="target_month"
+                            data-sticky-target-month="{{ $stickyTargetMonth }}"
+                            wire:key="cp-sticky-month-picker-{{ $stickyTargetMonth }}"
+                            x-data="Object.assign(cpMonthPicker(), { selected: @entangle('draftSplitTargetMonth').live })"
+                            @keydown.escape.window="open = false"
+                        >
+                            <button
+                                type="button"
+                                id="cp-sticky-publish-month"
+                                class="cp-month-picker__trigger"
+                                @click="open = !open"
+                                :aria-expanded="open ? 'true' : 'false'"
+                                aria-haspopup="dialog"
+                            >
+                                <span class="cp-month-picker__value" x-text="displayLabel() || 'Chọn tháng'">{{ $stickyTargetMonthLabel }}</span>
+                                <svg class="cp-month-picker__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                    <path fill-rule="evenodd" d="M6 2a1 1 0 0 0-1 1v1H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-1V3a1 1 0 1 0-2 0v1H7V3a1 1 0 0 0-1-1Zm-2 6a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8Z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                            <div
+                                x-show="open"
+                                x-cloak
+                                x-transition.opacity.duration.120ms
+                                class="cp-month-picker__popover"
+                                role="dialog"
+                                aria-label="Tháng Publish"
+                                @click.outside="open = false"
+                            >
+                                <div class="cp-month-picker__year-nav">
+                                    <button type="button" class="cp-month-picker__year-btn" @click="prevYear()" aria-label="Previous year">‹</button>
+                                    <span class="cp-month-picker__year" x-text="year"></span>
+                                    <button type="button" class="cp-month-picker__year-btn" @click="nextYear()" aria-label="Next year">›</button>
+                                </div>
+                                <div class="cp-month-picker__grid">
+                                    <template x-for="m in 12" :key="m">
+                                        <button
+                                            type="button"
+                                            class="cp-month-picker__month"
+                                            :class="{ 'is-selected': isSelected(m) }"
+                                            @click="pick(m)"
+                                            x-text="String(m).padStart(2, '0')"
+                                        ></button>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <button
                         type="button"
                         class="cp-plan-btn cp-plan-btn--quarantine"
@@ -82,8 +164,13 @@
                         wire:click="openPublishFromPlanner"
                         wire:loading.attr="disabled"
                         wire:target="openPublishFromPlanner,openDraftSplitModal,confirmDraftSplit"
-                        class="cp-plan-btn cp-plan-btn--publish cp-plan-draft-header__publish"
+                        @disabled(! $canPublishFromBar)
+                        @class([
+                            'cp-plan-btn cp-plan-btn--publish cp-plan-draft-header__publish',
+                            'opacity-50 pointer-events-none' => ! $canPublishFromBar,
+                        ])
                         data-content-planning-action="publish"
+                        title="{{ $canPublishFromBar ? '' : 'Vui lòng chọn Tháng Publish trước khi Publish' }}"
                     >
                         <svg wire:loading.remove wire:target="openPublishFromPlanner,openDraftSplitModal,confirmDraftSplit" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 00-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 012-3.95A12.88 12.88 0 0122 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 01-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg>
                         <span wire:loading.remove wire:target="openPublishFromPlanner,openDraftSplitModal,confirmDraftSplit">
@@ -95,6 +182,22 @@
                     </button>
                 </div>
             @endif
+        @if ($showStickyDraftPublish)
+            <div class="cp-plan-draft-subrow" data-draft-sticky-subrow="1">
+                <span class="{{ $limitValid ? '' : 'text-amber-600 dark:text-amber-400' }}" data-draft-monthly-limit-formula="1">
+                    @if (! empty($autoLimitInfo['is_custom']))
+                        Hạn mức tùy chỉnh (gốc: {{ $autoLimitInfo['formula_text'] ?? '' }})
+                    @else
+                        {{ $autoLimitInfo['formula_text'] ?? '' }}
+                    @endif
+                </span>
+                @if ($totalMissing !== null)
+                    <span class="font-semibold text-gray-700 dark:text-gray-200 whitespace-nowrap" data-draft-total-missing="1">
+                        Còn thiếu: <span class="tabular-nums text-primary-600 dark:text-primary-400">{{ $totalMissing }}</span> bài
+                    </span>
+                @endif
+            </div>
+        @endif
         </div>
         {{-- Section 1: Planning workspace (Create / Plan) — Working Site = Global Domain bar --}}
         <section

@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft;
 
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectItemOrigin;
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectPlannerRun;
+use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectTaskPlanningAttribution;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
@@ -290,6 +291,10 @@ final class SplitDraftContentProjectService
                     $existingCount = $reused ? $this->packing->activeItemCount($execution) : 0;
                     $monthStart = $execution->monthCarbon();
                     $dayIndex = $existingCount;
+                    $hasPlanningMonthCol = Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_month');
+                    $hasAttributionTable = Schema::connection('omi_seo_ai')->hasTable('seo_content_project_task_planning_attributions');
+                    $targetMonthDate = $month->format('Y-m-d');
+                    $targetMonthYm = $month->format('Y-m');
 
                     foreach ($chunkIds as $taskId) {
                         $task = $tasks->get($taskId);
@@ -307,6 +312,9 @@ final class SplitDraftContentProjectService
                             'status' => SeoProjectTask::STATUS_PENDING,
                             'target_date' => $monthStart->copy()->addDays($dayIndex)->format('Y-m-d'),
                         ];
+                        if ($hasPlanningMonthCol) {
+                            $payload['planning_month'] = $targetMonthDate;
+                        }
                         if ($itemSiteId > 0) {
                             $payload['site_id'] = $itemSiteId;
                         }
@@ -318,6 +326,14 @@ final class SplitDraftContentProjectService
                             ->update([
                                 'project_id' => (int) $execution->getKey(),
                             ]);
+
+                        if ($hasAttributionTable) {
+                            SeoContentProjectTaskPlanningAttribution::query()
+                                ->where('project_task_id', $taskId)
+                                ->update([
+                                    'planning_month' => $targetMonthYm,
+                                ]);
+                        }
 
                         $allMoved[] = $taskId;
                         $dayIndex++;

@@ -15,8 +15,8 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMont
  * Site Planning article distribution: how many articles are allocated to site × planning_month.
  *
  * Count = distinct project_task_id (t.id) where site_id + planning_month match.
- * Includes completed / published / archived projects.
- * Excludes only soft-deleted + cancelled.
+ * Includes completed / published / archived projects (project-level).
+ * Excludes soft-deleted, cancelled, and task-level archived (t.archived_at / t.status = archived).
  *
  * Optional: exclude Global Legacy import shells (`import_source = seo_content_archive_items`)
  * when callers need planning-workload semantics (Projects list). Default keeps historical
@@ -97,7 +97,9 @@ final class SitePlanningActiveUnitAggregator
         $query = DB::connection('omi_seo_ai')->table('seo_project_tasks as t')
             ->join('seo_projects as p', 'p.id', '=', 't.project_id')
             ->whereNull('t.deleted_at')
+            ->whereNull('t.archived_at')
             ->where('t.status', '!=', SeoProjectTask::STATUS_CANCELLED)
+            ->where('t.status', '!=', SeoProjectTask::STATUS_ARCHIVED)
             ->select([
                 't.id',
                 't.site_id',

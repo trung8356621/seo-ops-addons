@@ -137,6 +137,7 @@ final class NewContentSuggestionPlannerService
             $actorId,
             is_array($options['note_items'] ?? null) ? $options['note_items'] : [],
             ContentProjectMonthContext::normalize($options['planning_month'] ?? null),
+            ! empty($options['auto_approve']),
         );
 
         $breakdown = is_array($filtered['duplicate_breakdown'] ?? null)
@@ -185,6 +186,7 @@ final class NewContentSuggestionPlannerService
         $active = $this->plannerRuns->findActive(
             $project,
             SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT,
+            (int) $site->getKey(),
         );
         if ($active instanceof SeoContentProjectPlannerRun) {
             return [
@@ -656,6 +658,7 @@ final class NewContentSuggestionPlannerService
                         ContentProjectMonthContext::normalize(
                             $options['planning_month'] ?? null,
                         ),
+                        ! empty($options['auto_approve']),
                     );
                     $allTaskIds = array_merge($allTaskIds, $taskIds);
                     $allResults = array_merge($allResults, $filtered['results']);
@@ -1352,6 +1355,7 @@ final class NewContentSuggestionPlannerService
         ?int $actorId,
         array $noteItems = [],
         ?string $planningMonth = null,
+        bool $autoApprove = false,
     ): array {
         if ($candidates === []) {
             return [];
@@ -1403,6 +1407,7 @@ final class NewContentSuggestionPlannerService
             $actorId,
             $month,
             $monthDate,
+            $autoApprove,
             $allowedClusterRefs,
             $clusterNameByRef,
             $attributionWriter,
@@ -1481,6 +1486,10 @@ final class NewContentSuggestionPlannerService
                 ];
                 if (\Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_month')) {
                     $taskPayload['planning_month'] = $monthDate;
+                }
+                if ($autoApprove && \Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_reviewed_at')) {
+                    $taskPayload['planning_reviewed_at'] = now();
+                    $taskPayload['planning_reviewed_by'] = $actorId !== null && $actorId > 0 ? $actorId : null;
                 }
 
                 $task = SeoProjectTask::query()->create($taskPayload);
@@ -1598,6 +1607,12 @@ final class NewContentSuggestionPlannerService
 
     private function isDeterministicApplicationError(Throwable $e): bool
     {
+        if ($e instanceof \ErrorException
+            || $e instanceof \Error
+            || $e instanceof \Illuminate\Database\QueryException
+        ) {
+            return true;
+        }
         if (! $e instanceof InvalidArgumentException) {
             return false;
         }

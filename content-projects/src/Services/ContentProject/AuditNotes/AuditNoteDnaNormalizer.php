@@ -436,6 +436,10 @@ final class AuditNoteDnaNormalizer
         if ($sourceDomain !== '') {
             $out['source_domain'] = $sourceDomain;
         }
+        $ideaGroupId = (int) ($item['idea_group_id'] ?? 0);
+        if ($ideaGroupId > 0) {
+            $out['idea_group_id'] = $ideaGroupId;
+        }
 
         return $out;
     }

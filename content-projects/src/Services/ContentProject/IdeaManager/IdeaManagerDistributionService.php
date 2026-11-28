@@ -5,7 +5,12 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager;
 
 use App\Models\Site;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use Omnichannel\Addons\ContentProjects\Jobs\GenerateNewContentSuggestionsJob;
+use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectItemOrigin;
 use Omnichannel\Addons\Content\Enums\ArticleReviewStatus;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
@@ -233,6 +238,7 @@ final class IdeaManagerDistributionService
             'use_site_context' => true,
             'use_keyword_intelligence' => true,
             'use_mcp_context' => true,
+            'auto_approve' => true,
         ]);
 
         $actorId = $actorId !== null && $actorId > 0
@@ -275,7 +281,7 @@ final class IdeaManagerDistributionService
             'planner_run_id' => $runId,
             'requested' => (int) ($result->metadata['requested'] ?? $quantity),
             'already_active' => $alreadyActive,
-            'run_detail_url' => $this->resolveRunDetailUrl($runId),
+            'run_detail_url' => $this->resolveRunDetailUrl($runId, (int) $draft->getKey()),
         ];
     }
 
@@ -313,6 +319,7 @@ final class IdeaManagerDistributionService
         return [
             'found' => true,
             'planner_run_id' => $runId,
+            'site_id' => (int) ($run->site_id ?? 0),
             'status' => $status,
             'terminal' => $terminal,
             'ok' => in_array($status, [
@@ -322,7 +329,7 @@ final class IdeaManagerDistributionService
             'added' => $added,
             'duplicate_skipped' => $skipped,
             'error' => $error,
-            'run_detail_url' => $this->resolveRunDetailUrl($runId),
+            'run_detail_url' => $this->resolveRunDetailUrl($runId, (int) $run->project_id),
         ];
     }
 
@@ -345,7 +352,8 @@ final class IdeaManagerDistributionService
 
         $run = SeoContentProjectPlannerRun::query()
             ->where('project_id', (int) $draft->getKey())
-            ->where('source', SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT)
+            ->where('site_id', $targetSiteId)
+            ->where('source_type', SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT)
             ->orderByDesc('id')
             ->first();
 
@@ -356,14 +364,673 @@ final class IdeaManagerDistributionService
         return $this->pollRun((int) $run->getKey());
     }
 
-    private function resolveRunDetailUrl(int $runId): ?string
+    /**
+     * Active AI generation runs keyed by destination site_id (for per-domain lock + F5 hydration).
+     *
+     * @return array<int, array{planner_run_id: int, site_id: int, status: string, requested: int, added: int}>
+     */
+    public function activeRunsBySite(): array
+    {
+        $draft = app(PlanningDraftResolver::class)->findCanonicalSharedDraft();
+        if (! $draft instanceof SeoProject) {
+            return [];
+        }
+
+        $runs = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Planner\ContentProjectPlannerRunService::class)
+            ->activeRunsBySite($draft, SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT);
+
+        $runIds = array_values(array_filter(array_map(
+            static fn (array $r): int => (int) ($r['planner_run_id'] ?? 0),
+            $runs,
+        ), static fn (int $id): bool => $id > 0));
+        $queuedRunIds = $this->findQueuedGeneratorRunIds($runIds);
+        $models = $runIds !== []
+            ? SeoContentProjectPlannerRun::query()->whereIn('id', $runIds)->get()->keyBy('id')
+            : collect();
+
+        $accessible = [];
+        foreach ($runs as $siteId => $row) {
+            $sid = (int) $siteId;
+            if (! SeoAccessControl::canAccessSite($sid)) {
+                continue;
+            }
+            $rid = (int) ($row['planner_run_id'] ?? 0);
+            $model = $models->get($rid);
+            if ($model instanceof SeoContentProjectPlannerRun) {
+                $eff = $this->classifyRunStatus($model, $queuedRunIds);
+                if (! $this->isEffectiveActiveStatus($eff)) {
+                    continue;
+                }
+            }
+            $accessible[$sid] = $row;
+        }
+
+        return $accessible;
+    }
+
+    /**
+     * Global Generate History across all accessible destination sites (newest first).
+     * Never exposes raw prompts, API keys, or provider credentials.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function generateHistory(int $limit = 25): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+
+        $draft = app(PlanningDraftResolver::class)->findCanonicalSharedDraft();
+        if (! $draft instanceof SeoProject) {
+            return [];
+        }
+
+        $limit = max(1, min(60, $limit));
+        $runs = SeoContentProjectPlannerRun::query()
+            ->where('project_id', (int) $draft->getKey())
+            ->where('source_type', SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT)
+            ->orderByDesc('id')
+            ->limit($limit * 3)
+            ->get()
+            ->filter(static function (SeoContentProjectPlannerRun $run): bool {
+                $summary = is_array($run->result_summary) ? $run->result_summary : [];
+                $kind = (string) ($summary['kind'] ?? SeoContentProjectPlannerRun::KIND_EXECUTED);
+
+                return $kind === SeoContentProjectPlannerRun::KIND_EXECUTED;
+            })
+            ->filter(static function (SeoContentProjectPlannerRun $run): bool {
+                $siteId = (int) ($run->site_id ?? 0);
+
+                return $siteId > 0 && SeoAccessControl::canAccessSite($siteId);
+            })
+            ->take($limit)
+            ->values();
+
+        if ($runs->isEmpty()) {
+            return [];
+        }
+
+        $siteIds = $runs->pluck('site_id')->map(static fn ($id): int => (int) $id)->unique()->values()->all();
+        $runIds = $runs->pluck('id')->map(static fn ($id): int => (int) $id)->unique()->values()->all();
+
+        $domainsBySite = Site::query()
+            ->whereIn('id', $siteIds)
+            ->pluck('domain', 'id')
+            ->all();
+
+        $originCounts = SeoContentProjectItemOrigin::query()
+            ->whereIn('planner_run_id', $runIds)
+            ->selectRaw('planner_run_id, COUNT(*) as cnt')
+            ->groupBy('planner_run_id')
+            ->pluck('cnt', 'planner_run_id')
+            ->all();
+
+        $queuedRunIds = $this->findQueuedGeneratorRunIds($runIds);
+        $activeSites = [];
+        foreach ($runs as $run) {
+            $rid = (int) $run->getKey();
+            $sid = (int) ($run->site_id ?? 0);
+            $eff = $this->classifyRunStatus($run, $queuedRunIds);
+            if ($this->isEffectiveActiveStatus($eff)) {
+                $activeSites[$sid] = $rid;
+            }
+        }
+
+        $rows = [];
+        foreach ($runs as $run) {
+            $rid = (int) $run->getKey();
+            $sid = (int) ($run->site_id ?? 0);
+            $summary = is_array($run->result_summary) ? $run->result_summary : [];
+            $effectiveStatus = $this->classifyRunStatus($run, $queuedRunIds);
+            $requested = max(0, (int) ($run->requested_quantity ?? $summary['requested'] ?? 0));
+            $addedSummary = max(0, (int) ($summary['added'] ?? 0));
+            $persistedOrigins = max(0, (int) ($originCounts[$rid] ?? 0));
+            $createdDrafts = max($addedSummary, $persistedOrigins);
+            $processed = $requested > 0 ? min($requested, $createdDrafts) : $createdDrafts;
+            $rawError = (string) ($summary['error'] ?? $summary['message'] ?? '');
+            $isErrorStatus = in_array($effectiveStatus, ['failed', 'stale', 'partial'], true)
+                || ! empty($summary['error_code'])
+                || ! empty($summary['error_class']);
+            $errorSummary = $isErrorStatus ? $this->sanitizeErrorMessage($rawError) : '';
+
+            $siteHasOtherActive = isset($activeSites[$sid]) && $activeSites[$sid] !== $rid;
+            $hasQueuedJob = isset($queuedRunIds[$rid]);
+            $isActive = $this->isEffectiveActiveStatus($effectiveStatus);
+            $manualRetries = max(0, (int) ($summary['manual_retry_count'] ?? 0));
+            $canResume = ! $isActive
+                && ! $hasQueuedJob
+                && ! $siteHasOtherActive
+                && $manualRetries < 5
+                && (
+                    $effectiveStatus === 'stale'
+                    || ($effectiveStatus === SeoContentProjectPlannerRun::STATUS_PARTIAL && ($requested === 0 || $createdDrafts < $requested))
+                );
+            $canRetry = ! $isActive
+                && ! $hasQueuedJob
+                && ! $siteHasOtherActive
+                && $manualRetries < 5
+                && $effectiveStatus === SeoContentProjectPlannerRun::STATUS_FAILED
+                && $this->hasValidRestartSnapshot($run);
+
+            $rows[] = [
+                'planner_run_id' => $rid,
+                'site_id' => $sid,
+                'domain' => (string) ($domainsBySite[$sid] ?? ('#'.$sid)),
+                'started_at' => $run->created_at?->format('Y-m-d H:i') ?? '',
+                'started_at_short' => $run->created_at?->format('d/m H:i') ?? '',
+                'status' => $effectiveStatus,
+                'status_label' => $this->statusLabel($effectiveStatus),
+                'processed' => $processed,
+                'requested' => $requested,
+                'created_drafts' => $createdDrafts,
+                'error_summary' => $errorSummary,
+                'can_resume' => $canResume,
+                'can_retry' => $canRetry,
+                'is_active' => $isActive,
+                'retry_count' => $manualRetries,
+                'run_detail_url' => $this->resolveRunDetailUrl($rid, (int) $run->project_id),
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Safely Retry (failed) or Resume (stale/partial) the same logical planner run.
+     *
+     * @return array<string, mixed>
+     */
+    public function retryOrResumeRun(int $runId, ?int $actorId = null): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+        if ($runId <= 0) {
+            return ['ok' => false, 'code' => 'invalid_run', 'message' => 'Run ID không hợp lệ.'];
+        }
+
+        $run = SeoContentProjectPlannerRun::query()->find($runId);
+        if (! $run instanceof SeoContentProjectPlannerRun) {
+            return ['ok' => false, 'code' => 'not_found', 'message' => 'Không tìm thấy Planner Run.'];
+        }
+
+        $siteId = (int) ($run->site_id ?? 0);
+        abort_unless($siteId > 0 && SeoAccessControl::canAccessSite($siteId), 403);
+
+        $draft = app(PlanningDraftResolver::class)->findCanonicalSharedDraft();
+        if (! $draft instanceof SeoProject
+            || ! $draft->isDraftPlanning()
+            || (int) $run->project_id !== (int) $draft->getKey()
+            || (string) $run->source_type !== SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT
+        ) {
+            return ['ok' => false, 'code' => 'invalid_scope', 'message' => 'Run không thuộc Shared Draft đang hoạt động.'];
+        }
+
+        $runLock = Cache::lock('idea_manager_retry_run:'.$runId, 15);
+        if (! $runLock->get()) {
+            return ['ok' => false, 'code' => 'locked', 'message' => 'Yêu cầu Retry đang được xử lý.'];
+        }
+
+        $siteLock = Cache::lock('idea_manager_site_ai:'.$siteId, 15);
+        if (! $siteLock->get()) {
+            $runLock->release();
+
+            return ['ok' => false, 'code' => 'site_locked', 'message' => 'Domain đích đang có thao tác AI khác.'];
+        }
+
+        try {
+            $fresh = SeoContentProjectPlannerRun::query()->find($runId);
+            if (! $fresh instanceof SeoContentProjectPlannerRun) {
+                return ['ok' => false, 'code' => 'not_found', 'message' => 'Không tìm thấy Planner Run.'];
+            }
+
+            $queuedRunIds = $this->findQueuedGeneratorRunIds([$runId]);
+            if (isset($queuedRunIds[$runId])) {
+                return ['ok' => false, 'code' => 'job_already_queued', 'message' => 'Job của Run này vẫn đang nằm trong hàng đợi.'];
+            }
+
+            $effectiveStatus = $this->classifyRunStatus($fresh, $queuedRunIds);
+            if ($this->isEffectiveActiveStatus($effectiveStatus)) {
+                return ['ok' => false, 'code' => 'already_active', 'message' => 'Run đang chạy hoặc đang chờ retry tự động, không thể Retry.'];
+            }
+
+            if (in_array($effectiveStatus, [
+                SeoContentProjectPlannerRun::STATUS_COMPLETED,
+                SeoContentProjectPlannerRun::STATUS_CANCELLED,
+            ], true)) {
+                return ['ok' => false, 'code' => 'terminal_non_retryable', 'message' => 'Run đã ở trạng thái kết thúc, không thể Retry.'];
+            }
+
+            $otherSiteRuns = SeoContentProjectPlannerRun::query()
+                ->where('project_id', (int) $draft->getKey())
+                ->where('site_id', $siteId)
+                ->where('source_type', SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT)
+                ->where('id', '!=', $runId)
+                ->orderByDesc('id')
+                ->limit(10)
+                ->get();
+            $otherIds = $otherSiteRuns->pluck('id')->map(static fn ($id): int => (int) $id)->all();
+            $otherQueued = $this->findQueuedGeneratorRunIds($otherIds);
+            foreach ($otherSiteRuns as $other) {
+                if ($this->isEffectiveActiveStatus($this->classifyRunStatus($other, $otherQueued))) {
+                    return ['ok' => false, 'code' => 'site_already_active', 'message' => 'Domain đích đang có Run khác đang chạy.'];
+                }
+            }
+
+            $summary = is_array($fresh->result_summary) ? $fresh->result_summary : [];
+            $manualRetries = max(0, (int) ($summary['manual_retry_count'] ?? 0));
+            if ($manualRetries >= 5) {
+                return ['ok' => false, 'code' => 'retry_limit_reached', 'message' => 'Đã đạt giới hạn Retry an toàn cho Run này.'];
+            }
+
+            if ($effectiveStatus === SeoContentProjectPlannerRun::STATUS_FAILED && ! $this->hasValidRestartSnapshot($fresh)) {
+                return ['ok' => false, 'code' => 'unsafe_snapshot', 'message' => 'Run thiếu dữ liệu cấu hình an toàn để Retry.'];
+            }
+
+            // Merge already-persisted Draft task IDs from origins so successful items are never duplicated.
+            $originTaskIds = SeoContentProjectItemOrigin::query()
+                ->where('planner_run_id', $runId)
+                ->pluck('project_task_id')
+                ->map(static fn ($id): int => (int) $id)
+                ->filter(static fn (int $id): bool => $id > 0)
+                ->all();
+            $priorTaskIds = is_array($summary['task_ids'] ?? null)
+                ? array_map('intval', $summary['task_ids'])
+                : [];
+            $mergedTaskIds = array_values(array_unique(array_filter(
+                array_merge($priorTaskIds, $originTaskIds),
+                static fn (int $id): bool => $id > 0,
+            )));
+            $addedCount = max((int) ($summary['added'] ?? 0), count($mergedTaskIds));
+            $requested = max(1, (int) ($fresh->requested_quantity ?? $summary['requested'] ?? 1));
+            if ($effectiveStatus === SeoContentProjectPlannerRun::STATUS_PARTIAL && $addedCount >= $requested) {
+                return ['ok' => false, 'code' => 'already_fulfilled', 'message' => 'Run đã tạo đủ số lượng Draft yêu cầu.'];
+            }
+
+            $isResume = $effectiveStatus === 'stale'
+                || $effectiveStatus === SeoContentProjectPlannerRun::STATUS_PARTIAL
+                || $addedCount > 0;
+            $nextStatus = $isResume
+                ? SeoContentProjectPlannerRun::STATUS_RECOVERING
+                : SeoContentProjectPlannerRun::STATUS_QUEUED;
+
+            $prevMsg = $this->sanitizeErrorMessage((string) ($summary['error'] ?? $summary['message'] ?? ''));
+            if ($prevMsg !== '') {
+                $summary['last_error_message'] = $prevMsg;
+            }
+            unset($summary['error'], $summary['error_code'], $summary['error_class']);
+
+            $summary['kind'] = SeoContentProjectPlannerRun::KIND_EXECUTED;
+            $summary['status'] = $nextStatus;
+            $summary['requested'] = $requested;
+            $summary['added'] = $addedCount;
+            $summary['task_ids'] = $mergedTaskIds;
+            $summary['auto_continuation'] = $isResume;
+            $summary['needs_continuation'] = false;
+            $summary['manual_retry_count'] = $manualRetries + 1;
+            $summary['resumed_at'] = now()->toIso8601String();
+            $summary['message'] = $isResume ? 'Đang tiếp tục…' : 'Đang thử lại…';
+
+            $fresh->result_summary = $summary;
+            $fresh->save();
+
+            $resolvedActorId = $actorId !== null && $actorId > 0
+                ? $actorId
+                : (auth()->id() !== null ? (int) auth()->id() : (int) ($fresh->created_by ?? 0));
+
+            GenerateNewContentSuggestionsJob::dispatch(
+                $runId,
+                (int) $draft->getKey(),
+                $resolvedActorId,
+            );
+
+            $domain = (string) (Site::query()->whereKey($siteId)->value('domain') ?? ('#'.$siteId));
+
+            return [
+                'ok' => true,
+                'action' => $isResume ? 'resume' : 'retry',
+                'planner_run_id' => $runId,
+                'site_id' => $siteId,
+                'domain' => $domain,
+                'status' => $nextStatus,
+                'requested' => $requested,
+                'added' => $addedCount,
+                'message' => ($isResume ? 'Đã tiếp tục Run #' : 'Đã gửi lại Run #').$runId.' ('.$domain.').',
+            ];
+        } finally {
+            $siteLock->release();
+            $runLock->release();
+        }
+    }
+
+    /**
+     * @param  list<int>  $runIds
+     * @return array<int, bool>
+     */
+    private function findQueuedGeneratorRunIds(array $runIds): array
+    {
+        if ($runIds === [] || config('queue.default') !== 'database') {
+            return [];
+        }
+
+        try {
+            if (! Schema::hasTable('jobs')) {
+                return [];
+            }
+
+            $rows = DB::table('jobs')
+                ->where('payload', 'like', '%GenerateNewContentSuggestionsJob%')
+                ->get(['payload']);
+
+            $lookup = array_flip($runIds);
+            $found = [];
+            foreach ($rows as $row) {
+                $payload = (string) ($row->payload ?? '');
+                if (preg_match('/"plannerRunId";i:(\d+)/', $payload, $m) === 1
+                    || preg_match('/"plannerRunId"\s*:\s*(\d+)/', $payload, $m) === 1
+                ) {
+                    $rid = (int) $m[1];
+                    if (isset($lookup[$rid])) {
+                        $found[$rid] = true;
+                    }
+                }
+            }
+
+            return $found;
+        } catch (Throwable) {
+            return [];
+        }
+    }
+
+    /**
+     * @param  array<int, bool>  $queuedRunIds
+     */
+    private function classifyRunStatus(SeoContentProjectPlannerRun $run, array $queuedRunIds): string
+    {
+        $summary = is_array($run->result_summary) ? $run->result_summary : [];
+        $raw = (string) ($summary['status'] ?? SeoContentProjectPlannerRun::STATUS_QUEUED);
+        $rid = (int) $run->getKey();
+        $updatedAt = $run->updated_at ?? $run->created_at;
+        $ageSeconds = $updatedAt !== null ? max(0, (int) $updatedAt->diffInSeconds(now(), false)) : 0;
+
+        return $this->classifyRunValues(
+            $rid,
+            $raw,
+            $ageSeconds,
+            $queuedRunIds,
+            (string) config('queue.default', 'database'),
+        );
+    }
+
+    /**
+     * Pure status classification for unit-testable stale vs active separation.
+     *
+     * @param  array<int, bool>  $queuedRunIds
+     */
+    private function classifyRunValues(
+        int $runId,
+        string $rawStatus,
+        int $ageSeconds,
+        array $queuedRunIds,
+        string $queueDriver = 'database',
+    ): string {
+        if (in_array($rawStatus, [
+            SeoContentProjectPlannerRun::STATUS_COMPLETED,
+            SeoContentProjectPlannerRun::STATUS_PARTIAL,
+            SeoContentProjectPlannerRun::STATUS_FAILED,
+            SeoContentProjectPlannerRun::STATUS_CANCELLED,
+        ], true)) {
+            return $rawStatus;
+        }
+
+        if (isset($queuedRunIds[$runId])) {
+            return $rawStatus;
+        }
+
+        if ($rawStatus === SeoContentProjectPlannerRun::STATUS_WAITING_RETRY) {
+            // Do not confuse freshly scheduled waiting_retry with stale.
+            $threshold = $queueDriver === 'database' ? 300 : 900;
+
+            return $ageSeconds > $threshold ? 'stale' : SeoContentProjectPlannerRun::STATUS_WAITING_RETRY;
+        }
+
+        if (in_array($rawStatus, [
+            SeoContentProjectPlannerRun::STATUS_QUEUED,
+            SeoContentProjectPlannerRun::STATUS_RUNNING,
+            SeoContentProjectPlannerRun::STATUS_RECOVERING,
+        ], true)) {
+            return $ageSeconds > 1200 ? 'stale' : $rawStatus;
+        }
+
+        return $rawStatus;
+    }
+
+    private function isEffectiveActiveStatus(string $status): bool
+    {
+        return in_array($status, [
+            SeoContentProjectPlannerRun::STATUS_QUEUED,
+            SeoContentProjectPlannerRun::STATUS_RUNNING,
+            SeoContentProjectPlannerRun::STATUS_RECOVERING,
+            SeoContentProjectPlannerRun::STATUS_WAITING_RETRY,
+        ], true);
+    }
+
+    private function hasValidRestartSnapshot(SeoContentProjectPlannerRun $run): bool
+    {
+        $snap = is_array($run->configuration_snapshot) ? $run->configuration_snapshot : [];
+        $siteId = (int) ($snap['site_id'] ?? $run->site_id ?? 0);
+        $qty = (int) ($run->requested_quantity ?? $snap['quantity'] ?? 0);
+
+        return $siteId > 0 && $qty > 0;
+    }
+
+    private function statusLabel(string $status): string
+    {
+        return match ($status) {
+            SeoContentProjectPlannerRun::STATUS_QUEUED,
+            SeoContentProjectPlannerRun::STATUS_RUNNING,
+            SeoContentProjectPlannerRun::STATUS_RECOVERING => 'Running',
+            SeoContentProjectPlannerRun::STATUS_WAITING_RETRY => 'Waiting Retry',
+            SeoContentProjectPlannerRun::STATUS_COMPLETED => 'Completed',
+            SeoContentProjectPlannerRun::STATUS_PARTIAL => 'Partial',
+            SeoContentProjectPlannerRun::STATUS_FAILED => 'Failed',
+            SeoContentProjectPlannerRun::STATUS_CANCELLED => 'Cancelled',
+            'stale' => 'Stale',
+            default => ucfirst($status),
+        };
+    }
+
+    private function sanitizeErrorMessage(string $raw): string
+    {
+        $clean = trim(preg_replace('/\s+/', ' ', $raw) ?? '');
+        if ($clean === '') {
+            return '';
+        }
+
+        // Redact Bearer tokens, API keys, and query credentials before exposing in UI.
+        $clean = (string) preg_replace('/Bearer\s+[A-Za-z0-9\-_\.=]+/i', 'Bearer [REDACTED]', $clean);
+        $clean = (string) preg_replace('/\b(?:sk|or|AIza)[A-Za-z0-9\-_]{10,}\b/', '[REDACTED_KEY]', $clean);
+        $clean = (string) preg_replace('/([?&](?:api_key|key|token|secret)=)[^&\s]+/i', '$1[REDACTED]', $clean);
+
+        return mb_strlen($clean) > 140 ? mb_substr($clean, 0, 137).'…' : $clean;
+    }
+
+    /**
+     * Authorized, sanitized detail payload for a single Generate run modal.
+     *
+     * @return array<string, mixed>
+     */
+    public function generateRunDetail(int $runId): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+        if ($runId <= 0) {
+            return ['ok' => false, 'code' => 'invalid_run', 'message' => 'Run ID không hợp lệ.'];
+        }
+
+        $run = SeoContentProjectPlannerRun::query()->find($runId);
+        if (! $run instanceof SeoContentProjectPlannerRun) {
+            return ['ok' => false, 'code' => 'not_found', 'message' => 'Không tìm thấy Planner Run.'];
+        }
+
+        $siteId = (int) ($run->site_id ?? 0);
+        if ($siteId <= 0 || ! SeoAccessControl::canAccessSite($siteId)) {
+            abort(403);
+        }
+
+        $draft = app(PlanningDraftResolver::class)->findCanonicalSharedDraft();
+        if (! $draft instanceof SeoProject
+            || (int) $run->project_id !== (int) $draft->getKey()
+            || (string) $run->source_type !== SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT
+        ) {
+            return ['ok' => false, 'code' => 'invalid_scope', 'message' => 'Run không thuộc Shared Draft đang hoạt động.'];
+        }
+
+        $summary = is_array($run->result_summary) ? $run->result_summary : [];
+        $queuedRunIds = $this->findQueuedGeneratorRunIds([$runId]);
+        $effectiveStatus = $this->classifyRunStatus($run, $queuedRunIds);
+        $isActive = $this->isEffectiveActiveStatus($effectiveStatus);
+        $hasQueuedJob = isset($queuedRunIds[$runId]);
+
+        $requested = max(0, (int) ($run->requested_quantity ?? $summary['requested'] ?? 0));
+        $addedSummary = max(0, (int) ($summary['added'] ?? 0));
+        $persistedOrigins = (int) SeoContentProjectItemOrigin::query()
+            ->where('planner_run_id', $runId)
+            ->count();
+        $createdDrafts = max($addedSummary, $persistedOrigins);
+        $processed = $requested > 0 ? min($requested, $createdDrafts) : $createdDrafts;
+
+        $siteHasOtherActive = false;
+        $otherRuns = SeoContentProjectPlannerRun::query()
+            ->where('project_id', (int) $draft->getKey())
+            ->where('site_id', $siteId)
+            ->where('source_type', SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT)
+            ->where('id', '!=', $runId)
+            ->orderByDesc('id')
+            ->limit(10)
+            ->get();
+        $otherQueued = $this->findQueuedGeneratorRunIds(
+            $otherRuns->pluck('id')->map(static fn ($id): int => (int) $id)->all(),
+        );
+        foreach ($otherRuns as $other) {
+            if ($this->isEffectiveActiveStatus($this->classifyRunStatus($other, $otherQueued))) {
+                $siteHasOtherActive = true;
+                break;
+            }
+        }
+
+        $manualRetries = max(0, (int) ($summary['manual_retry_count'] ?? 0));
+        $canResume = ! $isActive
+            && ! $hasQueuedJob
+            && ! $siteHasOtherActive
+            && $manualRetries < 5
+            && (
+                $effectiveStatus === 'stale'
+                || ($effectiveStatus === SeoContentProjectPlannerRun::STATUS_PARTIAL && ($requested === 0 || $createdDrafts < $requested))
+            );
+        $canRetry = ! $isActive
+            && ! $hasQueuedJob
+            && ! $siteHasOtherActive
+            && $manualRetries < 5
+            && $effectiveStatus === SeoContentProjectPlannerRun::STATUS_FAILED
+            && $this->hasValidRestartSnapshot($run);
+
+        $promptResultId = (int) ($run->prompt_result_id ?? $summary['prompt_result_id'] ?? 0);
+        $promptStatus = null;
+        $provider = null;
+        $model = null;
+        $promptFinishedAt = null;
+        $promptError = '';
+        if ($promptResultId > 0) {
+            try {
+                if (Schema::hasTable('prompt_results')) {
+                    $pr = DB::table('prompt_results')
+                        ->where('id', $promptResultId)
+                        ->first(['id', 'status', 'input_snapshot', 'error_message', 'finished_at']);
+                    if ($pr !== null) {
+                        $promptStatus = isset($pr->status) ? (string) $pr->status : null;
+                        $promptFinishedAt = ! empty($pr->finished_at) ? (string) $pr->finished_at : null;
+                        $promptError = (string) ($pr->error_message ?? '');
+                        $snap = json_decode((string) ($pr->input_snapshot ?? ''), true);
+                        if (is_array($snap)) {
+                            $provider = trim((string) ($snap['provider'] ?? '')) ?: null;
+                            $model = trim((string) (
+                                $snap['actual_provider_model']
+                                ?? $snap['raw_model_used']
+                                ?? $snap['requested_model']
+                                ?? $snap['planner_model']
+                                ?? ''
+                            )) ?: null;
+                        }
+                    }
+                }
+            } catch (Throwable) {
+            }
+        }
+
+        $rawError = (string) ($summary['error'] ?? $summary['message'] ?? $promptError);
+        $isErrorStatus = in_array($effectiveStatus, ['failed', 'stale', 'partial'], true)
+            || ! empty($summary['error_code'])
+            || ! empty($summary['error_class']);
+        $errorSummary = $isErrorStatus ? $this->sanitizeErrorMessage($rawError) : '';
+
+        $isTerminal = in_array($effectiveStatus, [
+            SeoContentProjectPlannerRun::STATUS_COMPLETED,
+            SeoContentProjectPlannerRun::STATUS_PARTIAL,
+            SeoContentProjectPlannerRun::STATUS_FAILED,
+            SeoContentProjectPlannerRun::STATUS_CANCELLED,
+        ], true);
+        $finishedAt = $isTerminal
+            ? ($run->updated_at?->format('Y-m-d H:i:s') ?? $promptFinishedAt)
+            : null;
+
+        $domain = (string) (Site::query()->whereKey($siteId)->value('domain') ?? ('#'.$siteId));
+
+        return [
+            'ok' => true,
+            'planner_run_id' => $runId,
+            'project_id' => (int) $run->project_id,
+            'site_id' => $siteId,
+            'domain' => $domain,
+            'started_at' => $run->created_at?->format('Y-m-d H:i:s') ?? '',
+            'updated_at' => $run->updated_at?->format('Y-m-d H:i:s') ?? '',
+            'finished_at' => $finishedAt ?? '—',
+            'status' => $effectiveStatus,
+            'status_label' => $this->statusLabel($effectiveStatus),
+            'requested' => $requested,
+            'processed' => $processed,
+            'created_drafts' => $createdDrafts,
+            'duplicate_skipped' => max(0, (int) ($summary['duplicate_skipped'] ?? 0)),
+            'rejected_skipped' => max(0, (int) ($summary['rejected_skipped'] ?? 0)),
+            'prompt_result_id' => $promptResultId > 0 ? $promptResultId : null,
+            'prompt_result_status' => $promptStatus ?? '—',
+            'provider' => $provider ?? '—',
+            'model' => $model ?? '—',
+            'error_summary' => $errorSummary,
+            'retry_count' => $manualRetries,
+            'can_resume' => $canResume,
+            'can_retry' => $canRetry,
+            'is_active' => $isActive,
+            'run_detail_url' => $this->resolveRunDetailUrl($runId, (int) $run->project_id),
+        ];
+    }
+
+    private function resolveRunDetailUrl(int $runId, ?int $projectId = null): ?string
     {
         if ($runId <= 0) {
             return null;
         }
 
+        $resolvedProjectId = (int) ($projectId ?? 0);
+        if ($resolvedProjectId <= 0) {
+            $resolvedProjectId = (int) (SeoContentProjectPlannerRun::query()
+                ->whereKey($runId)
+                ->value('project_id') ?? 0);
+        }
+        if ($resolvedProjectId <= 0) {
+            return null;
+        }
+
         try {
-            $url = ContentProjectPlannerRunDetail::getUrl(['run' => $runId], isAbsolute: false);
+            $url = ContentProjectPlannerRunDetail::getUrl([
+                'project' => $resolvedProjectId,
+                'run' => $runId,
+            ], isAbsolute: false);
 
             return is_string($url) && $url !== '' ? $url : null;
         } catch (Throwable) {

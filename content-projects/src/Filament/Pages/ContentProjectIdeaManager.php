@@ -183,6 +183,12 @@ final class ContentProjectIdeaManager extends SeoPanelPage
         $this->loadClusterSuggestions();
         $domain = (string) (Site::query()->whereKey($siteId)->value('domain') ?? '');
         $this->dispatch('idea-manager-source-filter-changed', siteId: $siteId, domain: $domain);
+
+        // Two-way sync (A -> B): also select matching destination site in Site Planning.
+        if ((int) ($this->targetSiteId ?? 0) !== $siteId) {
+            $this->targetSiteId = $siteId;
+            $this->dispatch('idea-manager-target-changed', siteId: $siteId, domain: $domain);
+        }
     }
 
     public function selectIdeaManagerTargetSite(int $siteId): void
@@ -196,6 +202,16 @@ final class ContentProjectIdeaManager extends SeoPanelPage
         $this->targetSiteId = $siteId;
         $domain = (string) (Site::query()->whereKey($siteId)->value('domain') ?? '');
         $this->dispatch('idea-manager-target-changed', siteId: $siteId, domain: $domain);
+
+        // Two-way sync (B -> A): also sync left Domain nguồn selector and cluster list.
+        if ((int) ($this->sourceFilterSiteId ?? 0) !== $siteId) {
+            $this->sourceFilterSiteId = $siteId;
+            $this->clusterPage = 1;
+            $this->clusterRows = [];
+            $this->clusterTotal = 0;
+            $this->loadClusterSuggestions();
+            $this->dispatch('idea-manager-source-filter-changed', siteId: $siteId, domain: $domain);
+        }
     }
 
     /**
@@ -307,6 +323,52 @@ final class ContentProjectIdeaManager extends SeoPanelPage
         abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
 
         return app(IdeaManagerDistributionService::class)->reconcileLatestRun($targetId = $targetSiteId);
+    }
+
+    /**
+     * @return array<int, array{planner_run_id: int, site_id: int, status: string, requested: int, added: int}>
+     */
+    public function activeDistributionRunsBySite(): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+
+        return app(IdeaManagerDistributionService::class)->activeRunsBySite();
+    }
+
+    /**
+     * Global Generate History across accessible destination sites (newest first).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function generateHistory(int $limit = 25): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+
+        return app(IdeaManagerDistributionService::class)->generateHistory($limit);
+    }
+
+    /**
+     * Safely Retry (failed) or Resume (stale/partial) a Generate run.
+     *
+     * @return array<string, mixed>
+     */
+    public function retryDistributionRun(int $runId): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+
+        return app(IdeaManagerDistributionService::class)->retryOrResumeRun($runId, $this->actorId());
+    }
+
+    /**
+     * Authorized detail payload for one Generate run in the History modal.
+     *
+     * @return array<string, mixed>
+     */
+    public function generateRunDetail(int $runId): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+
+        return app(IdeaManagerDistributionService::class)->generateRunDetail($runId);
     }
 
     /**
@@ -455,6 +517,122 @@ final class ContentProjectIdeaManager extends SeoPanelPage
         }
 
         return $result;
+    }
+
+    /**
+     * Inline-rename a single Idea in its owning site workspace.
+     *
+     * @return array<string, mixed>
+     */
+    public function renameIdeaItem(int $siteId, string $clusterRef, string $newName): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+        abort_unless($siteId > 0 && SeoAccessControl::canAccessSite($siteId), 403);
+
+        try {
+            $result = app(IdeaWorkspacePersistenceService::class)->renameItem(
+                $siteId,
+                $clusterRef,
+                $newName,
+                $this->actorId(),
+            );
+        } catch (Throwable $e) {
+            return [
+                'ok' => false,
+                'status' => IdeaWorkspacePersistenceService::STATUS_FORBIDDEN,
+                'code' => 'rename_failed',
+                'message' => $e->getMessage() ?: 'Không thể đổi tên Idea.',
+            ];
+        }
+
+        if (! empty($result['ok']) && ($result['status'] ?? '') === IdeaWorkspacePersistenceService::STATUS_OK) {
+            $this->refreshWorkspaceFromServer();
+        }
+
+        return $result;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function createIdeaGroup(string $name): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+        $res = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager\IdeaGroupService::class)
+            ->createGroup($name, $this->actorId());
+        if (! empty($res['ok'])) {
+            $this->refreshWorkspaceFromServer();
+            $res['snapshot'] = $this->workspaceSnapshot;
+        }
+
+        return $res;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function renameIdeaGroup(int $groupId, string $name): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+        $res = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager\IdeaGroupService::class)
+            ->renameGroup($groupId, $name, $this->actorId());
+        if (! empty($res['ok'])) {
+            $this->refreshWorkspaceFromServer();
+            $res['snapshot'] = $this->workspaceSnapshot;
+        }
+
+        return $res;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function deleteIdeaGroup(int $groupId): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+        $res = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager\IdeaGroupService::class)
+            ->deleteGroupAndIdeas($groupId, $this->actorId());
+        if (! empty($res['ok'])) {
+            $this->refreshWorkspaceFromServer();
+            $res['snapshot'] = $this->workspaceSnapshot;
+        }
+
+        return $res;
+    }
+
+    /**
+     * @param  list<array{site_id: int, cluster_ref: string}>  $targets
+     * @return array<string, mixed>
+     */
+    public function moveIdeasToGroup(array $targets, int $targetGroupId): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+        $res = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager\IdeaGroupService::class)
+            ->moveIdeas($targets, $targetGroupId, $this->actorId());
+        if (! empty($res['ok'])) {
+            $this->refreshWorkspaceFromServer();
+            $res['snapshot'] = $this->workspaceSnapshot;
+        }
+
+        return $res;
+    }
+
+    /**
+     * Bulk-update target_dna_count for all Ideas in the active group.
+     *
+     * @return array<string, mixed>
+     */
+    public function bulkSetGroupTargetDna(int $groupId, int $targetDnaCount): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+        $res = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaManager\IdeaGroupService::class)
+            ->bulkUpdateTargetDna($groupId, $targetDnaCount, $this->actorId());
+        if (! empty($res['ok'])) {
+            $this->refreshWorkspaceFromServer();
+            $res['snapshot'] = $this->workspaceSnapshot;
+        }
+
+        return $res;
     }
 
     /**

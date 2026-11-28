@@ -178,6 +178,140 @@ final class IdeaWorkspacePersistenceService
     }
 
     /**
+     * Inline-rename a single Idea inside its owning site workspace without altering
+     * its cluster_ref, DNA, target_dna_count, planner runs, tasks, or articles.
+     *
+     * @return array<string, mixed>
+     */
+    public function renameItem(
+        int $siteId,
+        string $clusterRef,
+        string $newName,
+        ?int $actorUserId = null,
+    ): array {
+        $this->assertCanAccess($siteId);
+
+        $ref = trim($clusterRef);
+        if ($ref === '') {
+            return [
+                'ok' => false,
+                'status' => self::STATUS_INVALID,
+                'code' => 'invalid_ref',
+                'message' => 'Không xác định được Idea cần đổi tên.',
+            ];
+        }
+
+        $trimmed = trim(preg_replace('/\s+/u', ' ', $newName) ?? '');
+        if ($trimmed === '') {
+            return [
+                'ok' => false,
+                'status' => self::STATUS_INVALID,
+                'code' => 'empty_name',
+                'message' => 'Tên Idea không được để trống.',
+            ];
+        }
+
+        if (mb_strlen($trimmed, 'UTF-8') > AuditNoteDnaNormalizer::MAX_SEED_TEXT_LENGTH) {
+            return [
+                'ok' => false,
+                'status' => self::STATUS_INVALID,
+                'code' => 'name_too_long',
+                'message' => 'Tên Idea không được vượt quá '.AuditNoteDnaNormalizer::MAX_SEED_TEXT_LENGTH.' ký tự.',
+            ];
+        }
+
+        $newKey = AuditNoteDnaNormalizer::normalizeKey($trimmed);
+
+        return DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $ref, $trimmed, $newKey, $actorUserId): array {
+            /** @var SeoContentProjectIdeaWorkspace|null $row */
+            $row = SeoContentProjectIdeaWorkspace::query()
+                ->where('site_id', $siteId)
+                ->lockForUpdate()
+                ->first();
+
+            if ($row === null) {
+                return [
+                    'ok' => false,
+                    'status' => 'not_found',
+                    'code' => 'workspace_not_found',
+                    'message' => 'Không tìm thấy Kho Idea của domain này.',
+                ];
+            }
+
+            $items = AuditNoteDnaNormalizer::normalizeNoteItems(
+                is_array($row->note_items) ? $row->note_items : [],
+            );
+
+            $targetIdx = null;
+            foreach ($items as $idx => $item) {
+                if (! is_array($item)) {
+                    continue;
+                }
+                $itemRef = trim((string) ($item['cluster_ref'] ?? ''));
+                if ($itemRef === $ref) {
+                    $targetIdx = $idx;
+                    continue;
+                }
+                $otherName = (string) ($item['cluster_name_snapshot'] ?? $item['seed_text'] ?? '');
+                if ($otherName !== '' && $newKey !== '' && AuditNoteDnaNormalizer::normalizeKey($otherName) === $newKey) {
+                    return [
+                        'ok' => false,
+                        'status' => self::STATUS_INVALID,
+                        'code' => 'duplicate_name',
+                        'message' => 'Tên Idea này đã tồn tại trong Kho Idea.',
+                    ];
+                }
+            }
+
+            if ($targetIdx === null) {
+                return [
+                    'ok' => false,
+                    'status' => 'not_found',
+                    'code' => 'not_found',
+                    'message' => 'Không tìm thấy Idea cần đổi tên.',
+                ];
+            }
+
+            $currentName = trim((string) ($items[$targetIdx]['cluster_name_snapshot'] ?? $items[$targetIdx]['seed_text'] ?? ''));
+            if ($currentName === $trimmed) {
+                return [
+                    'ok' => true,
+                    'status' => self::STATUS_NOOP,
+                    'site_id' => $siteId,
+                    'cluster_ref' => $ref,
+                    'name' => $currentName,
+                    'revision' => (int) $row->revision,
+                    'updated_at' => $row->updated_at?->toIso8601String(),
+                ];
+            }
+
+            $items[$targetIdx]['cluster_name_snapshot'] = $trimmed;
+            if (($items[$targetIdx]['source_type'] ?? '') === AuditNoteDnaNormalizer::SOURCE_TYPE_MANUAL_SEED
+                || array_key_exists('seed_text', $items[$targetIdx])
+            ) {
+                $items[$targetIdx]['seed_text'] = $trimmed;
+            }
+
+            $normalized = AuditNoteDnaNormalizer::normalizeNoteItems($items);
+            $row->note_items = $normalized;
+            $row->content_hash = self::contentHash($normalized);
+            $row->revision = (int) $row->revision + 1;
+            $row->updated_by = $actorUserId;
+            $row->save();
+
+            return [
+                'ok' => true,
+                'status' => self::STATUS_OK,
+                'site_id' => $siteId,
+                'cluster_ref' => $ref,
+                'name' => $trimmed,
+                'revision' => (int) $row->revision,
+                'updated_at' => $row->updated_at?->toIso8601String(),
+            ];
+        });
+    }
+
+    /**
      * @param  list<array<string, mixed>>  $items
      */
     public static function contentHash(array $items): string

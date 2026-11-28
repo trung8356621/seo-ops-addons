@@ -24,6 +24,8 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\MoveSharedDraftToIdeaManagerService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftIntakeService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftResolver;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\SeoAuditPublishMonthPreference;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\SmartDraftPublishPlanner;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SeoAudit\SeoAuditSuggestionDecisionService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\Seo\Filament\Concerns\HidesFilamentPageHeader;
@@ -36,6 +38,7 @@ use App\Support\RuntimeLogger;
 use Filament\Notifications\Notification;
 use Filament\Support\Exceptions\Halt;
 use Illuminate\Contracts\Support\Htmlable;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
@@ -51,7 +54,11 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
     use HidesFilamentPageHeader;
     use InteractsWithAuditNotes;
     use InteractsWithDiscoverNewTopics;
-    use InteractsWithDraftSplit;
+    use InteractsWithDraftSplit {
+        draftSplitUiState as protected traitDraftSplitUiState;
+        confirmDraftSplit as protected traitConfirmDraftSplit;
+        openDraftSplitModal as protected traitOpenDraftSplitModal;
+    }
     use InteractsWithIdeaCandidates;
     use InteractsWithNewContentSuggestions;
     use InteractsWithPlannerPlanClone;
@@ -87,6 +94,15 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
 
     /** @var list<int> */
     public array $selectedTaskIds = [];
+
+    /** Monthly limit for Smart Publish on sticky Draft bar (auto-calculated or user-overridden). */
+    public int $publishMonthlyLimit = 30;
+
+    /** Whether user manually edited publishMonthlyLimit in this session. */
+    public bool $publishMonthlyLimitOverridden = false;
+
+    /** Preview fingerprint for Smart Publish stale-preview rejection. */
+    public string $smartPublishPreviewHash = '';
 
     /** all|unreviewed|reviewed */
     public string $draftReviewFilter = 'all';
@@ -181,6 +197,10 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         $this->mountInteractsWithDiscoverNewTopics();
         $this->mountInteractsWithIdeaCandidates();
         $this->mountInteractsWithDraftSplit();
+        $this->draftSplitTargetMonth = SeoAuditPublishMonthPreference::get();
+        $this->smartPublishPreviewHash = '';
+        $this->publishMonthlyLimitOverridden = false;
+        $this->syncAutoPublishMonthlyLimit();
     }
 
     public function updatedFilterSiteId(): void
@@ -196,6 +216,10 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         // Working site is data context only — Shared Draft id must stay the same.
         // Draft Domain filter stays independent unless the referenced site becomes inaccessible.
         $this->draftDomainFilter = $this->normalizeDraftDomainFilter($this->draftDomainFilter);
+        $this->draftSplitTargetMonth = SeoAuditPublishMonthPreference::get();
+        $this->smartPublishPreviewHash = '';
+        $this->draftSplitModalOpen = false;
+        $this->draftSplitError = null;
 
         $this->selectedTaskIds = [];
         $this->clearSuggestionSelection();
@@ -212,6 +236,10 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
             $this->mountInteractsWithDiscoverNewTopics();
             $this->mountInteractsWithIdeaCandidates();
             $this->mountInteractsWithDraftSplit();
+        $this->draftSplitTargetMonth = SeoAuditPublishMonthPreference::get();
+        $this->smartPublishPreviewHash = '';
+        $this->publishMonthlyLimitOverridden = false;
+        $this->syncAutoPublishMonthlyLimit();
         }
     }
 
@@ -958,8 +986,12 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
      */
     public function sitePlanningPayload(): array
     {
+        $overrideLimit = $this->publishMonthlyLimitOverridden && $this->publishMonthlyLimit > 0
+            ? (int) $this->publishMonthlyLimit
+            : null;
+
         return app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\SitePlanningReadModel::class)
-            ->overview(null, $this->resolvePlannerActiveMonth());
+            ->overview(null, $this->resolvePlannerActiveMonth(), $overrideLimit);
     }
 
     /**
@@ -1013,10 +1045,299 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         $this->autoSelectSharedDraftIfNeeded(showErrors: true);
     }
 
+    public function updatedPublishMonthlyLimit(mixed $value): void
+    {
+        $this->publishMonthlyLimitOverridden = true;
+        $this->publishMonthlyLimit = max(1, (int) $value);
+    }
+
+    /**
+     * @return array{
+     *     valid: bool,
+     *     limit: ?int,
+     *     writer_count: int,
+     *     per_writer_capacity: int,
+     *     site_count: int,
+     *     formula_text: string,
+     *     is_custom: bool,
+     *     effective_limit: int
+     * }
+     */
+    public function getAutoMonthlyLimitInfoProperty(): array
+    {
+        $month = ContentProjectMonthContext::parseOrNull($this->draftSplitTargetMonth ?: null)
+            ?? $this->resolvePlannerActiveMonth();
+        $auto = app(SmartDraftPublishPlanner::class)->resolveAutoMonthlyLimit($month);
+        $isCustom = $this->publishMonthlyLimitOverridden
+            && (! $auto['valid'] || (int) $this->publishMonthlyLimit !== (int) ($auto['limit'] ?? 0));
+        $effective = $this->publishMonthlyLimitOverridden
+            ? max(1, (int) $this->publishMonthlyLimit)
+            : (int) ($auto['limit'] ?? 0);
+
+        return array_merge($auto, [
+            'is_custom' => $isCustom,
+            'effective_limit' => $effective,
+        ]);
+    }
+
+    private function syncAutoPublishMonthlyLimit(): void
+    {
+        if ($this->publishMonthlyLimitOverridden) {
+            return;
+        }
+        $month = ContentProjectMonthContext::parseOrNull($this->draftSplitTargetMonth ?: null)
+            ?? $this->resolvePlannerActiveMonth();
+        $auto = app(SmartDraftPublishPlanner::class)->resolveAutoMonthlyLimit($month);
+        $this->publishMonthlyLimit = $auto['valid'] ? (int) $auto['limit'] : 0;
+    }
+
+    private function resolveEffectivePublishLimit(string $targetMonth): ?int
+    {
+        if ($this->publishMonthlyLimitOverridden) {
+            return max(1, (int) $this->publishMonthlyLimit);
+        }
+
+        $auto = app(SmartDraftPublishPlanner::class)->resolveAutoMonthlyLimit($targetMonth);
+
+        return $auto['valid'] ? (int) $auto['limit'] : null;
+    }
+
+    public function getTotalMissingForPublishMonthProperty(): ?int
+    {
+        $targetMonth = ContentProjectMonthContext::parseOrNull($this->draftSplitTargetMonth ?: null);
+        if ($targetMonth === null) {
+            return null;
+        }
+        $limit = $this->resolveEffectivePublishLimit($targetMonth);
+        if ($limit === null || $limit <= 0) {
+            return null;
+        }
+
+        return app(SmartDraftPublishPlanner::class)->totalMissingForSites(
+            array_keys($this->siteFilterOptions),
+            $targetMonth,
+            $limit,
+        );
+    }
+
+    protected function resolvePublishDraftSiteScope(): ?int
+    {
+        return null;
+    }
+
     public function openPublishFromPlanner(): void
     {
-        // Publish = all reviewed in scope; packing creates overflow -2/-3 (not first_n capped at 30).
         $this->openDraftSplitModal(SplitDraftContentProjectCommand::MODE_ALL);
+    }
+
+    public function openDraftSplitModal(?string $preferredMode = null): void
+    {
+        unset($preferredMode);
+        $project = $this->requireProject();
+        if (! $project->isDraftPlanning()) {
+            return;
+        }
+
+        $targetMonth = ContentProjectMonthContext::parseOrNull($this->draftSplitTargetMonth ?: null);
+        if ($targetMonth === null) {
+            Notification::make()
+                ->warning()
+                ->title('Vui lòng chọn Tháng Publish trước khi Publish.')
+                ->send();
+
+            return;
+        }
+
+        $limit = $this->resolveEffectivePublishLimit($targetMonth);
+        if ($limit === null || $limit <= 0) {
+            Notification::make()
+                ->warning()
+                ->title('Chưa xác định được hạn mức tháng (thiếu Writer hoặc Site hợp lệ).')
+                ->send();
+
+            return;
+        }
+
+        $this->publishMonthlyLimit = $limit;
+        $multiPlan = app(SmartDraftPublishPlanner::class)->planAllSites(
+            $project,
+            $this->siteFilterOptions,
+            $targetMonth,
+            $limit,
+        );
+
+        if ($multiPlan['total_approved'] <= 0) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.draft_split_empty_title'))
+                ->body(__('seo-content-ai::filament.projects.draft_split_empty_reviewed_body'))
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $this->draftSplitMode = SplitDraftContentProjectCommand::MODE_ALL;
+        $this->draftSplitQuantity = max(1, $multiPlan['total_publish']);
+        $this->draftSplitTargetMonth = $multiPlan['month'];
+        $this->smartPublishPreviewHash = $this->computeSmartPublishPreviewHash($multiPlan);
+        $this->draftSplitIncludedUserIds = $this->defaultEligibleIncludedUserIds();
+        $this->draftSplitError = null;
+        $this->draftSplitModalOpen = true;
+    }
+
+    public function updatedDraftSplitTargetMonth(mixed $value): void
+    {
+        $parsed = ContentProjectMonthContext::parseOrNull(is_string($value) ? $value : null);
+        $this->draftSplitTargetMonth = SeoAuditPublishMonthPreference::set($parsed);
+        $this->syncAutoPublishMonthlyLimit();
+        if ($parsed !== null && $this->draftSplitModalOpen && $this->project instanceof SeoProject) {
+            $limit = $this->resolveEffectivePublishLimit($parsed);
+            if ($limit !== null && $limit > 0) {
+                $multiPlan = app(SmartDraftPublishPlanner::class)->planAllSites(
+                    $this->project,
+                    $this->siteFilterOptions,
+                    $parsed,
+                    $limit,
+                );
+                $this->smartPublishPreviewHash = $this->computeSmartPublishPreviewHash($multiPlan);
+
+                return;
+            }
+        }
+        $this->smartPublishPreviewHash = '';
+    }
+
+    public function draftSplitUiState(): array
+    {
+        $state = $this->traitDraftSplitUiState();
+        $project = $this->project;
+        $targetMonth = ContentProjectMonthContext::parseOrNull($this->draftSplitTargetMonth ?: null);
+
+        if (! $project instanceof SeoProject || ! $project->isDraftPlanning() || $targetMonth === null) {
+            $state['can_create'] = false;
+
+            return $state;
+        }
+
+        $limit = $this->resolveEffectivePublishLimit($targetMonth);
+        if ($limit === null || $limit <= 0) {
+            $state['can_create'] = false;
+
+            return $state;
+        }
+        $multiPlan = app(SmartDraftPublishPlanner::class)->planAllSites(
+            $project,
+            $this->siteFilterOptions,
+            $targetMonth,
+            $limit,
+        );
+
+        $state['selected'] = $multiPlan['total_publish'];
+        $state['can_create'] = $multiPlan['can_publish']
+            && ! empty($state['included_writers'])
+            && ! empty($state['can_create']);
+        $state['smart_publish'] = $multiPlan;
+
+        return $state;
+    }
+
+    public function confirmDraftSplit(): void
+    {
+        $project = $this->requireProject();
+        if (! $project->isDraftPlanning()) {
+            return;
+        }
+
+        $targetMonth = ContentProjectMonthContext::parseOrNull($this->draftSplitTargetMonth ?: null);
+        if ($targetMonth === null) {
+            $this->failDraftSplit('Vui lòng chọn Tháng Publish trước khi Publish.');
+
+            return;
+        }
+
+        $lock = Cache::lock("smart_draft_publish:all:{$targetMonth}", 30);
+        if (! $lock->get()) {
+            $this->failDraftSplit('Đang có thao tác Publish đồng thời cho tháng này. Vui lòng thử lại.');
+
+            return;
+        }
+
+        try {
+            $limit = $this->resolveEffectivePublishLimit($targetMonth);
+            if ($limit === null || $limit <= 0) {
+                $this->failDraftSplit('Chưa xác định được hạn mức tháng (thiếu Writer hoặc Site hợp lệ).');
+
+                return;
+            }
+            $this->publishMonthlyLimit = $limit;
+            $multiPlan = app(SmartDraftPublishPlanner::class)->planAllSites(
+                $project,
+                $this->siteFilterOptions,
+                $targetMonth,
+                $limit,
+            );
+
+            if ($multiPlan['total_publish'] <= 0) {
+                $this->failDraftSplit(sprintf(
+                    'Tháng %s đã đạt hạn mức trên toàn bộ site hoặc không có Draft đã duyệt phù hợp.',
+                    $multiPlan['month_label'],
+                ));
+
+                return;
+            }
+
+            $freshHash = $this->computeSmartPublishPreviewHash($multiPlan);
+            if ($this->smartPublishPreviewHash !== '' && ! hash_equals($this->smartPublishPreviewHash, $freshHash)) {
+                $this->smartPublishPreviewHash = $freshHash;
+                $this->failDraftSplit('Dữ liệu tháng hoặc danh sách nháp đã thay đổi kể từ lúc xem trước. Vui lòng kiểm tra lại số liệu mới và xác nhận lại.');
+
+                return;
+            }
+
+            $this->draftSplitMode = SplitDraftContentProjectCommand::MODE_ALL;
+            $this->draftSplitTargetMonth = $multiPlan['month'];
+            $this->traitConfirmDraftSplit();
+
+            if (! $this->draftSplitModalOpen && $this->draftSplitError === null) {
+                $this->smartPublishPreviewHash = '';
+            }
+        } finally {
+            optional($lock)->release();
+        }
+    }
+
+    /**
+     * Smart Publish ignores bulk checkboxes and Domain filter, selecting per-site up to remaining capacity.
+     *
+     * @return list<int>
+     */
+    protected function resolvePublishEligibleTaskIds(SeoProject $project): array
+    {
+        $targetMonth = ContentProjectMonthContext::parseOrNull($this->draftSplitTargetMonth ?: null);
+        if ($targetMonth === null) {
+            return [];
+        }
+
+        $limit = $this->resolveEffectivePublishLimit($targetMonth);
+        if ($limit === null || $limit <= 0) {
+            return [];
+        }
+
+        return app(SmartDraftPublishPlanner::class)
+            ->planAllSites($project, $this->siteFilterOptions, $targetMonth, $limit)['task_ids'];
+    }
+
+    /**
+     * @param  array<string, mixed>  $smart
+     */
+    private function computeSmartPublishPreviewHash(array $smart): string
+    {
+        return hash('sha256', json_encode([
+            'month' => (string) ($smart['month'] ?? ''),
+            'limit' => (int) ($smart['limit'] ?? 0),
+            'total_missing' => (int) ($smart['total_missing'] ?? 0),
+            'task_ids' => array_values(array_map('intval', is_array($smart['task_ids'] ?? null) ? $smart['task_ids'] : [])),
+        ], JSON_THROW_ON_ERROR));
     }
 
     /**

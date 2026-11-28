@@ -411,7 +411,12 @@ class ListSeoProjects extends ListRecords
                         $mode = is_string($data['mode'] ?? null)
                             ? (string) $data['mode']
                             : ContentProjectMonthBalancePlanner::DEFAULT_MODE;
-                        $fingerprint = is_string($data['fingerprint'] ?? null) ? (string) $data['fingerprint'] : null;
+                        $fingerprint = is_string($data['fingerprint'] ?? null) ? trim((string) $data['fingerprint']) : '';
+                        if ($fingerprint === '') {
+                            throw ValidationException::withMessages([
+                                'balance' => __('seo-content-ai::filament.projects.balance_months_preview_stale'),
+                            ]);
+                        }
 
                         $result = app(ContentProjectMonthBalanceService::class)->apply(
                             $siteId,
@@ -590,18 +595,53 @@ class ListSeoProjects extends ListRecords
             if (! is_array($row)) {
                 continue;
             }
+            $incoming = (int) ($row['incoming'] ?? 0);
+            $outgoing = (int) ($row['outgoing'] ?? 0);
+            $deltaBadge = '';
+            if ($incoming > 0) {
+                $deltaBadge = ' <span class="text-xs font-medium text-success-600 dark:text-success-400">(+'.$incoming.')</span>';
+            } elseif ($outgoing > 0) {
+                $deltaBadge = ' <span class="text-xs font-medium text-warning-600 dark:text-warning-400">(-'.$outgoing.')</span>';
+            }
             $html .= '<tr class="border-t border-gray-100 dark:border-white/10">'
                 .'<td class="px-3 py-2.5 font-medium text-gray-900 dark:text-gray-100">'.e((string) ($row['month_label'] ?? '')).'</td>'
                 .'<td class="px-3 py-2.5 tabular-nums text-gray-700 dark:text-gray-200">'.(int) ($row['current'] ?? 0).'</td>'
-                .'<td class="px-3 py-2.5 tabular-nums font-semibold text-gray-900 dark:text-gray-50">'.(int) ($row['after'] ?? 0).'</td>'
+                .'<td class="px-3 py-2.5 tabular-nums font-semibold text-gray-900 dark:text-gray-50">'.(int) ($row['after'] ?? 0).$deltaBadge.'</td>'
                 .'</tr>';
         }
-        $html .= '</tbody></table></div>';
+        $totalBefore = (int) ($preview['total_before'] ?? 0);
+        $totalAfter = (int) ($preview['total_after'] ?? 0);
+        $reconciled = (bool) ($preview['reconciled'] ?? ($totalBefore === $totalAfter));
+        $html .= '</tbody><tfoot><tr class="border-t border-gray-200 bg-gray-50/70 font-semibold dark:border-white/10 dark:bg-gray-900/40">'
+            .'<td class="px-3 py-2 text-gray-700 dark:text-gray-200">Tổng cộng</td>'
+            .'<td class="px-3 py-2 tabular-nums text-gray-900 dark:text-gray-100">'.$totalBefore.'</td>'
+            .'<td class="px-3 py-2 tabular-nums text-gray-900 dark:text-gray-100">'.$totalAfter.'</td>'
+            .'</tr></tfoot></table></div>';
+
+        if (! $reconciled) {
+            $html .= '<p class="m-0 text-sm font-medium text-danger-600">'.e((string) ($preview['reconciliation_error'] ?? 'Tổng trước và sau không khớp.')).'</p>';
+        }
 
         $html .= '<div class="space-y-1.5 pt-0.5">';
         $html .= '<p class="m-0 text-sm text-gray-600 dark:text-gray-300">'.e((string) __('seo-content-ai::filament.projects.balance_months_stat_will_move', [
             'count' => (int) ($preview['move_count'] ?? 0),
         ])).'</p>';
+
+        $transferSummary = is_array($preview['transfer_summary'] ?? null) ? $preview['transfer_summary'] : [];
+        if ($transferSummary !== []) {
+            $flowParts = [];
+            foreach ($transferSummary as $flow) {
+                if (! is_array($flow)) {
+                    continue;
+                }
+                $flowParts[] = e((string) ($flow['from_label'] ?? $flow['from'] ?? '')).' → '
+                    .e((string) ($flow['to_label'] ?? $flow['to'] ?? '')).': '
+                    .(int) ($flow['count'] ?? 0).' bài';
+            }
+            if ($flowParts !== []) {
+                $html .= '<p class="m-0 text-xs text-gray-500 dark:text-gray-400">'.implode(' · ', $flowParts).'</p>';
+            }
+        }
 
         $capacityBlocked = (int) ($preview['capacity_blocked'] ?? 0);
         if ($capacityBlocked > 0) {

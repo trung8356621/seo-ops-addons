@@ -8,6 +8,7 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectLifecyclePhase;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGlobalLegacyArchive;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemState;
 
 /**
@@ -26,6 +27,8 @@ final class ContentProjectMonthBalanceEligibility
     public const REASON_CANCELLED = 'cancelled';
 
     public const REASON_PROJECT_ARCHIVED = 'project_archived';
+
+    public const REASON_GLOBAL_LEGACY = 'global_legacy';
 
     /**
      * @return array{
@@ -53,6 +56,9 @@ final class ContentProjectMonthBalanceEligibility
         }
 
         if ($project instanceof SeoProject) {
+            if (ContentProjectGlobalLegacyArchive::isProject($project)) {
+                return $this->excluded(self::REASON_GLOBAL_LEGACY);
+            }
             if ($project->isArchive() || $project->isProjectArchived()) {
                 return $this->excluded(self::REASON_PROJECT_ARCHIVED);
             }

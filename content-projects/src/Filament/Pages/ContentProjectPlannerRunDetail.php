@@ -207,6 +207,11 @@ final class ContentProjectPlannerRunDetail extends SeoPanelPage
         $run = app(ContentProjectPlannerRunService::class)->findForProject($project, $runId);
         abort_unless($run instanceof SeoContentProjectPlannerRun, 404);
 
+        $runSiteId = (int) ($run->site_id ?? 0);
+        if ($runSiteId > 0) {
+            abort_unless(SeoAccessControl::canAccessSite($runSiteId), 403);
+        }
+
         $this->project = $project;
         $this->run = $run;
         $this->projectId = (int) $project->getKey();

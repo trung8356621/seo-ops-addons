@@ -194,11 +194,17 @@ final class ContentProjectPlannerRunService
         return $run;
     }
 
-    public function findActive(SeoProject $project, string $sourceType): ?SeoContentProjectPlannerRun
+    public function findActive(SeoProject $project, string $sourceType, ?int $siteId = null): ?SeoContentProjectPlannerRun
     {
-        $runs = SeoContentProjectPlannerRun::query()
+        $query = SeoContentProjectPlannerRun::query()
             ->where('project_id', (int) $project->getKey())
-            ->where('source_type', $sourceType)
+            ->where('source_type', $sourceType);
+
+        if ($siteId !== null && $siteId > 0) {
+            $query->where('site_id', $siteId);
+        }
+
+        $runs = $query
             ->orderByDesc('id')
             ->limit(8)
             ->get();
@@ -214,6 +220,48 @@ final class ContentProjectPlannerRunService
         }
 
         return null;
+    }
+
+    /**
+     * Latest active run per site_id for one planner source.
+     *
+     * @return array<int, array{planner_run_id: int, site_id: int, status: string, requested: int, added: int}>
+     */
+    public function activeRunsBySite(SeoProject $project, string $sourceType): array
+    {
+        $runs = SeoContentProjectPlannerRun::query()
+            ->where('project_id', (int) $project->getKey())
+            ->where('source_type', $sourceType)
+            ->whereNotNull('site_id')
+            ->where('site_id', '>', 0)
+            ->orderByDesc('id')
+            ->limit(40)
+            ->get();
+
+        $out = [];
+        foreach ($runs as $run) {
+            if (! $run instanceof SeoContentProjectPlannerRun) {
+                continue;
+            }
+            $siteId = (int) ($run->site_id ?? 0);
+            if ($siteId <= 0 || isset($out[$siteId])) {
+                continue;
+            }
+            $summary = is_array($run->result_summary) ? $run->result_summary : [];
+            $status = (string) ($summary['status'] ?? '');
+            if (! in_array($status, SeoContentProjectPlannerRun::activeStatuses(), true)) {
+                continue;
+            }
+            $out[$siteId] = [
+                'planner_run_id' => (int) $run->getKey(),
+                'site_id' => $siteId,
+                'status' => $status,
+                'requested' => (int) ($run->requested_quantity ?? $summary['requested'] ?? 0),
+                'added' => (int) ($summary['added'] ?? 0),
+            ];
+        }
+
+        return $out;
     }
 
     /**
