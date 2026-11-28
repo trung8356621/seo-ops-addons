@@ -410,6 +410,7 @@ final class AgentQaApiTest extends TestCase
             ->assertJsonPath('data.model_input', null)
             ->assertJsonPath('data.model_execution.decision_model_called', false)
             ->assertJsonPath('data.model_execution.answer_model_called', false)
+            ->assertJsonPath('data.runtime_metrics.php_peak_memory_bytes', fn ($value): bool => is_int($value) && $value > 0)
             ->assertJsonStructure(['data' => ['thread_ulid', 'run_ulid', 'stage_timing_ms']]);
 
         $runUlid = (string) $response->json('data.run_ulid');

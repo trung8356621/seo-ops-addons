@@ -67,6 +67,7 @@ final class AiProviderFailureClassifier
                     'SECTION_INCOMPLETE',
                     'SECTION_EMPTY',
                     'SECTION_TRUNCATED',
+                    'SECTION_LANGUAGE_DRIFT',
                 ], true)) {
                     return $this->allow(
                         category: AiFailureClass::OutputQuality,

@@ -104,6 +104,7 @@ final class SectionedFreeArticleGenerator
         }
 
         $articleMap = $this->promptBuilder->buildArticleMap($units);
+        $articleLanguage = SectionedFreeSectionPromptBuilder::resolveCanonicalLanguage($articleContext);
         $state = $priorState ?? new SectionedFreeRunState;
         $state->setRun($runId ?? uniqid('sf_', true));
         $state->retainPlannedSections(array_map(
@@ -169,7 +170,10 @@ final class SectionedFreeArticleGenerator
             }
 
             if ($sectionPromptFactory !== null) {
-                $prompt = $sectionPromptFactory($unit);
+                $prompt = SectionedFreeSectionPromptBuilder::ensureLanguagePolicy(
+                    $sectionPromptFactory($unit),
+                    $articleLanguage,
+                );
             } else {
                 $ctx = [
                     'title' => $articleContext['title'] ?? '',
@@ -180,7 +184,7 @@ final class SectionedFreeArticleGenerator
                         ?? $articleContext['search_intent']
                         ?? $articleContext['content_intent']
                         ?? '',
-                    'language' => $articleContext['language'] ?? 'vi',
+                    'language' => $articleLanguage,
                     'article_map' => $articleMap,
                     'suggested_keywords' => $this->keywordSuggester->suggestForSection($unit, $vocabularyRaw),
                     'emit_parent_heading' => $unit->emitParentHeading,
@@ -225,12 +229,41 @@ final class SectionedFreeArticleGenerator
                 );
             }
 
+            $allowedLanguageContext = array_values(array_filter([
+                (string) ($articleContext['title'] ?? ''),
+                (string) ($articleContext['primary_keyword'] ?? $articleContext['keyword'] ?? ''),
+                $unit->label,
+                $unit->scopeMarkdown(),
+            ], static fn (string $v): bool => trim($v) !== ''));
+
             try {
-                $result = $sectionExecutor($unit, $prompt);
-                $output = trim((string) ($result['output'] ?? ''));
-                $wordCount = $this->validator->assertAcceptable($output, $unit);
-                $attemptCount = max(1, (int) ($result['attempt_count'] ?? 1));
-                $fallbackCount = max(0, (int) ($result['fallback_count'] ?? 0));
+                $maxValidatorRetries = 1;
+                $validatorRetries = 0;
+                $extraAttempts = 0;
+                while (true) {
+                    $result = $sectionExecutor($unit, $prompt);
+                    $output = trim((string) ($result['output'] ?? ''));
+                    try {
+                        $wordCount = $this->validator->assertAcceptable(
+                            $output,
+                            $unit,
+                            $articleLanguage,
+                            $allowedLanguageContext,
+                        );
+                        break;
+                    } catch (PromptRunException $validationException) {
+                        if ($validationException->isRetryable() && $validatorRetries < $maxValidatorRetries) {
+                            $validatorRetries++;
+                            $extraAttempts += max(1, (int) ($result['attempt_count'] ?? 1));
+
+                            continue;
+                        }
+
+                        throw $validationException;
+                    }
+                }
+                $attemptCount = max(1, (int) ($result['attempt_count'] ?? 1)) + $extraAttempts;
+                $fallbackCount = max(0, (int) ($result['fallback_count'] ?? 0)) + $validatorRetries;
                 $state->markCompleted($unit->sectionId, $output, $wordCount, [
                     'model' => $result['model'] ?? null,
                     'provider' => $result['provider'] ?? null,

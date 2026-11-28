@@ -182,7 +182,7 @@
                     </button>
                 </div>
             @endif
-        @if ($showStickyDraftPublish)
+        @if ($hasDraft)
             <div class="cp-plan-draft-subrow" data-draft-sticky-subrow="1">
                 <span class="{{ $limitValid ? '' : 'text-amber-600 dark:text-amber-400' }}" data-draft-monthly-limit-formula="1">
                     @if (! empty($autoLimitInfo['is_custom']))

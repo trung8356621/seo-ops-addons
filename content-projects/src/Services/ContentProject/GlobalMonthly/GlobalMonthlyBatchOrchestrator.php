@@ -615,6 +615,12 @@ final class GlobalMonthlyBatchOrchestrator
             return ['ok' => false, 'message' => 'Batch not found.', 'metadata' => []];
         }
 
+        if ($actor->actorId === null || $actor->actorId <= 0
+            || ((int) $batch->user_id !== (int) $actor->actorId && ! \Omnichannel\Addons\Seo\Support\SeoAccessControl::canManageContentProjectWorkflow())
+        ) {
+            return ['ok' => false, 'message' => 'Không có quyền dừng tiến trình này.', 'metadata' => []];
+        }
+
         if ($batch->isTerminal()) {
             return ['ok' => true, 'message' => 'Batch already terminal.', 'metadata' => ['status' => (string) $batch->status]];
         }

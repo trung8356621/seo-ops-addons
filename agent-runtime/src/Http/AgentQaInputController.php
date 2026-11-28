@@ -113,6 +113,9 @@ final class AgentQaInputController
 
             $public = (new AgentPublicPayloadSanitizer())->sanitize([
                 ...$resultData,
+                'runtime_metrics' => [
+                    'php_peak_memory_bytes' => memory_get_peak_usage(true),
+                ],
                 'original_user_message' => $message,
                 'resolved_scope' => $scope->toArray(),
                 'thread_ulid' => $thread->ulid,

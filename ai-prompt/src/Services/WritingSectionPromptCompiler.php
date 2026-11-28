@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AiPrompt\Services;
 
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
+use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeSectionPromptBuilder;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeSectionUnit;
 use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategy;
 use Omnichannel\Addons\AiPrompt\Support\WritingSectionScopeInstructions;
@@ -114,9 +115,15 @@ TXT;
             }
         }
 
+        $language = SectionedFreeSectionPromptBuilder::resolveCanonicalLanguage($vars);
+        $languageLabel = SectionedFreeSectionPromptBuilder::formatLanguageLabel($language);
+        $vars['language'] = $language;
+
         $compiled = $this->stripWholeArticleAllocationBlocks(
             $this->promptRunner->compilePrompt($prompt, $this->stringifyVars($vars)),
+            $languageLabel,
         );
+        $compiled = SectionedFreeSectionPromptBuilder::ensureLanguagePolicy($compiled, $language);
         if ($markerInstructions !== '') {
             // The shared Writing prompt may render input/outline aliases more than once.
             // Append this contract after compilation so each technical marker occurs once.
@@ -160,7 +167,7 @@ TXT;
      *
      * Must also clear markers enforced by SectionedFreePromptIsolationGuard at the provider boundary.
      */
-    public function stripWholeArticleAllocationBlocks(string $compiled): string
+    public function stripWholeArticleAllocationBlocks(string $compiled, string $languageLabel = 'Vietnamese (vi)'): string
     {
         $sectionHeadings = [
             'DYNAMIC WORD ALLOCATION',
@@ -209,7 +216,8 @@ TXT;
 
         $out = trim($out);
         if (! str_contains($out, 'OUTPUT FORMAT — CURRENT SECTION ONLY')) {
-            $out = $out."\n\n".self::SECTION_OUTPUT_FORMAT_BLOCK;
+            $outputBlock = str_replace('{{language}}', $languageLabel, self::SECTION_OUTPUT_FORMAT_BLOCK);
+            $out = $out."\n\n".$outputBlock;
         }
 
         return trim($out)."\n";

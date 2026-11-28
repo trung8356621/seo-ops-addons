@@ -177,15 +177,23 @@ final class SectionedFreeAssembleArticle
             if ($unit->role === SectionedFreeSectionUnit::ROLE_INTRO) {
                 continue;
             }
-            $headingLines[] = str_repeat('#', $level).' '.$title;
             $plannedLeadings[] = ['level' => $level, 'title' => $title];
+            // Avoid emitting the same H2 twice when parentH2 already opened it for this unit.
+            if ($level === 2 && $openParentH2 !== null && $this->headingTitlesMatch($title, $openParentH2)) {
+                continue;
+            }
+            if ($level === 2) {
+                $openParentH2 = $title;
+            }
+            $headingLines[] = str_repeat('#', $level).' '.$title;
         }
 
-        $body = $this->stripLeadingPlannedHeadings($normalized, $plannedLeadings);
-        // Continuation chunks: also strip accidental duplicate open parent H2 at lead.
+        $body = $normalized;
+        // Continuation chunks: strip accidental duplicate open parent H2 at lead before planned headings.
         if ($parentH2 !== '' && $unit->emitParentHeading === false) {
             $body = $this->stripLeadingParentH2($body, $parentH2);
         }
+        $body = $this->stripLeadingPlannedHeadings($body, $plannedLeadings);
 
         $chunks = $headingLines;
         if ($body !== '') {
@@ -297,6 +305,12 @@ final class SectionedFreeAssembleArticle
                 if ($title === '') {
                     continue;
                 }
+                if ($level === 2 && $openParentH2 !== null && $this->headingTitlesMatch($title, $openParentH2)) {
+                    continue;
+                }
+                if ($level === 2) {
+                    $openParentH2 = $title;
+                }
                 $expected[] = str_repeat('#', $level).' '.$title;
             }
         }
@@ -342,6 +356,24 @@ final class SectionedFreeAssembleArticle
                     'expected_headings' => $expected,
                     'actual_headings' => $actual,
                     'missing_headings' => $missing,
+                    'planned_sections' => count($plannedUnits),
+                    'completed_sections' => count($plannedUnits),
+                    'retryable' => false,
+                ],
+            );
+        }
+
+        $consecutiveDuplicates = $this->findConsecutiveDuplicateHeadings($actual);
+        if ($consecutiveDuplicates !== []) {
+            throw new PromptRunException(
+                'SECTIONED_FREE_STRUCTURE_MISMATCH: consecutive duplicate structural headings detected.',
+                0,
+                null,
+                [
+                    'failure_code' => 'SECTIONED_FREE_STRUCTURE_MISMATCH',
+                    'expected_headings' => $expected,
+                    'actual_headings' => $actual,
+                    'duplicate_headings' => $consecutiveDuplicates,
                     'planned_sections' => count($plannedUnits),
                     'completed_sections' => count($plannedUnits),
                     'retryable' => false,
@@ -447,21 +479,15 @@ final class SectionedFreeAssembleArticle
     {
         $trimmed = ltrim($content);
         if ($trimmed === '' || $plannedLeadings === []) {
-            return $trimmed;
+            return trim($trimmed);
         }
 
         foreach ($plannedLeadings as $planned) {
-            $level = (int) $planned['level'];
-            $title = trim((string) $planned['title']);
+            $title = trim((string) ($planned['title'] ?? ''));
             if ($title === '') {
                 continue;
             }
-            $hashes = str_repeat('#', max(1, min(4, $level)));
-            $quoted = preg_quote($title, '/');
-            $pattern = '/^'.preg_quote($hashes, '/').'\s*'.$quoted.'\s*\R*/iu';
-            if (preg_match($pattern, $trimmed) === 1) {
-                $trimmed = ltrim((string) preg_replace($pattern, '', $trimmed, 1));
-            }
+            $trimmed = $this->stripSingleLeadingHeadingMatch($trimmed, $title, false);
         }
 
         return trim($trimmed);
@@ -470,21 +496,165 @@ final class SectionedFreeAssembleArticle
     private function stripLeadingParentH2(string $content, ?string $parentH2): string
     {
         $trimmed = ltrim($content);
-        if ($parentH2 === null || $parentH2 === '') {
+        if ($trimmed === '') {
+            return '';
+        }
+        if ($parentH2 === null || trim($parentH2) === '') {
             if (preg_match('/^##\s+.+\R+/u', $trimmed) === 1) {
                 return trim((string) preg_replace('/^##\s+.+\R+/u', '', $trimmed, 1));
             }
 
-            return $trimmed;
+            return trim($trimmed);
         }
 
-        $quoted = preg_quote($parentH2, '/');
-        $pattern = '/^##\s*'.$quoted.'\s*(?:—\s*tiếp)?\s*\R+/iu';
-        if (preg_match($pattern, $trimmed) === 1) {
-            return trim((string) preg_replace($pattern, '', $trimmed, 1));
+        return $this->stripSingleLeadingHeadingMatch($trimmed, trim($parentH2), true);
+    }
+
+    private function stripSingleLeadingHeadingMatch(
+        string $content,
+        string $plannedTitle,
+        bool $allowContinuationSuffix,
+    ): string {
+        $trimmed = ltrim($content);
+        if ($trimmed === '') {
+            return '';
         }
 
-        return $trimmed;
+        // Handle inline leading HTML heading like "<h3>Title</h3>Body..." on the same line.
+        if (preg_match('/^<h[1-6]\b[^>]*>(.*?)<\/h[1-6]>\s*(.*)$/isu', $trimmed, $htmlMatch) === 1) {
+            $candidateText = trim(strip_tags($htmlMatch[1]));
+            if ($this->headingTitlesMatch($candidateText, $plannedTitle, $allowContinuationSuffix)) {
+                return trim($htmlMatch[2]);
+            }
+        }
+
+        $lines = preg_split('/\r\n|\r|\n/', $trimmed) ?: [];
+        $firstIndex = null;
+        foreach ($lines as $idx => $line) {
+            if (trim($line) !== '') {
+                $firstIndex = $idx;
+                break;
+            }
+        }
+        if ($firstIndex === null) {
+            return '';
+        }
+
+        $firstLine = trim($lines[$firstIndex]);
+        if ($this->plannedHeadingMatchesLine($firstLine, $plannedTitle, $allowContinuationSuffix)) {
+            $remaining = array_slice($lines, $firstIndex + 1);
+
+            return trim(implode("\n", $remaining));
+        }
+
+        return trim($trimmed);
+    }
+
+    private function plannedHeadingMatchesLine(
+        string $line,
+        string $plannedTitle,
+        bool $allowContinuationSuffix = false,
+    ): bool {
+        $trimmed = trim($line);
+        if ($trimmed === '') {
+            return false;
+        }
+
+        // Never treat list items, blockquotes, or code fences as headings.
+        if (preg_match('/^(?:[-*+]\s+|>\s+|```)/u', $trimmed) === 1) {
+            return false;
+        }
+
+        $candidate = $trimmed;
+        if (preg_match('/^#{1,6}\s+(.+?)\s*#*$/u', $trimmed, $m) === 1) {
+            $candidate = trim($m[1]);
+        } elseif (preg_match('/^<h[1-6]\b[^>]*>(.*?)<\/h[1-6]>$/iu', $trimmed, $m) === 1) {
+            $candidate = trim(strip_tags($m[1]));
+        } elseif (preg_match('/^(?:\*\*|__)(.+?)(?:\*\*|__)$/u', $trimmed, $m) === 1) {
+            $candidate = trim($m[1]);
+            // Unwrap nested markdown hashes inside bold, e.g. "**### Title**".
+            $candidate = trim((string) preg_replace('/^#{1,6}\s+/u', '', $candidate));
+        }
+
+        return $this->headingTitlesMatch($candidate, $plannedTitle, $allowContinuationSuffix);
+    }
+
+    private function headingTitlesMatch(
+        string $candidate,
+        string $plannedTitle,
+        bool $allowContinuationSuffix = false,
+    ): bool {
+        $cleanCandidate = $this->stripInlineMarkdownFormatting($candidate);
+        if ($allowContinuationSuffix) {
+            $cleanCandidate = (string) preg_replace('/\s*(?:—|–|-)\s*tiếp\s*$/iu', '', $cleanCandidate);
+        }
+        $cleanPlanned = $this->stripInlineMarkdownFormatting($plannedTitle);
+
+        $normCandidate = $this->normalizeHeadingForComparison($cleanCandidate);
+        $normPlanned = $this->normalizeHeadingForComparison($cleanPlanned);
+        if ($normCandidate === '' || $normPlanned === '') {
+            return false;
+        }
+        if ($normCandidate === $normPlanned) {
+            return true;
+        }
+
+        $unnumberedCandidate = $this->stripHeadingNumberingPrefix($normCandidate);
+        $unnumberedPlanned = $this->stripHeadingNumberingPrefix($normPlanned);
+
+        return $unnumberedCandidate !== ''
+            && $unnumberedPlanned !== ''
+            && ($unnumberedCandidate !== $normCandidate || $unnumberedPlanned !== $normPlanned)
+            && $unnumberedCandidate === $unnumberedPlanned;
+    }
+
+    private function stripInlineMarkdownFormatting(string $text): string
+    {
+        $out = trim($text);
+        $out = (string) preg_replace('/^#{1,6}\s+/u', '', $out);
+        $out = (string) preg_replace('/\*\*([^*]+)\*\*/u', '$1', $out);
+        $out = (string) preg_replace('/__([^_]+)__/u', '$1', $out);
+        $out = (string) preg_replace('/`([^`]+)`/u', '$1', $out);
+
+        return trim($out);
+    }
+
+    private function normalizeHeadingForComparison(string $text): string
+    {
+        $out = trim($text);
+        $out = (string) preg_replace('/\s+/u', ' ', $out);
+        $out = (string) preg_replace('/\s*[—–-]+\s*/u', ' - ', $out);
+        $out = rtrim($out, " \t\n\r\0\x0B.:;!?");
+        $out = (string) preg_replace('/\s+/u', ' ', $out);
+
+        return mb_strtolower(trim($out));
+    }
+
+    private function stripHeadingNumberingPrefix(string $normalizedHeading): string
+    {
+        return trim((string) preg_replace(
+            '/^(?:\d+(?:\.\d+)*|[ivxlcdm]+)\s*[\.\):\-]\s+/iu',
+            '',
+            $normalizedHeading,
+        ));
+    }
+
+    /**
+     * @param  list<string>  $actualHeadings
+     * @return list<string>
+     */
+    private function findConsecutiveDuplicateHeadings(array $actualHeadings): array
+    {
+        $duplicates = [];
+        for ($i = 0; $i < count($actualHeadings) - 1; $i++) {
+            $a = trim((string) preg_replace('/^#{1,6}\s+/u', '', $actualHeadings[$i]));
+            $b = trim((string) preg_replace('/^#{1,6}\s+/u', '', $actualHeadings[$i + 1]));
+            if ($this->headingTitlesMatch($a, $b, false)) {
+                $duplicates[] = $actualHeadings[$i + 1];
+            }
+        }
+
+        return $duplicates;
     }
 
     private function headingsMatch(string $actual, string $expected): bool

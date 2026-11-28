@@ -109,7 +109,7 @@ final class SmartDraftPublishPlannerTest extends TestCase
         $pageSrc = (string) file_get_contents(
             (string) (new ReflectionClass(ContentProjectSeoAuditPlanner::class))->getFileName(),
         );
-        self::assertStringContainsString("\$this->draftSplitTargetMonth = '';", $pageSrc);
+        self::assertStringContainsString('SeoAuditPublishMonthPreference::get()', $pageSrc);
         self::assertStringContainsString('Vui lòng chọn Tháng Publish trước khi Publish.', $pageSrc);
         self::assertStringContainsString('ContentProjectMonthContext::parseOrNull($this->draftSplitTargetMonth ?: null)', $pageSrc);
 

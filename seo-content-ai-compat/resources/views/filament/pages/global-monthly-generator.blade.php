@@ -539,14 +539,24 @@
                                 <button
                                     type="button"
                                     wire:click="stopBatch"
-                                    wire:confirm="Dừng Global Batch? Item đang chạy sẽ được phép hoàn tất."
+                                    wire:confirm="Dừng Generate tháng {{ $batch['planning_month_label'] ?? '' }}? Các bài đã hoàn thành sẽ được giữ nguyên. Những bài chưa xử lý sẽ không tiếp tục Generate."
                                     wire:loading.attr="disabled"
                                     wire:target="stopBatch"
-                                    class="inline-flex shrink-0 items-center gap-1 rounded-md bg-danger-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm hover:bg-danger-500 disabled:opacity-50"
+                                    data-gm-stop-btn="1"
+                                    class="inline-flex shrink-0 items-center gap-1 rounded-md bg-red-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm hover:bg-red-500 disabled:opacity-50"
                                 >
                                     <x-heroicon-o-stop-circle class="h-4 w-4" />
-                                    <span>Emergency Stop</span>
+                                    <span wire:loading.remove wire:target="stopBatch">Dừng Generate</span>
+                                    <span wire:loading wire:target="stopBatch">Đang dừng…</span>
                                 </button>
+                            @elseif (! empty($batch['is_active']) && ! empty($batch['stop_requested']))
+                                <span class="inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-500/20 dark:text-amber-300" data-gm-stopping-badge="1">
+                                    Đang dừng…
+                                </span>
+                            @elseif (($batch['status'] ?? '') === 'cancelled' && ! empty($batch['stopped_at_label']))
+                                <span class="text-xs text-gray-500 dark:text-gray-400" data-gm-stopped-at="1">
+                                    Dừng lúc {{ $batch['stopped_at_label'] }}
+                                </span>
                             @endif
                             @if (in_array(($batch['status'] ?? ''), ['cancelled', 'failed', 'stopping', 'stopped_ai_unavailable'], true))
                                 <button

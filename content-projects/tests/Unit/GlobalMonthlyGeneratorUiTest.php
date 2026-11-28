@@ -83,7 +83,10 @@ final class GlobalMonthlyGeneratorUiTest extends TestCase
         self::assertStringContainsString('gm-progress-bar-fill', $src);
         self::assertStringContainsString('wire:poll.5s="refreshProgress"', $src);
         self::assertStringContainsString('Chưa có đợt Generate nào trong tháng này.', $src);
-        self::assertStringContainsString('Emergency Stop', $src);
+        self::assertStringContainsString('Dừng Generate', $src);
+        self::assertStringContainsString('data-gm-stop-btn="1"', $src);
+        self::assertStringContainsString('data-gm-stopping-badge="1"', $src);
+        self::assertStringContainsString('Dừng Generate tháng', $src);
 
         // JavaScript single-timer elapsed updates
         self::assertStringContainsString('data-gm-running-start-ts', $src);

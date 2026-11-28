@@ -1750,7 +1750,15 @@ class PromptRunnerService
             $callOptions,
         );
 
-        (new SectionedFreeSectionValidator)->assertAcceptable($output, $unit);
+        $language = trim((string) ($variables['language'] ?? $variables['content_language'] ?? $variables['locale'] ?? 'vi'));
+        $allowedContext = array_values(array_filter([
+            (string) ($variables['title'] ?? $variables['post_title'] ?? $variables['article_title'] ?? ''),
+            (string) ($variables['primary_keyword'] ?? $variables['focus_keyword'] ?? $variables['keyword'] ?? ''),
+            $unit->label,
+            $unit->scopeMarkdown(),
+        ], static fn (string $v): bool => trim($v) !== ''));
+
+        (new SectionedFreeSectionValidator)->assertAcceptable($output, $unit, $language, $allowedContext);
 
         return [$output, is_array($usage) ? $usage : []];
     }
